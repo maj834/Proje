@@ -139,7 +139,7 @@ textarea.inp{height:110px;padding:6px var(--s2);resize:vertical;font:400 11.5px/
       <button data-s="telegram"><b>Telegram botu</b><span id="dsrc-tg">Bağlı değil</span></button>
       <button data-s="ekran"><b>Ekrandan</b><span>Terminali Grok/Claude okur</span></button>
     </div>
-    <div class="row" style="margin-top:8px"><span class="m f1">Otomatik yenile</span><select id="dauto" style="width:120px"><option value="0">Kapalı</option><option value="20">20 sn</option><option value="30">30 sn</option><option value="60">1 dk</option><option value="120">2 dk</option></select></div>
+    <div class="row" style="margin-top:8px"><span class="m f1">Canlı takip (AL/SAT)</span><select id="dauto" style="width:140px"><option value="0">Kapalı</option><option value="45">Sürekli (~45 sn)</option><option value="60">1 dk</option><option value="120">2 dk</option></select></div>
     <div class="row" id="dlive" style="margin-top:6px;display:none"><span class="m f1">Botun menüsündeki canlı ekran</span><button class="btn" id="dmenu">Canlı Veri ↗</button></div>
     <div class="m" id="dsafe" style="margin-top:2px"></div><div class="warn" id="dcal" style="display:none"></div>
     <label class="tg"><span class="f1 m">Grafikte duvar etiketleri ve baskı kartı</span><span class="sw"><input type="checkbox" id="dov"><span></span></span></label>
@@ -409,7 +409,7 @@ function depthUi(){
   document.querySelectorAll('#dsrc button').forEach(b=>b.classList.toggle('on',b.dataset.s===C.depthSource));
   $('dsrc-tg').textContent=t.connected?(t.bot||'Bot yazılmadı'):'Bağlı değil';
   $('dlive').style.display=t.connected&&t.bot?'':'none';
-  $('dauto').value=String(C.depthAuto||0);$('dov').checked=C.depthOverlay!==false;$('sigs').checked=C.signals!==false;
+  $('dauto').value=String(C.depthAuto>0&&C.depthAuto<45?45:C.depthAuto||0);$('dov').checked=C.depthOverlay!==false;$('sigs').checked=C.signals!==false;
   safeText(C.safe);
   if(!$('dsym').value&&C.symbol)$('dsym').value=C.symbol;
   $('tgst').replaceChildren(t.connected?el('span',{class:'ok'},'✓ Bağlı: '+((t.user&&(t.user.username?'@'+t.user.username:t.user.name))||'')):'Bağlı değil. api_id ve api_hash ile bir kez giriş yap.');
@@ -437,6 +437,7 @@ function renderDepth(d){
   const o=$('dout');o.replaceChildren();safeText(d.safe);
   const pr=d.pressure,tr=d.trend||{};
   const sc=sigCard(d.signal);if(sc)o.append(sc);
+  if(d.live)o.append(el('div',{class:'info',style:'margin-top:8px;border-left:3px solid '+(d.live.dir>0?'var(--up)':d.live.dir<0?'var(--dn)':'var(--line)')},el('b',{style:'font-family:var(--mono);min-width:48px;color:'+(d.live.dir>0?'var(--up)':d.live.dir<0?'var(--dn)':'inherit')},d.live.dir>0?'AL':d.live.dir<0?'SAT':'BEKLE'),el('span',{},(d.live.why.length?d.live.why.join(' · '):'Yön için yeterli işlem yok')+(d.tape&&d.tape.count?' · '+d.tape.count+' işlem':''))));
   if(d.flow&&d.flow.top)o.append(el('div',{class:'info',style:'margin-top:8px'},icon('bank'),el('span',{},'Kurum akışı: net '+(d.flow.net>0?'+':'')+kf(d.flow.net)+' lot'+(d.flow.change?' · son ölçümlerden beri '+(d.flow.change>0?'+':'')+kf(d.flow.change):'')+' · en çok alan '+d.flow.top.name)));
   o.append(el('div',{class:'c'},el('div',{class:'row'},el('div',{class:'f1'},el('div',{class:'sym'},d.symbol||''),el('div',{class:'m'},[d.last!=null?'₺'+fmt(d.last):null,d.change!=null?(d.change>0?'+':'')+fmt(d.change)+'%':null,d.ceiling?'Tavan '+fmt(d.ceiling):null,d.floor?'Taban '+fmt(d.floor):null].filter(Boolean).join(' · '))),
     pr?el('b',{class:pr.score>=10?'pos':pr.score<=-10?'neg':''},(pr.score>0?'+':'')+pr.score):null),

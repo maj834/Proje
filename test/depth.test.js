@@ -142,3 +142,23 @@ test('trend: olcum gecmisinin egimi', () => {
   const long = [...Array(20).fill(100), ...[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]].map(p => ({ p }));
   assert.equal(D.trend(long).dir, 0);
 });
+
+test('mergeTape / tapeFlow: islem akisi, tekrarlar atilir, yon ve agresif kurum', () => {
+  const mk = (time, side, qty, price = 16.15, buyer = 'A', seller = 'B') => ({ time, price, qty, buyer, seller, side });
+  let tape = D.mergeTape([], [mk('18:09:49', 'buy', 500), mk('18:09:41', 'buy', 300), mk('18:09:39', 'sell', 5273), mk('18:08:59', 'buy', 16147, 16.15, 'Yapi Kredi'), mk('bozuk', 'buy', 1)]);
+  assert.equal(tape.length, 4, 'saatsiz satir atilir');
+  tape = D.mergeTape(tape, [mk('18:09:49', 'buy', 500), mk('18:10:20', 'buy', 2000, 16.16, 'Marbas'), mk('18:10:30', 'buy', 100, 16.17)]);
+  assert.equal(tape.length, 6, 'ayni islem iki kez sayilmaz');
+  assert.equal(tape[0].time, '18:10:30', 'yeniden eskiye');
+  const f = D.tapeFlow(tape);
+  assert.equal(f.w5.buy, 19047); assert.equal(f.w5.sell, 5273);
+  assert.equal(f.dir, 1); assert.ok(f.score >= 30);
+  assert.deepEqual(f.top, { name: 'Yapi Kredi', net: 16147 });
+  assert.match(f.why[0], /aktif alış %78/);
+  // Agir aktif satis -> SAT
+  const s = D.tapeFlow(D.mergeTape([], [1, 2, 3, 4, 5, 6].map(i => mk('10:0' + i + ':00', 'sell', 1000, 16 - i * 0.01, 'X', 'Y')).concat([mk('10:07:00', 'buy', 100, 15.93)])));
+  assert.equal(s.dir, -1); assert.equal(s.top.name, 'Y');
+  // Yetersiz veri -> yon yok
+  assert.equal(D.tapeFlow([mk('10:00:00', 'buy', 5)]).dir, 0);
+  assert.equal(D.tapeFlow([]), null);
+});

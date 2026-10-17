@@ -78,6 +78,8 @@ Telegram yoksa **Ekrandan** kaynağı, açık olan derinlik terminalini Grok ya 
 
 Grafikte trendin döndüğü mumlara **AL** (yeşil, mumun altında) ve **SAT** (kırmızı, üstünde) işaretleri konur: EMA20/50 kesişimi, MACD dönüşü, RSI'nin aşırı bölgelerden çıkışı ve 12 mumluk zirve/dip kırılımları birlikte değerlendirilir, EMA50 yönüne ters zayıf sinyaller elenir. Son mumdaki **canlı işaret**, teknik skoru Telegram'dan gelen al/sat baskısı, baskı trendi ve kurum akışıyla ("Bank of America topluyor") birleştirir. Teknik sinyaldir, yatırım tavsiyesi değildir.
 
+**Canlı takip:** Derinlik sekmesinde *Canlı takip › Sürekli* seçilince seans boyunca her ~45 saniyede bota tek bir istek gider; sırayla en eskimiş veri yenilenir (işlemler ~45 sn, derinlik ~1 dk, AKD ~3 dk). Gün içindeki işlemler birikir ve **işlem akışı** hesaplanır: son 5/15 dakikada aktif alış ile aktif satış oranı, fiyatın hacim ağırlıklı ortalamaya (VWAP) göre yeri, kümülatif alış-satış farkı ve en agresif kurum. Bunlar derinlik baskısı ve kurum akışıyla birleşip grafik üstündeki kartta sürekli güncellenen **AL / SAT / BEKLE** olarak yazılır ("Son 5 dk aktif alış %82 · Fiyat VWAP üstünde · Bank topluyor"). Grafik analiz edildiyse aynı işaret son mumun üstüne de konur.
+
 Telegram'dan veri **güvenli modda** çekilir: en az 20 sn ve rastgele sapmalı aralık, yalnızca seans saatlerinde (09:55–18:15) otomatik yenileme, saatte 100 / günde 700 istek sınırı; Telegram bekleme isterse uygulama otomatik durur ve süre dolunca devam eder.
 
 ## Supabase yedek (isteğe bağlı)

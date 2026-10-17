@@ -107,6 +107,39 @@ function trend(hist){
   return {dir,slope:+slope.toFixed(1),text:dir>0?(my>0?'Alış baskısı artıyor':'Satış baskısı azalıyor'):dir<0?(my<0?'Satış baskısı artıyor':'Alış baskısı azalıyor'):'Baskı yatay seyrediyor'};
 }
 
-const api={num,parseText,hasData,walls,pressure,trend};
+// --- Islem akisi (tape) -------------------------------------------------------------
+// Bot her seferinde son ~20 islemi gonderir; yeni gelenler birikmis listeye eklenir (tekrarlar atilir).
+const sec=t=>{const m=String(t||'').match(/^(\d{1,2}):(\d{2}):(\d{2})$/);return m?+m[1]*3600+ +m[2]*60+ +m[3]:null};
+const tkey=t=>[t.time,t.price,t.qty,t.buyer,t.seller].join('|');
+function mergeTape(tape,trades,max=800){
+  const seen=new Set((tape||[]).map(tkey)),add=(trades||[]).filter(t=>sec(t.time)!=null&&!seen.has(tkey(t)));
+  return [...add,...(tape||[])].sort((a,b)=>sec(b.time)-sec(a.time)).slice(0,max);
+}
+// Aktif alis/satis dengesi, hacim agirlikli ortalama fiyat (VWAP), kumulatif hacim farki (CVD) ve en agresif kurum.
+// Zaman, son islemin saatine gore olculur (bot verisi gecikmeli olabilir). Yon: 5 ve 15 dk pencereleri + fiyatin VWAP'a gore yeri.
+function tapeFlow(tape){
+  const T=(tape||[]).filter(t=>sec(t.time)!=null&&t.qty>0);if(!T.length)return null;
+  const now=sec(T[0].time);
+  const win=m=>{let b=0,s=0,n=0,pv=0,v=0;for(const t of T){if(now-sec(t.time)>m*60)break;n++;pv+=t.price*t.qty;v+=t.qty;if(t.side==='buy')b+=t.qty;else if(t.side==='sell')s+=t.qty}
+    return {buy:b,sell:s,n,delta:b+s?(b-s)/(b+s):0,vwap:v?pv/v:null,vol:v}};
+  const w5=win(5),w15=win(15);
+  // Dakikalik CVD (eskiden yeniye)
+  const mins=new Map();for(const t of T){if(now-sec(t.time)>30*60)break;const k=Math.floor(sec(t.time)/60);mins.set(k,(mins.get(k)||0)+(t.side==='buy'?t.qty:t.side==='sell'?-t.qty:0))}
+  let c=0;const cvd=[...mins.keys()].sort((a,b)=>a-b).map(k=>({m:k,v:c+=mins.get(k)}));
+  // En agresif kurum: aktif alista alan, aktif satista satan
+  const agg=new Map();for(const t of T){if(now-sec(t.time)>15*60)break;const who=t.side==='buy'?t.buyer:t.side==='sell'?t.seller:null;if(who)agg.set(who,(agg.get(who)||0)+(t.side==='buy'?t.qty:-t.qty))}
+  const top=[...agg.entries()].sort((a,b)=>Math.abs(b[1])-Math.abs(a[1]))[0]||null;
+  const last=T[0].price,sided=T.filter(t=>t.side&&now-sec(t.time)<=15*60).length;
+  let v=0.6*w5.delta+0.4*w15.delta;
+  if(w15.vwap&&last){const rel=(last-w15.vwap)/w15.vwap;if(Math.abs(rel)>0.0005)v+=Math.sign(rel)*0.15}
+  const score=Math.round(Math.max(-1,Math.min(1,v))*100),why=[];
+  if(w5.buy+w5.sell)why.push('Son 5 dk aktif '+(w5.delta>=0?'alış':'satış')+' %'+Math.round(Math.max(w5.buy,w5.sell)/(w5.buy+w5.sell)*100));
+  if(w15.vwap)why.push('Fiyat VWAP '+(last>=w15.vwap?'üstünde':'altında'));
+  if(top&&Math.abs(top[1])>0)why.push(top[0]+' agresif '+(top[1]>0?'alıyor':'satıyor'));
+  const enough=sided>=5;
+  return {score,dir:enough?(score>=30?1:score<=-30?-1:0):0,enough,why,w5,w15,last,cvd,top:top?{name:top[0],net:top[1]}:null,lastTime:T[0].time,count:T.length};
+}
+
+const api={num,parseText,hasData,walls,pressure,trend,mergeTape,tapeFlow};
 if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.Depth=api;
 })(this);
