@@ -9,6 +9,7 @@ const sync=require('./sync');
 const market=require('./market');
 const calendar=require('./calendar');
 const shareLib=require('./share');
+const audioUi=require('./audio-main').registerAudio({ipcMain,app,BrowserWindow,path,cfg:()=>cfg(),save:o=>save(o)});
 
 const INTERVALS=[2,5,10,30,60];
 const HISTORY_MAX=30;
@@ -731,7 +732,7 @@ app.whenReady().then(()=>{
     {label:'Ekranı Analiz Et',accelerator:sc().analyze,click:()=>analyze()},
     {label:'Çizim Modu',accelerator:sc().draw,click:()=>setDrawing(true)},
     {label:'Analiz Çizgilerini Gizle',click:clearAnalysis},{type:'separator'},
-    {label:'Telefonla Dosya Paylaş (QR)…',click:openShare},{type:'separator'},
+    {label:'Ses…',click:()=>audioUi.open()},{label:'Telefonla Dosya Paylaş (QR)…',click:openShare},{type:'separator'},
     {label:'Canlı Mod',type:'checkbox',accelerator:sc().live,checked:!!cfg().live,click:m=>{setLive(m.checked);send('state',state())}},{type:'separator'},
     {label:'Çıkış',role:'quit'}])));
   registerShortcuts();
@@ -740,6 +741,7 @@ app.whenReady().then(()=>{
   ipcMain.handle('diag',()=>diagnostics());
   ipcMain.handle('karne',()=>scorecard());
   ipcMain.handle('shareOpen',()=>{openShare();pop.hide()});
+  ipcMain.handle('sesOpen',()=>{audioUi.open();pop.hide()});
   ipcMain.handle('shareStart',async()=>{try{
     if(!shareSess||!shareSess.info().running){shareSess=shareLib.createShare({downloadsDir:app.getPath('downloads'),ask:shareAsk,onEvent:shareEvt,host:process.env.GRAFIK_SHARE_HOST||undefined});await shareSess.start()}
     return shareState()}catch(err){shareSess=null;return {ok:false,msg:err.message}}});

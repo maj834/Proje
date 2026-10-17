@@ -1,0 +1,104 @@
+<!doctype html><html lang="tr"><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; script-src 'self' 'unsafe-inline'">
+<title>Ses</title><link rel="stylesheet" href="theme.css">
+<style>
+html,body{margin:0;background:var(--bg);color:var(--fg);font:400 13px/1.45 var(--font);-webkit-user-select:none;user-select:none}
+.w{display:flex;flex-direction:column;gap:var(--s4);padding:var(--s4) var(--s5) var(--s5)}
+h1{font:600 15px var(--font);margin:0}.m{color:var(--fg-3);font-size:12px}.f1{flex:1;min-width:0}
+.t{font:600 11px var(--font);letter-spacing:.06em;text-transform:uppercase;color:var(--fg-3);margin-bottom:var(--s2)}
+.c{border:1px solid var(--line);border-radius:8px;background:var(--surface);padding:var(--s3)}
+.row{display:flex;align-items:center;gap:var(--s2)}
+select{flex:1;font:400 12px var(--font);color:var(--fg);background:var(--bg);border:1px solid var(--line-2);border-radius:5px;padding:4px 6px}
+input[type=range]{-webkit-appearance:none;appearance:none;flex:1;height:4px;border-radius:2px;background:var(--line);outline:none;margin:8px 0}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:var(--surface);border:1.5px solid var(--fg-2);cursor:pointer}
+input[type=range].boost{background:linear-gradient(90deg,var(--line) 50%,var(--acc-soft) 50%)}
+.v{font:500 11.5px var(--mono);min-width:42px;text-align:right;color:var(--fg-2)}.v.hi{color:var(--acc)}
+.btn{border:1px solid var(--line-2);background:var(--surface);color:var(--fg);font:500 12px var(--font);padding:4px 9px;border-radius:5px;cursor:pointer}
+.btn:hover{border-color:var(--fg-3)}.btn.on{background:var(--acc);border-color:var(--acc);color:var(--acc-ink)}
+.ib{border:0;background:none;color:var(--fg-2);padding:3px;border-radius:5px;cursor:pointer;display:flex}.ib:hover{background:var(--sunk);color:var(--fg)}.ib.on{color:var(--dn)}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.app{border-top:1px solid var(--line);padding:var(--s2) 0}.app:first-child{border-top:0;padding-top:0}.app:last-child{padding-bottom:0}
+.app img,.app .ph{width:22px;height:22px;border-radius:5px;flex:none}.app .ph{background:var(--sunk)}
+.app .n{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--line-2);flex:none}.dot.on{background:var(--up)}
+.more{display:none;padding-left:30px}.app.open .more{display:block}
+.lbl{font-size:11.5px;color:var(--fg-3);min-width:34px}
+.err{display:none;padding:var(--s3);border-radius:6px;background:var(--dn-soft);color:var(--dn)}
+.empty{color:var(--fg-3);padding:var(--s2) 0}
+</style></head><body><div class="w">
+  <div><h1>Ses</h1><div class="m">Her uygulamanın sesini ayrı ayarla; %100'ün üstü sesi yükseltir. Bas ve tiz tüm uygulamalara uygulanır.</div></div>
+  <div class="err" id="err"></div>
+  <div><div class="t">Çıkış</div><div class="c">
+    <div class="row"><select id="dev" title="Ses çıkış aygıtı"></select></div>
+    <div class="row"><button class="ib" id="mmute" title="Sesi kapat"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6h2.5l3.5-3v10l-3.5-3H2.5z"/><path id="mw" d="M11 5.5a3.5 3.5 0 0 1 0 5M12.8 3.7a6 6 0 0 1 0 8.6"/></svg></button>
+      <input type="range" id="mvol" min="0" max="100" step="1"><span class="v" id="mvolv"></span></div>
+  </div></div>
+  <div><div class="t">Ses efekti (tüm uygulamalar)</div><div class="c">
+    <div class="chips" id="pre"></div>
+    <div class="row" style="margin-top:6px"><span class="lbl">Bas</span><input type="range" id="gb" min="-12" max="12" step="1"><span class="v" id="gbv"></span></div>
+    <div class="row"><span class="lbl">Tiz</span><input type="range" id="gt" min="-12" max="12" step="1"><span class="v" id="gtv"></span></div>
+    <div class="row"><span class="lbl">Güç</span><input type="range" class="boost" id="gg" min="0" max="200" step="5"><span class="v" id="ggv"></span></div>
+  </div></div>
+  <div><div class="row"><div class="t f1" style="margin:0">Uygulamalar</div><button class="btn" id="reset">Hepsini sıfırla</button></div>
+    <div class="c" style="margin-top:var(--s2)" id="apps"></div>
+    <div class="m" style="margin-top:6px">Yalnızca ses çalan ya da yakın zamanda çalmış uygulamalar listelenir. Çok yüksek seviyede ses sinirlayıcı bozulmayı önler.</div></div>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+const el=(t,c,txt)=>{const e=document.createElement(t);if(c)e.className=c;if(txt!=null)e.textContent=txt;return e};
+const NAMES={kapali:'Kapalı',bas:'Bas',ekstra_bas:'Ekstra bas',konusma:'Konuşma',tiz:'Tiz',yukselt:'Yükselt',gece:'Gece'};
+let S=null,open=new Set(),dragging=null;
+// Kaydirma sirasinda cok sik gonderme: en fazla 80 ms'de bir
+const throttle=(f,ms=80)=>{let t=0,last=null;return(...a)=>{last=a;if(t)return;t=setTimeout(()=>{t=0;f(...last)},ms)}};
+const sendApp=throttle((b,s)=>ses.app(b,s).then(apply));
+const sendGlobal=throttle(s=>ses.global(s).then(apply));
+const sendVol=throttle(v=>ses.volume(v));
+const pct=g=>Math.round(g*100)+'%',db=v=>(v>0?'+':'')+v+' dB';
+function apply(s){if(!s)return;S=s;if(!dragging)render()}
+function render(){
+  const e=$('err');e.textContent=S.error||'';e.style.display=S.error?'block':'none';
+  // cikis
+  const dev=$('dev');dev.replaceChildren(...(S.devices||[]).map(d=>{const o=el('option',null,d.name);o.value=d.uid;o.selected=d.default;return o}));
+  const def=(S.devices||[]).find(d=>d.default);
+  if(def&&def.volume!=null&&dragging!=='mvol'){$('mvol').value=Math.round(def.volume*100);$('mvolv').textContent=Math.round(def.volume*100)+'%'}
+  $('mmute').classList.toggle('on',!!(def&&def.muted));$('mw').style.display=def&&def.muted?'none':'';
+  // efekt
+  $('pre').replaceChildren(...S.presets.map(p=>{const b=el('button','btn'+(S.preset===p?' on':''),NAMES[p]||p);b.onclick=()=>ses.preset(p).then(apply);return b}));
+  const g=S.global;if(dragging!=='gb'){$('gb').value=g.bass}$('gbv').textContent=db(g.bass);
+  if(dragging!=='gt'){$('gt').value=g.treble}$('gtv').textContent=db(g.treble);
+  if(dragging!=='gg'){$('gg').value=Math.round(g.gain*100)}$('ggv').textContent=pct(g.gain);$('ggv').classList.toggle('hi',g.gain>1.001);
+  // uygulamalar
+  const box=$('apps');box.replaceChildren();
+  if(!S.apps.length){box.append(el('div','empty','Şu an ses çalan uygulama yok. Bir uygulamada ses başlatınca burada görünür.'));return}
+  for(const a of S.apps.slice().sort((x,y)=>(y.playing-x.playing)||x.name.localeCompare(y.name,'tr'))){
+    const r=el('div','app'+(open.has(a.bundle)?' open':''));
+    const top=el('div','row');
+    const ic=a.icon?Object.assign(el('img'),{src:a.icon,alt:''}):el('span','ph');
+    const nm=el('span','n f1',a.name);nm.title=a.bundle;
+    const mute=el('button','ib'+(a.mute?' on':''));mute.title=a.mute?'Sesi aç':'Sustur';
+    mute.innerHTML='<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6h2.5l3.5-3v10l-3.5-3H2.5z"/>'+(a.mute?'<path d="M11 6l4 4M15 6l-4 4"/>':'<path d="M11 5.5a3.5 3.5 0 0 1 0 5"/>')+'</svg>';
+    mute.onclick=()=>ses.app(a.bundle,{mute:!a.mute}).then(apply);
+    const more=el('button','ib');more.title='Bas ve tiz';more.innerHTML='<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M3 4h10M3 8h10M3 12h10"/><circle cx="6" cy="4" r="1.4" fill="currentColor"/><circle cx="10" cy="8" r="1.4" fill="currentColor"/><circle cx="5" cy="12" r="1.4" fill="currentColor"/></svg>';
+    more.onclick=()=>{open.has(a.bundle)?open.delete(a.bundle):open.add(a.bundle);render()};
+    top.append(el('span','dot'+(a.playing?' on':'')),ic,nm,more,mute);
+    const vr=el('div','row'),sl=Object.assign(el('input','boost'),{type:'range',min:0,max:200,step:5,value:Math.round(a.gain*100)}),v=el('span','v'+(a.gain>1.001?' hi':''),pct(a.gain));
+    sl.oninput=()=>{dragging='app';v.textContent=sl.value+'%';v.classList.toggle('hi',+sl.value>100);sendApp(a.bundle,{gain:+sl.value/100,mute:false})};
+    sl.onchange=()=>{dragging=null;ses.app(a.bundle,{gain:+sl.value/100,mute:false}).then(apply)};
+    sl.ondblclick=()=>{sl.value=100;sl.onchange()};sl.title='Çift tık: %100';
+    vr.append(sl,v);
+    const mo=el('div','more');
+    for(const [k,lab] of [['bass','Bas'],['treble','Tiz']]){const rr=el('div','row'),s2=Object.assign(el('input'),{type:'range',min:-12,max:12,step:1,value:a[k]}),vv=el('span','v',db(a[k]));
+      s2.oninput=()=>{dragging='app';vv.textContent=db(+s2.value);sendApp(a.bundle,{[k]:+s2.value})};s2.onchange=()=>{dragging=null;ses.app(a.bundle,{[k]:+s2.value}).then(apply)};
+      rr.append(el('span','lbl',lab),s2,vv);mo.append(rr)}
+    r.append(top,vr,mo);box.append(r);
+  }
+}
+$('dev').onchange=e=>ses.device(e.target.value);
+$('mvol').oninput=e=>{dragging='mvol';$('mvolv').textContent=e.target.value+'%';sendVol(+e.target.value/100)};$('mvol').onchange=()=>{dragging=null};
+$('mmute').onclick=()=>{const def=(S.devices||[]).find(d=>d.default);ses.mute(!(def&&def.muted))};
+for(const [id,k,f] of [['gb','bass',v=>v],['gt','treble',v=>v],['gg','gain',v=>v/100]]){
+  $(id).oninput=e=>{dragging=id;const v=f(+e.target.value);$(id+'v').textContent=k==='gain'?pct(v):db(v);sendGlobal({[k]:v})};
+  $(id).onchange=e=>{dragging=null;ses.global({[k]:f(+e.target.value)}).then(apply)}}
+$('reset').onclick=()=>ses.reset().then(apply);
+ses.on(apply);ses.state().then(apply);
+</script></body></html>

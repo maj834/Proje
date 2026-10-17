@@ -25,6 +25,10 @@ jobs:
         with: {node-version: 20, cache: npm}
       - run: npm ci
       - run: for f in *.js; do node --check "$f"; done
+      # Ses yardimcisi (Swift, arm64 + x64 tek dosya); calistigini dogrula
+      - run: npm run ses
+      - run: ./build/bin/ses-yardimcisi --version && lipo -info build/bin/ses-yardimcisi
+      - run: echo '{"cmd":"list"}' | timeout 5 ./build/bin/ses-yardimcisi | head -5 || true
       # Secret tanimli degilse bos gelir -> imzasiz derleme. Tanimlanirsa electron-builder imzalar ve notarize eder.
       - name: electron-builder
         env:
