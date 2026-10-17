@@ -318,6 +318,11 @@ function drawDepth(d){
   // Haber botundan bu hisse icin son 24 saatin en onemli haberi
   const nw=BNO&&BNO.symbol===String(d.symbol||'').replace(/\W/g,'')?BNO.list.find(n=>!n.general&&(n.importance||Math.abs(n.score||0))>=3&&Date.now()-new Date(n.ts).getTime()<86400000):null;
   if(nw)parts.push(e('div','tt '+(nw.score>0?'up':nw.score<0?'dn':''),'Haber: '+(nw.summary||nw.title).slice(0,90)));
+  const mine=BNO&&BNO.symbol===String(d.symbol||'').replace(/\W/g,'');
+  const acc=mine&&BNO.akd&&BNO.akd.top[0];
+  if(acc&&BNO.akd.days>=2)parts.push(e('div','tt up',BNO.akd.days+' günlük birikim: '+acc.name.slice(0,18)+' +'+kfmt(acc.net)+' ('+acc.buyDays+'/'+BNO.akd.days+' gün alıcı)'));
+  const ev=mine&&(BNO.calendar||[])[0];
+  if(ev)parts.push(e('div','tt','Yaklaşan: '+new Date(ev.day+'T12:00:00').toLocaleDateString('tr-TR',{day:'2-digit',month:'short'})+' '+ev.kind));
   card.replaceChildren(...parts);card.style.display='block';
 }
 api.on('botNews',n=>{BNO=n;if(DD)drawDepth(DD)});

@@ -80,6 +80,8 @@ Grafikte trendin döndüğü mumlara **AL** (yeşil, mumun altında) ve **SAT** 
 
 **Canlı takip:** Derinlik sekmesinde *Canlı takip › Sürekli* seçilince seans boyunca her ~45 saniyede bota tek bir istek gider; sırayla en eskimiş veri yenilenir (işlemler ~45 sn, derinlik ~1 dk, AKD ~3 dk). Gün içindeki işlemler birikir ve **işlem akışı** hesaplanır: son 5/15 dakikada aktif alış ile aktif satış oranı, fiyatın hacim ağırlıklı ortalamaya (VWAP) göre yeri, kümülatif alış-satış farkı ve en agresif kurum. Bunlar derinlik baskısı ve kurum akışıyla birleşip grafik üstündeki kartta sürekli güncellenen **AL / SAT / BEKLE** olarak yazılır ("Son 5 dk aktif alış %82 · Fiyat VWAP üstünde · Bank topluyor"). Grafik analiz edildiyse aynı işaret son mumun üstüne de konur.
 
+**Bulut verisi (Supabase + haber botu):** Her AKD okuması günün son hâliyle `akd_daily` arşivine yazılır; derinlik sekmesinde son 5 işlem gününün **kurum birikimi** görünür ("Bank Of America +1,7M · 4/4 gün alıcı") ve canlı AL/SAT gerekçelerine katılır. Haber botu her AL/SAT işaretinin 1 saat, 1 gün ve 5 gün sonrasını ölçer: Geçmiş sekmesinde **sinyal karnesi** (yön ve gerekçe başına doğru çıkma oranı). Bot haberlerinin altında "sonra 1 gün +2,3%" gibi **fiyat tepkisi** ve hissenin **yaklaşan şirket olayları** (temettü, bedelsiz, genel kurul, bilanço) gösterilir.
+
 Telegram'dan veri **güvenli modda** çekilir: en az 20 sn ve rastgele sapmalı aralık, yalnızca seans saatlerinde (09:55–18:15) otomatik yenileme, saatte 100 / günde 700 istek sınırı; Telegram bekleme isterse uygulama otomatik durur ve süre dolunca devam eder.
 
 ## Supabase yedek (isteğe bağlı)

@@ -395,6 +395,7 @@ async function fetchExtra(kind,symbol,ref,auto,now=false){
   let r=depthLib.parseText(msgs.map(m=>m.text).join('\n'),{symbol});
   if(!X.has(r))r=await photoData(msgs,im=>X.img(im,ref))||r;
   if(!X.has(r))return c||null;
+  if(kind==='akd')saveAkd(symbol,r);
   return extraCache[kind][symbol]={at:Date.now(),...X.pick(r)};
 }
 // Canli takip: her turda tek istek. En "bayat" veri secilir (derinlik ~60 sn, islemler ~45 sn, AKD ~3 dk hedefi).
@@ -443,18 +444,66 @@ const bistCode=s=>String(s||'').toLocaleUpperCase('tr-TR').replace(/\.IS$/,'').r
 async function botNews(symbol){
   const sym=bistCode(symbol);if(!sym||!/^[A-Z0-9]{2,8}$/.test(sym)||!sync.state().configured)return null;
   if(!watchAt[sym]||Date.now()-watchAt[sym]>3600000){watchAt[sym]=Date.now();sync.upsert('watchlist',[{symbol:sym,last_seen:new Date().toISOString()}],'user_id,symbol').catch(()=>{})}
-  const c=newsCache[sym];if(c&&Date.now()-c.at<600000)return c.list;
-  try{const since=new Date(Date.now()-3*86400000).toISOString();
-    const sel='/rest/v1/news?select=ts,kind,symbols,title,summary,reason,effect,topic,source,url,score,importance&order=importance.desc.nullslast,ts.desc';
-    const own=await sync.get(sel+'&symbols=cs.%7B'+sym+'%7D&ts=gte.'+encodeURIComponent(since)+'&limit=6')||[];
+  const c=newsCache[sym];if(c&&Date.now()-c.at<600000)return c.data;
+  try{const since=new Date(Date.now()-3*86400000).toISOString(),q=encodeURIComponent;
+    const sel='/rest/v1/news?select=ts,kind,symbols,title,summary,reason,effect,topic,source,url,score,importance,react_1h,react_1d&order=importance.desc.nullslast,ts.desc';
+    const own=await sync.get(sel+'&symbols=cs.%7B'+sym+'%7D&ts=gte.'+q(since)+'&limit=6')||[];
     // Genel BIST gundemi: son 24 saatin onemi 4-5 olanlari (hisseye ozel haber yoksa da piyasa resmi gorunsun)
     const day=new Date(Date.now()-86400000).toISOString();
-    const gen=sym==='XU100'?[]:(await sync.get(sel+'&symbols=cs.%7BXU100%7D&importance=gte.4&kind=neq.rapor&ts=gte.'+encodeURIComponent(day)+'&limit=4')||[]);
+    const gen=sym==='XU100'?[]:(await sync.get(sel+'&symbols=cs.%7BXU100%7D&importance=gte.4&kind=neq.rapor&ts=gte.'+q(day)+'&limit=4')||[]);
     const list=[...own,...gen.filter(g=>!own.some(o=>o.title===g.title)).map(g=>({...g,general:true}))];
-    newsCache[sym]={at:Date.now(),list};return list}
-  catch(e){return c?c.list:null}
+    // Yaklasan sirket olaylari (temettu, bedelsiz, genel kurul, bilanco...) ve cok gunluk kurum birikimi
+    const calendar=await sync.get('/rest/v1/calendar_events?select=day,kind,title,url&symbol=eq.'+sym+'&day=gte.'+trDay()+'&order=day.asc&limit=5').catch(()=>[])||[];
+    const akdRows=await sync.get('/rest/v1/akd_daily?select=day,side,broker,net,cost,updated_at&symbol=eq.'+sym+'&day=gte.'+trDay(-12)+'&order=day.desc&limit=600').catch(()=>[])||[];
+    const data={list,calendar,akd:akdSummary(akdRows)};
+    newsCache[sym]={at:Date.now(),data};return data}
+  catch(e){return c?c.data:null}
 }
-function pushNews(symbol){botNews(symbol).then(list=>{if(!list)return;const sym=bistCode(symbol);send('botNews',{symbol:sym,list});sendOv('botNews',{symbol:sym,list})}).catch(()=>{})}
+function pushNews(symbol){botNews(symbol).then(data=>{if(!data)return;const sym=bistCode(symbol);send('botNews',{symbol:sym,...data});sendOv('botNews',{symbol:sym,...data})}).catch(()=>{})}
+
+// --- AKD gunluk arsivi -------------------------------------------------------------
+// Her AKD okumasi gunun son durumunu yazar: hisse + gun + taraf + kurum basina tek satir (upsert).
+const trDay=(off=0)=>new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Istanbul'}).format(new Date(Date.now()+off*86400000));
+const isOther=n=>/^d[iİı]ğ?g?er$/i.test(String(n||'').replace(/ğ/g,'g').replace(/[İı]/g,'i'));
+// AKD o gunun seansina aittir: seans acilmadan, hafta sonu ya da tatilde gelen AKD son islem gunune yazilir.
+function akdDay(){
+  const now=new Date(),min=+new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Istanbul',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(now).replace(':','')
+  let off=min<955?-1:0;
+  for(let k=0;k<10;k++,off--){const d=trDay(off);if(calendar.status(new Date(d+'T09:00:00Z')).open)return d}
+  return trDay();
+}
+function saveAkd(symbol,r){
+  const sym=bistCode(symbol);if(!sym||!sync.state().configured)return;
+  const day=akdDay(),seen=new Set(),rows=[];
+  for(const [side,list] of [['buy',r.buyers||[]],['sell',r.sellers||[]]])for(const x of list){
+    const broker=String(x.name||'').trim().slice(0,60),k=side+'|'+broker;if(!broker||x.net==null||seen.has(k))continue;seen.add(k);
+    rows.push({day,symbol:sym,side,broker,net:Math.round(x.net),cost:x.cost??null,pct:x.pct??null,updated_at:new Date().toISOString()})}
+  if(rows.length)sync.upsert('akd_daily',rows,'user_id,day,symbol,side,broker').then(()=>{if(newsCache[sym])newsCache[sym].at=0}).catch(()=>{});
+}
+// Son 5 islem gununde kurum basina net lot (alici +, satici -); ayni gun hem alici hem satici satiri varsa son guncellenen gecerli.
+function akdSummary(rows){
+  const latest=new Map();
+  for(const r of rows){if(isOther(r.broker))continue;const k=r.day+'|'+r.broker,p=latest.get(k);if(!p||r.updated_at>p.updated_at)latest.set(k,r)}
+  const days=[...new Set([...latest.values()].map(r=>r.day))].sort().reverse().slice(0,5);if(!days.length)return null;
+  const by=new Map();
+  for(const r of latest.values()){if(!days.includes(r.day))continue;const b=by.get(r.broker)||{name:r.broker,net:0,buyDays:0,sellDays:0,cost:null};
+    b.net+=(r.side==='buy'?1:-1)*(r.net||0);r.side==='buy'?b.buyDays++:b.sellDays++;if(r.side==='buy'&&r.cost!=null&&b.cost==null)b.cost=r.cost;by.set(r.broker,b)}
+  const all=[...by.values()].sort((a,b)=>b.net-a.net);
+  return {days:days.length,from:days[days.length-1],to:days[0],top:all.filter(b=>b.net>0).slice(0,3),bottom:all.filter(b=>b.net<0).slice(-2).reverse()};
+}
+// Sinyal karnesi: bot (haber deposu) her sinyalin 1 saat / 1 gun / 5 gun sonrasini olcer.
+async function scorecard(days=30){
+  if(!sync.state().configured)return {ok:false,msg:'Supabase bağlı değil.'};
+  try{
+    const rows=await sync.get('/rest/v1/signals?select=dir,source,why,ret_1h,ret_1d,ret_5d&ret_1d=not.is.null&ts=gte.'+encodeURIComponent(new Date(Date.now()-days*86400000).toISOString())+'&limit=2000')||[];
+    const stat=xs=>{const h=k=>{const v=xs.filter(r=>r[k]!=null);return v.length?{n:v.length,hit:Math.round(v.filter(r=>r[k]*r.dir>0).length/v.length*100),avg:+(v.reduce((s,r)=>s+r[k]*r.dir,0)/v.length).toFixed(2)}:null};
+      return {n:xs.length,h1:h('ret_1h'),d1:h('ret_1d'),d5:h('ret_5d')}};
+    const rule=w=>String(w||'').replace(/%\s*\d+(?:[.,]\d+)?|[+-]?\d+(?:[.,]\d+)?\s*%|[+-]\d+(?:[.,]\d+)?/g,'').replace(/\s+/g,' ').trim().slice(0,40);
+    const rules=new Map();for(const r of rows)for(const w of new Set((r.why||[]).map(rule).filter(Boolean))){(rules.get(w)||rules.set(w,[]).get(w)).push(r)}
+    return {ok:true,days,total:rows.length,buy:stat(rows.filter(r=>r.dir>0)),sell:stat(rows.filter(r=>r.dir<0)),
+      rules:[...rules.entries()].filter(([,v])=>v.length>=3).map(([k,v])=>({rule:k,...stat(v)})).sort((a,b)=>b.n-a.n).slice(0,8)};
+  }catch(e){return {ok:false,msg:e.message}}
+}
 const currentSymbol=()=>cfg().symbol||(lastAi&&lastAi.symbol)||(lastDepth&&lastDepth.symbol)||cfg().depthSymbol||'';
 
 async function fetchDepth(opts={}){
@@ -537,6 +586,8 @@ function liveView(){
   if(a&&typeof a.score==='number'){v+=a.score/50;if(Math.abs(a.score)>=20)why.push('Teknik skor '+(a.score>0?'+':'')+a.score)}
   if(d.pressure){v+=d.pressure.score/40;if(Math.abs(d.pressure.score)>=15)why.push((d.pressure.score>0?'Alış':'Satış')+' baskısı '+(d.pressure.score>0?'+':'')+d.pressure.score)}
   if(d.trend&&d.trend.dir){v+=d.trend.dir*0.5;why.push(d.trend.text)}
+  const ak=(newsCache[bistCode(d.symbol)]||{}).data;const acc=ak&&ak.akd&&ak.akd.top[0];
+  if(acc&&ak.akd.days>=3&&acc.buyDays>=Math.ceil(ak.akd.days*0.6)){v+=0.3;why.push(acc.name.split(' ')[0]+' '+acc.buyDays+'/'+ak.akd.days+' gün alıcı')}
   if(d.flow&&d.flow.top&&d.flow.net){v+=Math.sign(d.flow.net)*0.5;why.push((d.flow.net>0?d.flow.top.name.split(' ')[0]+' topluyor':'Kurumlar satıyor'))}
   const dir=v>=1.6?1:v<=-1.6?-1:0;
   return {dir,strength:Math.min(3,Math.abs(v)),score:Math.round(Math.max(-1,Math.min(1,v/3))*100),why:why.slice(0,3),at:Date.now()};
@@ -657,6 +708,7 @@ app.whenReady().then(()=>{
   pop.on('hide',()=>{if(scPaused)registerShortcuts()}); // yakalama yarida kaldiysa kisayollari geri yukle
   ipcMain.handle('scCapture',(e,on)=>{if(on){scPaused=true;globalShortcut.unregisterAll()}else registerShortcuts();return scState});
   ipcMain.handle('diag',()=>diagnostics());
+  ipcMain.handle('karne',()=>scorecard());
   ipcMain.handle('testNotify',()=>{if(!Notification.isSupported())return false;new Notification({title:'Grafik Okuyucu',body:'Test bildirimi: bildirimler çalışıyor.'}).show();return true});
   ipcMain.handle('parseTest',(e,t)=>parseTest(t));
   ipcMain.handle('scSet',(e,o)=>setShortcut(o&&o.name,o&&o.acc));

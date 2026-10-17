@@ -103,6 +103,44 @@ revoke all on public.news, public.watchlist from anon;
 grant select, insert, delete on public.news to authenticated;
 grant select, insert, update, delete on public.watchlist to authenticated;
 
+-- Sonuç ölçümü (haber botu doldurur): sinyalin ve haberin sonrasında fiyat ne yaptı
+alter table public.signals add column if not exists ret_1h real, add column if not exists ret_1d real,
+  add column if not exists ret_5d real, add column if not exists evaluated_at timestamptz;
+alter table public.news add column if not exists react_1h real, add column if not exists react_1d real,
+  add column if not exists evaluated_at timestamptz;
+grant update on public.signals to authenticated;
+grant update on public.news to authenticated;
+create index if not exists signals_pending on public.signals (user_id, ts) where evaluated_at is null;
+create index if not exists news_pending on public.news (user_id, ts) where evaluated_at is null;
+
+-- Günlük AKD arşivi (uygulama yazar): hisse + gün + taraf + kurum başına günün son durumu
+create table if not exists public.akd_daily (
+  user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  day date not null, symbol text not null, side text not null check (side in ('buy','sell')), broker text not null,
+  net bigint, cost real, pct real, updated_at timestamptz not null default now(),
+  primary key (user_id, day, symbol, side, broker)
+);
+create index if not exists akd_daily_sym on public.akd_daily (user_id, symbol, day desc);
+
+-- Şirket takvimi (haber botu yazar): temettü, bedelsiz/bedelli, genel kurul, bilanço, halka arz
+create table if not exists public.calendar_events (
+  id bigint generated always as identity primary key,
+  user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  uid text not null, day date not null, symbol text, kind text not null, title text not null, url text,
+  created_at timestamptz not null default now(), unique (user_id, uid)
+);
+create index if not exists calendar_sym_day on public.calendar_events (user_id, symbol, day);
+
+alter table public.akd_daily enable row level security;
+alter table public.calendar_events enable row level security;
+drop policy if exists "own rows" on public.akd_daily;
+drop policy if exists "own rows" on public.calendar_events;
+create policy "own rows" on public.akd_daily for all to authenticated using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
+create policy "own rows" on public.calendar_events for all to authenticated using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
+revoke all on public.akd_daily, public.calendar_events from anon;
+grant select, insert, update, delete on public.akd_daily to authenticated;
+grant select, insert, delete on public.calendar_events to authenticated;
+
 -- Örnek sorgular
 -- Hisse başına son 20 sinyal:
 --   select ts, symbol, case dir when 1 then 'AL' else 'SAT' end as yon, strength, why from signals order by ts desc limit 20;

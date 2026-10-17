@@ -152,7 +152,7 @@ textarea.inp{height:110px;padding:6px var(--s2);resize:vertical;font:400 11.5px/
         <div class="row" style="margin-top:6px"><span class="m f1">Telegram'a istek gönderilmez; yalnızca ayrıştırıcı denenir.</span><button class="btn pri" id="pgo">Ayrıştır</button></div>
         <div id="pout"></div></div></div>
   </section>
-  <section class="pane" id="hs"><div id="hl"></div></section>
+  <section class="pane" id="hs"><div id="karne"></div><div id="hl"></div></section>
   <section class="pane" id="st">
     <div class="c"><div class="t">Canlı mod</div>
       <div class="row"><span class="f1">Yenileme aralığı</span><select id="iv" style="width:130px"></select></div>
@@ -246,7 +246,7 @@ const ago=t=>{const s=Math.round((Date.now()-t)/1000);return s<60?'az önce':s<3
 const EST={'claude-haiku-5-5':0.0012,'claude-sonnet-5-5':0.022,'claude-opus-5-5':0.045}; // ornek analiz basina $
 let C={},shown=null;
 
-function tab(p){document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('on',b.dataset.p===p));document.querySelectorAll('.pane').forEach(s=>s.classList.toggle('on',s.id===p));if(p==='hs')history();fit()}
+function tab(p){document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('on',b.dataset.p===p));document.querySelectorAll('.pane').forEach(s=>s.classList.toggle('on',s.id===p));if(p==='hs'){history();karne()}fit()}
 document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>tab(b.dataset.p));
 
 // Pencere yuksekligini icerige uydur.
@@ -592,15 +592,35 @@ let BN=null;
 function renderBotNews(){
   for(const id of ['bnews','dbnews']){const box=$(id);box.replaceChildren();
     const sym=id==='bnews'?(shown&&shown.symbol||$('msym').value):($('dsym').value||'');
-    if(!BN||!BN.list.length||!sym||BN.symbol!==String(sym).toLocaleUpperCase('tr-TR').replace(/\.IS$/,'').replace(/[ŞÇĞÖÜİ]/g,c=>({Ş:'S',Ç:'C',Ğ:'G',Ö:'O',Ü:'U',İ:'I'})[c]))continue;
-    box.append(el('div',{class:'c news'},el('div',{class:'t'},BN.symbol+' · bot haberleri'),
+    if(!BN||!(BN.list.length||(BN.calendar||[]).length||BN.akd)||!sym||BN.symbol!==String(sym).toLocaleUpperCase('tr-TR').replace(/\.IS$/,'').replace(/[ŞÇĞÖÜİ]/g,c=>({Ş:'S',Ç:'C',Ğ:'G',Ö:'O',Ü:'U',İ:'I'})[c]))continue;
+    const pct=v=>(v>0?'+':'')+String(v).replace('.',',')+'%';
+    // Yaklasan sirket olaylari ve son 5 gunun kurum birikimi
+    const cal=(BN.calendar||[]).map(c=>el('div',{class:'fx'},el('span',{},el('b',{},new Date(c.day+'T12:00:00').toLocaleDateString('tr-TR',{day:'2-digit',month:'short'})+' '),c.kind+' · '+c.title)));
+    const ak=BN.akd,akRows=ak?[...ak.top.map(b=>el('div',{class:'fx'},el('span',{},b.name),el('b',{class:'pos num'},'+'+kf(b.net)+' · '+b.buyDays+'/'+ak.days+' gün'))),
+      ...ak.bottom.map(b=>el('div',{class:'fx'},el('span',{},b.name),el('b',{class:'neg num'},kf(b.net)+' · '+b.sellDays+'/'+ak.days+' gün')))]:[];
+    if(cal.length)box.append(el('div',{class:'c'},el('div',{class:'t'},BN.symbol+' · yaklaşan şirket olayları'),...cal));
+    if(akRows.length)box.append(el('div',{class:'c'},el('div',{class:'t'},'Kurum birikimi · son '+ak.days+' işlem günü'),...akRows));
+    if(BN.list.length)box.append(el('div',{class:'c news'},el('div',{class:'t'},BN.symbol+' · bot haberleri'),
       ...BN.list.slice(0,8).map(n=>{const up=n.score>0,dn=n.score<0;
         const x=el('a',{href:'#'},el('span',{class:'sc '+(up?'pos':dn?'neg':'')},(n.general?'Piyasa ':n.kind==='petrol'?'Petrol ':'')+(up?'+':'')+(n.score??0)),n.summary||n.title,
           n.effect?el('span',{class:'ef'},n.effect):null,
-          el('small',{},[n.topic,n.source,dt(new Date(n.ts).getTime()),n.importance?'önem '+n.importance+'/5':null].filter(Boolean).join(' · ')));
+          el('small',{},[n.topic,n.source,dt(new Date(n.ts).getTime()),n.importance?'önem '+n.importance+'/5':null,
+            n.react_1d!=null?'sonra 1 gün '+pct(n.react_1d):n.react_1h!=null?'sonra 1 saat '+pct(n.react_1h):null].filter(Boolean).join(' · ')));
         x.onclick=e=>{e.preventDefault();if(n.url)api.openExternal(n.url)};return x})))}
 }
 api.on('botNews',d=>{BN=d;renderBotNews()});
+// Sinyal karnesi (Gecmis sekmesi): haber botu her AL/SAT isaretinin sonrasini olcer
+async function karne(){
+  const box=$('karne');const r=await api.karne();box.replaceChildren();
+  if(!r||!r.ok||!r.total){if(r&&r.ok)box.append(el('div',{class:'c'},el('div',{class:'t'},'Sinyal karnesi'),el('div',{class:'m'},'Henüz ölçülmüş sinyal yok. Haber botu her işaretin 1 saat, 1 gün ve 5 gün sonrasını ölçer.')));fit();return}
+  const cell=h=>h?el('b',{class:'num '+(h.hit>=55?'pos':h.hit<45?'neg':'')},'%'+h.hit+' · '+h.n):el('span',{class:'m'},'—');
+  const row=(name,x)=>x&&x.n?el('div',{class:'fx'},el('span',{},name),cell(x.h1),cell(x.d1),cell(x.d5)):null;
+  box.append(el('div',{class:'c'},el('div',{class:'t'},'Sinyal karnesi · son '+r.days+' gün ('+r.total+' sinyal)'),
+    el('div',{class:'fx m'},el('span',{},''),el('span',{},'1 saat'),el('span',{},'1 gün'),el('span',{},'5 gün')),
+    row('AL',r.buy),row('SAT',r.sell),
+    r.rules.length?el('div',{class:'t',style:'margin:8px 0 2px'},'Gerekçeye göre'):null,...r.rules.map(x=>row(x.rule,x)),
+    el('div',{class:'m',style:'margin-top:6px'},'Doğru çıkma oranı · sinyal sayısı. Az örnekli satırlara güvenme.')));fit();
+}
 api.on('result',a=>{idle();$('err').style.display='none';
   $('sub').textContent=(a.silent?'Canlı · ':'Son analiz ')+hm(a.at);
   if(a.usage)C.usage=a.usage;
