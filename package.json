@@ -12,8 +12,8 @@
     "telegram": "^2.26.22"
   },
   "devDependencies": {
-    "electron": "^33.0.0",
-    "electron-builder": "^25.0.0"
+    "electron": "^43.8.0",
+    "electron-builder": "^26.17.0"
   },
   "build": {
     "appId": "com.grafik.okuyucu",
@@ -34,7 +34,9 @@
           ]
         }
       ],
-      "identity": null,
+      "hardenedRuntime": true,
+      "entitlements": "assets/entitlements.mac.plist",
+      "entitlementsInherit": "assets/entitlements.mac.plist",
       "category": "public.app-category.finance",
       "extendInfo": {
         "LSUIElement": true,
