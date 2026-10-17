@@ -60,7 +60,7 @@ begin
   foreach t in array array['signals','pressure_log','flow_log','alarms'] loop
     execute format('alter table public.%I enable row level security', t);
     execute format('drop policy if exists "own rows" on public.%I', t);
-    execute format('create policy "own rows" on public.%I for all to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid())', t);
+    execute format('create policy "own rows" on public.%I for all to authenticated using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()))', t);
     execute format('revoke all on public.%I from anon', t);
     execute format('grant select, insert, delete on public.%I to authenticated', t);
   end loop;

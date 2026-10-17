@@ -84,6 +84,7 @@ function priceOf(t,ref){
 
 // Ust istatistik alani: "TAdet Yuksek Tavan A.Ort TeoFyz" / degerler / "G.Hacim Dusuk Taban OGunK GunFyz" / degerler
 const LABELS={tadet:'totalQty',yuksek:'high',tavan:'ceiling',aort:'avg',teofyz:'theoPrice',ghacim:'volume',dusuk:'low',taban:'floor',ogunk:'prevClose',gunfyz:'dayChange'};
+const ROWS=[['totalQty','high','ceiling','avg','theoPrice'],['volume','low','floor','prevClose','dayChange']];
 const norm=w=>String(w).toLocaleLowerCase('tr-TR').replace(/[ı]/g,'i').replace(/[ü]/g,'u').replace(/[ş]/g,'s').replace(/[ğ]/g,'g').replace(/[ö]/g,'o').replace(/[ç]/g,'c').replace(/[^a-z]/g,'');
 // OCR tek harf karistirabilir (TeoFyz -> TleoFyz): en yakin etiket, en fazla 1-2 duzenleme
 function lev(a,b){const d=[...Array(b.length+1).keys()];for(let i=1;i<=a.length;i++){let p=d[0];d[0]=i;for(let j=1;j<=b.length;j++){const t=d[j];d[j]=Math.min(d[j]+1,d[j-1]+1,p+(a[i-1]===b[j-1]?0:1));p=t}}return d[b.length]}
@@ -91,8 +92,10 @@ function label(w){const n=norm(w);if(n.length<3)return null;if(LABELS[n])return 
 function parseStats(text){
   const lines=String(text||'').split(/\n/).map(l=>l.trim()).filter(Boolean),st={};
   for(let i=0;i<lines.length-1;i++){
-    const keys=lines[i].split(/\s+/).map(label);
+    let keys=lines[i].split(/\s+/).map(label);
     if(keys.filter(Boolean).length<2)continue;
+    // Bir etiket okunamadiysa (Dusuk -> Diisiik) bilinen satir duzeninden tamamla
+    const row=ROWS.find(r=>r.length===keys.length&&keys.every((k,j)=>!k||k===r[j]));if(row)keys=row;
     const vals=(lines[i+1].match(/\d[\d.,]*/g)||[]);
     if(vals.length!==keys.length)continue;
     // Fiyat alanlarinda nokta okunmadiysa (1213) iki ondalik varsay; adet/hacim tamsayidir.

@@ -97,3 +97,17 @@ test('read: gercek OCR (tesseract) ile BOPT tablosu', { timeout: 120000 }, async
     const pr = D.pressure(d); assert.ok(pr);
   } finally { await DI.close(); }
 });
+
+test('read: gercek BOPT HUBVC tablosu (alis + satis dolu)', { timeout: 120000 }, async (t) => {
+  try { require.resolve('tesseract.js'); } catch (e) { t.skip('tesseract.js kurulu degil'); return; }
+  const im = decodePng(fs.readFileSync(path.join(__dirname, 'fixtures', 'bopt-hubvc.png')));
+  try {
+    const d = await DI.read(im, { hint: { symbol: 'HUBVC' } });
+    assert.deepEqual(d.asks.map(b => [b.qty, b.price]), [[250, 2.33], [511, 2.34], [83389, 2.35], [143975, 2.36], [421364, 2.37], [295822, 2.38]]);
+    assert.equal(d.bids.length, 25);
+    assert.deepEqual(d.bids.slice(0, 3).map(b => [b.qty, b.price]), [[82490, 2.32], [25, 2.31], [540690, 2.3]]);
+    assert.deepEqual(d.bids.at(-1), { price: 2.03, qty: 200, orders: null });
+    assert.deepEqual(d.stats, { totalQty: 10698532, high: 2.37, ceiling: 2.55, avg: 2.21, theoPrice: 0, volume: 23690471, low: 1.96, floor: 2.09, prevClose: 2.32, dayChange: 6.91 });
+    const w = D.walls(d); assert.ok(w.some(x => x.side === 'bid' && x.price === 2.3), 'alis duvari 540.690 @ 2,30');
+  } finally { await DI.close(); }
+});
