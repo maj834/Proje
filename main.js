@@ -12,7 +12,7 @@ const HISTORY_MAX=30;
 const SETTINGS_URL='x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture';
 const SHOT_W=1568; // Claude'un yeniden boyutlandirmadan kabul ettigi genislik
 
-let tray,pop,ov,timer=null,busy=false,fadeTimer,lastSig=null,ovDisplay=null,drawing=false,lastResult=null,lastAi=null,lastLocal=null;
+let tray,pop,ov,timer=null,busy=false,fadeTimer,lastSig=null,ovDisplay=null,ovKey=null,drawing=false,lastResult=null,lastAi=null,lastLocal=null;
 const alerted=new Map();
 
 // --- ayarlar -------------------------------------------------------------
@@ -54,6 +54,14 @@ function addCost(c){
 const activeDisplay=()=>screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
 // Otomatik (canli) analizde katmanin durdugu ekrana sadik kal; imlec baska monitore gecince katman ziplamasin.
 const targetDisplay=silent=>(silent&&ovDisplay!=null&&screen.getAllDisplays().find(x=>x.id===ovDisplay))||activeDisplay();
+// Cizimler Electron ekran id'si yerine kararli bir imzayla saklanir: monitor tekrar baglaninca id degisse de cizimler kaybolmaz.
+const dkey=d=>d.size.width+'x'+d.size.height+'@'+d.scaleFactor+(d.label?' '+d.label:'');
+// Eski surumlerin id anahtarli cizimlerini su anki ekranlarin imzasina tasir.
+function migrateDrawings(){
+  const all=cfg().drawings;if(!all)return;let ch=false;const out={...all};
+  for(const d of screen.getAllDisplays()){const id=String(d.id),k=dkey(d);if(id===k||!Array.isArray(out[id]))continue;out[k]=[...(out[k]||[]),...out[id]].slice(0,200);delete out[id];ch=true}
+  if(ch)save({drawings:out});
+}
 const screenAllowed=()=>process.platform!=='darwin'||systemPreferences.getMediaAccessStatus('screen')==='granted';
 
 async function capture(d){
@@ -101,13 +109,13 @@ const toggle=()=>pop.isVisible()?pop.hide():showPop();
 
 // Overlay tek bir ekranda durur ve o ekranin cizimlerini gosterir.
 function placeOverlay(d){
-  if(ovDisplay===d.id)return;
-  ovDisplay=d.id;ov.setBounds(d.bounds);
-  sendOv('drawings',(cfg().drawings||{})[d.id]||[]);
+  if(ovDisplay===d.id&&ovKey===dkey(d))return;
+  ovDisplay=d.id;ovKey=dkey(d);ov.setBounds(d.bounds);
+  sendOv('drawings',(cfg().drawings||{})[ovKey]||[]);
   syncOverlay();
 }
 function syncOverlay(){
-  const hasDraw=((cfg().drawings||{})[ovDisplay]||[]).length>0;
+  const hasDraw=((cfg().drawings||{})[ovKey]||[]).length>0;
   if(drawing||hasDraw||lastResult||(lastDepth&&cfg().depthOverlay!==false))ov.showInactive();else ov.hide();
 }
 // --- bulut yedek (Supabase) kayitlari: yalnizca hesaplanmis ciktilar, ham derinlik/mesaj degil ---
@@ -184,19 +192,31 @@ function calibParams(a){
 function calibrate(a){const c=calibParams(a);return c?y=>c.my+c.k*(y-c.mx):null}
 const fmtP=v=>v.toLocaleString('tr-TR',{maximumFractionDigits:Math.abs(v)<10?4:2});
 
+// Son fiyat: piyasa motorunda gercek kotasyon, yoksa olcekli ekran son noktasi (yoksa null).
+function lastPrice(a,local){
+  if(a&&a.engine==='piyasa'&&typeof a.last_price==='number')return a.last_price;
+  const c=calibParams(a);return c&&local&&local.last?c.my+c.k*(local.last.y-c.mx):null;
+}
 // Alarm cizgileri: son fiyat cizgiyi gectiginde bir kez bildirim gonderir.
-function checkAlarms(d,py,y){
-  const all=cfg().drawings||{},list=all[d.id]||[];let hit=false;
-  const cal=calibrate(lastResult),sym=(lastResult&&lastResult.symbol)||(lastAi&&lastAi.symbol)||'Grafik';
+// Fiyatli alarm (price) fiyat karsilastirmasiyla, fiyatsiz eski alarm ekran y'si ile tetiklenir.
+// p0/p1: onceki/simdiki son nokta {y,p,sym}; ekran y'si asagi dogru artar.
+function checkAlarms(d,p0,p1,a){
+  const k=dkey(d),all=cfg().drawings||{},list=all[k]||[];let hit=false;
+  const cal=calibrate(a),sym=(a&&a.symbol)||(lastAi&&lastAi.symbol)||'Grafik',sameSym=p0.sym===p1.sym;
   for(const l of list){
-    if(l.t!=='alarm'||l.fired)continue;const ly=l.a[1];
-    if((py>ly&&y<=ly)||(py<ly&&y>=ly)){
-      l.fired=Date.now();hit=true;
-      if(cfg().sbOn)sync.enqueue('alarms',{symbol:sym,price:cal?+cal(ly).toFixed(4):null,direction:y<py?'yukari':'asagi'});
-      if(Notification.isSupported())new Notification({title:sym+' · alarm',body:(y<py?'▲ Fiyat alarm çizgisini yukarı geçti':'▼ Fiyat alarm çizgisini aşağı geçti')+(cal?' ('+fmtP(cal(ly))+')':''),sound:'Glass'}).show();
+    if(l.t!=='alarm'||l.fired)continue;let up=null,lp=null;
+    if(typeof l.price==='number'){
+      if(!sameSym||p0.p==null||p1.p==null||(l.sym&&p1.sym&&l.sym!==p1.sym))continue; // fiyat bilinmiyorsa ekran konumuna guvenme
+      lp=l.price;if(p0.p<lp&&p1.p>=lp)up=true;else if(p0.p>lp&&p1.p<=lp)up=false;
+    }else{
+      const ly=l.a[1];lp=cal?cal(ly):null;if(p0.y>ly&&p1.y<=ly)up=true;else if(p0.y<ly&&p1.y>=ly)up=false;
     }
+    if(up===null)continue;
+    l.fired=Date.now();l.firedBy=typeof l.price==='number'?'fiyat':'ekran';hit=true;
+    if(cfg().sbOn)sync.enqueue('alarms',{symbol:sym,price:lp!=null?+lp.toFixed(4):null,direction:up?'yukari':'asagi'});
+    if(Notification.isSupported())new Notification({title:sym+' · alarm',body:(up?'▲ Fiyat alarm çizgisini yukarı geçti':'▼ Fiyat alarm çizgisini aşağı geçti')+(lp!=null?' ('+fmtP(lp)+')':''),sound:'Glass'}).show();
   }
-  if(hit){save({drawings:{...all,[d.id]:list}});if(d.id===ovDisplay)sendOv('drawings',list)}
+  if(hit){save({drawings:{...all,[k]:list}});if(k===ovKey)sendOv('drawings',list)}
 }
 const pendingAlarms=()=>Object.values(cfg().drawings||{}).some(l=>l.some(x=>x.t==='alarm'&&!x.fired));
 
@@ -248,7 +268,7 @@ async function analyze(opts={}){
     }
     lastSig=sig;
     const prev=lastResult;
-    if(local.chart_found){if(lastLocal&&lastLocal.d===d.id)checkAlarms(d,lastLocal.y,local.last.y);lastLocal={d:d.id,y:local.last.y}}
+    if(local.chart_found){const cur={d:dkey(d),y:local.last.y,p:lastPrice(a,local),sym:a.symbol||mkt().symbol||null};if(lastLocal&&lastLocal.d===cur.d)checkAlarms(d,lastLocal,cur,a);lastLocal=cur}
     // Canli yerel takipte son 60 sn icindeki Claude sonucunu (fiyatli seviyeler) koru, yalnizca son fiyat noktasini guncelle.
     if(opts.silent&&eng==='yerel'&&prev&&prev.engine==='claude'&&Date.now()-prev.at<60000&&local.chart_found&&change<0.25){
       const keep={...prev,last:local.last,lines:local.lines,ind:local.ind,signals:local.signals,lastCandle:local.lastCandle};drawOverlay(keep,d,false);checkAlerts(prev,keep);return}
@@ -265,7 +285,7 @@ async function analyze(opts={}){
 }
 
 // Gecmise yalnizca gosterim icin gerekenler: cizgi/mum dizileri cfg.json'u sisirmesin.
-function slim(e){if(!e)return e;const {lines,rawCandles,allSignals,trendlines,fib,lastCandle,cal,market:m,...rest}=e;
+function slim(e){if(!e)return e;const {lines,rawCandles,allSignals,trendlines,fib,lastCandle,cal,realSignals,market:m,...rest}=e;
   return {...rest,signals:undefined,market:m?{quote:m.quote,backtest:m.backtest,tf:m.tf}:undefined}}
 
 // Ekran analizini piyasa verisiyle birlestir: fiyat olcegi, gercek veriden indikatorler, tarihli sinyaller, basari orani, haberler.
@@ -292,8 +312,23 @@ async function withMarket(local,opts={}){
     levels:series?{R:series.resistances,S:series.supports}:null,signals:series?series.signals.slice(-6):[],backtest:series?series.backtest:null,
     news:[...((r.news&&r.news.items)||[]),...((r.avNews&&r.avNews.items)||[])].slice(0,8),sentiment:r.avNews?r.avNews.sentiment:null,
     calib:cal?{r2:+cal.r2.toFixed(4),n:cal.n,shift:cal.shift}:null,errors:r.errors,avLeft:r.avLeft};
+  a.market.rows=rows.length;a.market.screenN=local.rawCandles?local.rawCandles.length:0;
+  if(cal&&series)a.realSignals=realMarks(series.signals||[],rows,local,cal);
   if(!a.chart_found&&!series)throw new Error(r.errors.join(' · ')||'Veri alınamadı.');
   return a;
+}
+
+// Gercek veriden (tarihli, kaymayan) AL/SAT sinyallerini ekrandaki mumlara esle.
+// calibrateFromSeries ekran mumu [N-k] ile rows[R-k-shift] eslestirir => ekran indeksi s=N-R+i+shift.
+function realMarks(sigs,rows,local,cal){
+  const rc=local.rawCandles||[],N=rc.length,R=rows.length,b=local.chart_box;if(!N||!b)return [];
+  // x yaklasimi: grafik alaninin solundan son mumun merkezine esit aralik (rawCandles x verirse onu kullan).
+  const lx=local.lastCandle&&Number.isFinite(local.lastCandle.x)?local.lastCandle.x:null;
+  const xOf=s=>rc[s]&&Number.isFinite(rc[s].x)?rc[s].x:lx!=null?b.x1+(lx-b.x1)*(s+0.5)/(N-0.5):b.x1+(s+0.5)*(b.x2-b.x1)/N;
+  const yOf=p=>cal.mx+(p-cal.my)/cal.k;
+  return sigs.map(g=>{const s=N-R+g.i+(cal.shift||0),r=rows[g.i];if(s<0||s>=N||!r)return null;
+    const y=yOf(g.dir>0?r.l:r.h);if(!(y>=0&&y<=1))return null;
+    return {x:+xOf(s).toFixed(4),y:+y.toFixed(4),dir:g.dir,t:g.t,price:g.price}}).filter(Boolean);
 }
 
 function setLive(on){
@@ -431,7 +466,10 @@ function state(){
 }
 
 app.whenReady().then(()=>{
-  app.dock&&app.dock.hide();mk();
+  app.dock&&app.dock.hide();migrateDrawings();mk();
+  // Cozunurluk/olcek degisince imza degisir: katmanin durdugu ekranin cizimlerini yeni imzaya tasi.
+  screen.on('display-metrics-changed',(e,d)=>{if(d.id!==ovDisplay||!ovKey||ovKey===dkey(d))return;const all=cfg().drawings||{},nk=dkey(d);
+    if(all[ovKey]&&!(all[nk]||[]).length){const o={...all,[nk]:all[ovKey]};delete o[ovKey];save({drawings:o})}placeOverlay(d)});
   tray=new Tray(trayIcon());tray.setToolTip('Grafik Okuyucu');
   tray.on('click',toggle);
   tray.on('right-click',()=>tray.popUpContextMenu(Menu.buildFromTemplate([
@@ -466,7 +504,7 @@ app.whenReady().then(()=>{
   ipcMain.handle('clearHistory',()=>save({history:[]}));
   ipcMain.handle('hideOverlay',clearAnalysis);
   ipcMain.handle('draw',(e,on)=>setDrawing(on!==false));
-  ipcMain.handle('saveDrawings',(e,list)=>{if(!Array.isArray(list))return;save({drawings:{...(cfg().drawings||{}),[ovDisplay]:list.slice(0,200)}});syncOverlay();
+  ipcMain.handle('saveDrawings',(e,list)=>{if(!Array.isArray(list)||!ovKey)return;save({drawings:{...(cfg().drawings||{}),[ovKey]:list.slice(0,200)}});syncOverlay();
     // Alarmlar canli takip ister: bekleyen alarm varsa canli modu ac.
     if(pendingAlarms()&&!cfg().live){setLive(true);send('state',state())}});
   ipcMain.handle('copy',(e,t)=>{if(typeof t==='string')clipboard.writeText(t.slice(0,5000))});

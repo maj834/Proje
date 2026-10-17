@@ -10,6 +10,7 @@ svg.layer{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
 #an .tag text{fill:#fff;font:500 11px var(--mono)}
 #an .sig text{fill:#fff;font:600 10.5px var(--mono);letter-spacing:.06em}
 #an .sig.live text{font-size:11.5px}
+#an .sig text.dt{font:500 9.5px var(--mono);fill:#e9edf5;letter-spacing:0;paint-order:stroke;stroke:rgba(0,0,0,.6);stroke-width:3px}
 #an .sig.live rect.halo{animation:halo 1.6s ease-out infinite;transform-box:fill-box;transform-origin:center}
 @keyframes halo{from{opacity:.55;transform:scale(1)}to{opacity:0;transform:scale(1.6)}}
 #an .why{font:500 10.5px var(--font);fill:#e9edf5;paint-order:stroke;stroke:rgba(0,0,0,.6);stroke-width:3px}
@@ -69,7 +70,7 @@ const $=i=>document.getElementById(i);
 const BIAS={yukselis:['Yükseliş','#33b37b','▲'],dusus:['Düşüş','#e5534b','▼'],notr:['Nötr','#7d838c','●']};
 const fmt=n=>typeof n==='number'?n.toLocaleString('tr-TR',{maximumFractionDigits:Math.abs(n)<10?4:2}):null;
 const VW=()=>innerWidth,VH=()=>innerHeight;
-let A=null,cal=null; // son analiz ve y->fiyat kalibrasyonu
+let A=null,cal=null,calP=null; // son analiz, y->fiyat kalibrasyonu ve parametreleri {mx,my,k}
 
 // --- analiz katmani -----------------------------------------------------
 function tag(g,x,y,text,color){
@@ -77,14 +78,15 @@ function tag(g,x,y,text,color){
   t.insertBefore(S('rect',{x,y:y-10,width:tx.getComputedTextLength()+14,height:20,fill:color,rx:3}),tx);
 }
 function drawAnalysis(a){
-  const an=$('an'),b=$('badge');an.replaceChildren();A=a;cal=null;
+  const an=$('an'),b=$('badge');an.replaceChildren();A=a;cal=null;calP=null;
   if(!a){b.style.display='none';render();return}
   // Claude fiyatlari verdiyse y -> fiyat dogrusal kalibrasyonu (Fibonacci, yatay cizgi ve olcum icin).
   const pts=[...(a.resistances||[]),...(a.supports||[])].filter(l=>typeof l.price==='number');
-  if(a.cal&&Number.isFinite(a.cal.k)){const C2=a.cal;cal=y=>C2.my+C2.k*(y-C2.mx)}
+  if(a.cal&&Number.isFinite(a.cal.k))calP={mx:a.cal.mx,my:a.cal.my,k:a.cal.k};
   else if(pts.length>=2){const n=pts.length,mx=pts.reduce((s,p)=>s+p.y,0)/n,my=pts.reduce((s,p)=>s+p.price,0)/n;
     let sxy=0,sxx=0;for(const p of pts){sxy+=(p.y-mx)*(p.price-my);sxx+=(p.y-mx)**2}
-    if(sxx>1e-6&&sxy<0){const k=sxy/sxx;cal=y=>my+k*(y-mx)}}
+    if(sxx>1e-6&&sxy<0)calP={mx,my,k:sxy/sxx}}
+  if(calP){const C2=calP;cal=y=>C2.my+C2.k*(y-C2.mx)}
   an.classList.toggle('anim',!!a.anim);
   const W=VW(),H=VH(),bx=a.chart_box||{x1:0.02,y1:0,x2:0.98,y2:1};
   const x1=bx.x1*W,x2=Math.min(W,bx.x2*W+W*0.02);
@@ -112,15 +114,20 @@ function drawAnalysis(a){
       const t=S('text',{x:fx2-4,y:y-4,'text-anchor':'end',fill:'rgba(255,200,110,.95)','font-size':10.5,'font-weight':600},g);
       t.textContent='Fib '+l.f+(cal?' · '+fmt(cal(l.y)):'')}}
   // AL/SAT isaretleri: gecmis donusler + son mumda canli isaret
-  const sigTag=(x,y,dir,label,live,why)=>{const col=dir>0?'#33b37b':'#e5534b',g=S('g',{class:'sig'+(live?' live':'')},an);
+  const sigTag=(x,y,dir,label,live,why,dt)=>{const col=dir>0?'#33b37b':'#e5534b',g=S('g',{class:'sig'+(live?' live':'')+(dt?' real':'')},an);
     const w=live?44:32,h=live?20:17,ty=dir>0?y+10:y-10-h;
     S('path',{d:dir>0?`M${x} ${y+3}l5 7h-10z`:`M${x} ${y-3}l5 -7h-10z`,fill:col},g);
     if(live)S('rect',{class:'halo',x:x-w/2,y:ty,width:w,height:h,fill:col,rx:3},g);
     S('rect',{x:x-w/2,y:ty,width:w,height:h,fill:col,rx:3,stroke:'rgba(255,255,255,.85)','stroke-width':live?1.5:0},g);
     const t=S('text',{x,y:ty+h/2+4,'text-anchor':'middle'},g);t.textContent=label;
+    if(dt){const d=S('text',{class:'dt',x,y:dir>0?ty+h+11:ty-4,'text-anchor':'middle'},g);d.textContent=dt}
     if(why&&why.length){why.forEach((r,k)=>{const tt=S('text',{class:'why',x:x-w/2-6,y:ty+12+k*13,'text-anchor':'end'},g);tt.textContent=r})}};
   if(sh.signals!==false){
-    for(const sg of a.signals||[])sigTag(sg.x*W,sg.y*H,sg.dir,sg.dir>0?'AL':'SAT',false);
+    // Piyasa verisiyle olcek eslestiyse gercek veriden tarihli sinyaller (grafik kayinca degismez); yoksa ekrandaki mumlardan.
+    if(Array.isArray(a.realSignals)){const intra=['1dk','5dk','15dk','1s'].includes(a.timeframe);
+      const dfmt=t=>t?new Date(t).toLocaleDateString('tr-TR',{day:'2-digit',month:'short'})+(intra?' '+new Date(t).toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'}):''):'';
+      for(const sg of a.realSignals)sigTag(sg.x*W,sg.y*H,sg.dir,sg.dir>0?'AL':'SAT',false,null,dfmt(sg.t))}
+    else for(const sg of a.signals||[])sigTag(sg.x*W,sg.y*H,sg.dir,sg.dir>0?'AL':'SAT',false);
     const lv=a.live,lc=a.lastCandle;
     if(lv&&lc)sigTag(lc.x*W,(lv.dir>0?lc.lo:lc.hi)*H,lv.dir,lv.dir>0?'AL':'SAT',true,lv.why);
   }
@@ -168,18 +175,25 @@ function undoLast(){if(!undo.length)return;D=JSON.parse(undo.pop());sel=-1;commi
 function commit(){render();api.saveDrawings(D)}
 const P=(x,y)=>[x*VW(),y*VH()];
 const price=y=>cal?fmt(cal(y)):null;
+// Fiyata bagli yatay/alarm cizgisi: olcek varsa (ve sembol uyusuyorsa) kaydedilen fiyatin y'sinde, yoksa kaydedildigi ekran konumunda.
+const bound=d=>typeof d.price==='number'&&!!calP&&(!d.sym||!A||!A.symbol||d.sym===A.symbol);
+const yOf=d=>bound(d)?calP.mx+(d.price-calP.my)/calP.k:d.a[1];
+const pLab=d=>typeof d.price==='number'?fmt(d.price):price(d.a[1]);
+function bindPrice(d){if(d.t!=='alarm'&&d.t!=='yatay')return;if(cal){d.price=+cal(d.a[1]).toFixed(4);d.sym=A&&A.symbol||undefined}else{delete d.price;delete d.sym}}
 
 function render(){
   const dr=$('dr');dr.replaceChildren();const W=VW(),H=VH();
   D.forEach((d,i)=>{const g=S('g',{class:'d'+(i===sel&&mode?' sel':'')+(d.t==='not'?' note':''),'data-i':i},dr),c=d.c;
-    const [ax,ay]=P(d.a[0],d.a[1]),[bx,by]=d.b?P(d.b[0],d.b[1]):[ax,ay];
+    const hz=d.t==='yatay'||d.t==='alarm',[ax,ay0]=P(d.a[0],hz?yOf(d):d.a[1]),[bx,by]=d.b?P(d.b[0],d.b[1]):[ax,ay0];
+    // Fiyat ekran disinda kalirsa cizgi kenarda ok ile gosterilir.
+    const ay=hz?Math.max(3,Math.min(H-3,ay0)):ay0,off=ay0<3?'▲ ':ay0>H-3?'▼ ':'';
     const ln=(x1,y1,x2,y2,w=2,dash)=>S('line',{x1,y1,x2,y2,stroke:c,'stroke-width':w,'stroke-linecap':'round',...(dash?{'stroke-dasharray':dash}:{})},g);
     const tx=(x,y,t,anchor='start',col=c)=>{const e=S('text',{x,y,fill:col,'text-anchor':anchor},g);e.textContent=t;return e};
     if(d.t==='trend')ln(ax,ay,bx,by);
     else if(d.t==='isin'){const dx=bx-ax,dy=by-ay,k=dx||dy?Math.max(W,H)*4/Math.hypot(dx,dy):0;ln(ax,ay,ax+dx*k,ay+dy*k);S('circle',{cx:ax,cy:ay,r:3,fill:c},g)}
-    else if(d.t==='yatay'){ln(0,ay,W,ay,1.6);const p=price(d.a[1]);if(p)tx(W-140,ay-6,p)}
-    else if(d.t==='alarm'){const col=d.fired?'#8a93a3':'#e8a33d';ln(0,ay,W,ay,1.6,d.fired?'2 6':'8 5').setAttribute('stroke',col);
-      const p=price(d.a[1]),t=tx(W-24,ay-7,(d.fired?'✓ ALARM TETİKLENDİ':'ALARM')+(p?' · '+p:''),'end',col);t.setAttribute('style','font-size:12px')}
+    else if(d.t==='yatay'){ln(0,ay,W,ay,1.6,off?'3 5':null);const p=pLab(d);if(p)tx(W-140,ay<14?ay+14:ay-6,off+p)}
+    else if(d.t==='alarm'){const col=d.fired?'#8a93a3':'#e8a33d';ln(0,ay,W,ay,1.6,d.fired||off?'2 6':'8 5').setAttribute('stroke',col);
+      const p=pLab(d),t=tx(W-24,ay<14?ay+15:ay-7,off+(d.fired?'✓ ALARM TETİKLENDİ':'ALARM')+(p?' · '+p:''),'end',col);t.setAttribute('style','font-size:12px')}
     else if(d.t==='kutu')S('rect',{class:'fill',x:Math.min(ax,bx),y:Math.min(ay,by),width:Math.abs(bx-ax),height:Math.abs(by-ay),fill:c+'22',stroke:c,'stroke-width':1.5,rx:3},g);
     else if(d.t==='fib'){const l=Math.min(ax,bx),r=Math.max(ax,bx)+W*0.06;
       S('rect',{class:'fill',x:l,y:Math.min(ay,by),width:r-l,height:Math.abs(by-ay),fill:c+'12'},g);
@@ -204,17 +218,18 @@ const clone=o=>JSON.parse(JSON.stringify(o));
 addEventListener('mousedown',e=>{
   if(!mode||e.button!==0||e.target.closest('#tb')||e.target.id==='noteIn')return;
   const pt=norm(e),gEl=e.target.closest('.d'),h=e.target.dataset&&e.target.dataset.h;
-  if(gEl&&(tool==='sec'||h!=null)){sel=+gEl.dataset.i;push();drag={k:h!=null?+h:'all',start:pt,orig:clone(D[sel])};render();return}
+  if(gEl&&(tool==='sec'||h!=null)){sel=+gEl.dataset.i;push();const d=D[sel];if(bound(d))d.a[1]=+yOf(d).toFixed(5); // tasima ekrandaki konumdan baslar
+    drag={k:h!=null?+h:'all',start:pt,orig:clone(d)};render();return}
   sel=-1;
   if(tool==='sec'){render();return}
   if(tool==='not'){openNote(e);return}
   const single=tool==='yatay'||tool==='alarm';
   push();D.push({t:tool,c:color,a:pt,b:single?null:pt});sel=D.length-1;
-  drag=single?{k:'all',start:pt,orig:clone(D[sel])}:{k:1,start:pt,orig:null,fresh:true};render();
+  drag=single?{k:'all',start:pt,orig:clone(D[sel]),isNew:true}:{k:1,start:pt,orig:null,fresh:true};render();
 });
 addEventListener('mousemove',e=>{
   if(!drag||sel<0)return;const pt=norm(e),d=D[sel];
-  if(d.t==='alarm')delete d.fired; // tasinan alarm yeniden kurulur
+  drag.moved=true;if(d.t==='alarm'){delete d.fired;delete d.firedBy} // tasinan alarm yeniden kurulur
   if(drag.k==='all'){const dx=pt[0]-drag.start[0],dy=pt[1]-drag.start[1],o=drag.orig;
     d.a=[o.a[0]+dx,o.a[1]+dy];if(o.b)d.b=[o.b[0]+dx,o.b[1]+dy]}
   else if(drag.k===0)d.a=pt;else d.b=pt;
@@ -224,6 +239,7 @@ addEventListener('mouseup',()=>{
   if(!drag)return;const d=D[sel];
   // Yanlislikla tiklama: neredeyse sifir uzunluktaki yeni cizimi at.
   if(drag.fresh&&d&&d.b&&Math.hypot((d.b[0]-d.a[0])*VW(),(d.b[1]-d.a[1])*VH())<4){D.splice(sel,1);undo.pop();sel=-1}
+  else if(d&&(drag.moved||drag.isNew))bindPrice(d); // yeni ya da tasinan cizgi o anki olcekle fiyata baglanir
   drag=null;commit();
 });
 function openNote(e){

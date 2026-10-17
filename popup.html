@@ -299,7 +299,7 @@ function render(a,anim=true){
     ...(a.patterns||[]).map(p=>el('span',{class:'chip'},p)),...tl.map(t=>el('span',{class:'chip',style:'color:'+(t.type==='destek'?'var(--tup)':'var(--tdn)')},t.type==='destek'?'↗ Destek trendi':'↘ Direnç trendi')))));
   if(a.breakout)out.append(el('div',{class:'c'},el('div',{class:'t'},'Kırılım'),a.breakout));
   out.append(el('div',{class:'c'},el('div',{class:'t'},'Yorum'),el('div',{style:'line-height:1.55'},a.comment||'')));
-  if(local)out.append(el('div',{class:'info'},icon('info'),el('span',{},'Hızlı analiz mumların konumunu okur; fiyat yazmaz. Fiyatlı seviyeler ve yorum için ',el('a',{onclick:()=>pick('claude')},'Claude AI'),' seç.')));
+  if(local)out.append(el('div',{class:'info'},icon('info'),el('span',{},'Hızlı analiz mumların konumunu okur; fiyat yazmaz. Fiyatlı seviyeler ve yorum için ',el('a',{onclick:()=>pick('claude')},'Claude AI'),' seç. Ekrandaki AL/SAT işaretleri yalnızca görünen mumlardan hesaplanır; grafik kaydırılınca değişebilir.')));
   else out.append(el('div',{class:'m',style:'text-align:center;margin-top:10px'},(a.model||'').replace('claude-','').replace(/-(\d)-(\d)$/,' $1.$2')+(a.cost?' · '+usd(a.cost):'')+' · '+hm(a.at)));
   fit();
 }
