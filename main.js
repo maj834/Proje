@@ -9,7 +9,22 @@ const sync=require('./sync');
 const market=require('./market');
 const calendar=require('./calendar');
 const shareLib=require('./share');
-const audioUi=require('./audio-main').registerAudio({ipcMain,app,BrowserWindow,path,cfg:()=>cfg(),save:o=>save(o)});
+const APP_NAME='Grafik Okuyucu';
+let hubUi=null;
+const modOn=id=>!hubUi||hubUi.enabled(id);
+const audioUi=require('./audio-main').registerAudio({ipcMain,app,BrowserWindow,path,cfg:()=>cfg(),save:o=>save(o),isOn:()=>modOn('ses')});
+// Merkez penceresi: ozellikleri ac/kapat. Kapatilan ozellik menude gorunmez ve arka planda calismaz.
+hubUi=require('./hub-main').registerHub({ipcMain,app,BrowserWindow,path,cfg:()=>cfg(),save:o=>save(o),name:APP_NAME,actions:{
+  open:id=>({borsa:()=>showPop(),ses:()=>audioUi.open(),paylas:()=>openShare()})[id]?.(),
+  toggle:(id,on)=>{
+    if(id==='borsa'){if(on)registerShortcuts();else{globalShortcut.unregisterAll();if(cfg().live)setLive(false);setDepthAuto(0);clearAnalysis();pop.hide()}}
+    if(id==='ses'&&!on)audioUi.stop();
+    if(id==='paylas'&&!on){if(shareSess){shareSess.stop('user');shareSess=null}if(shareWin)shareWin.close()}
+    send('state',state());
+  },
+  status:id=>id==='borsa'?(cfg().live?'Canlı mod açık':cfg().depthAuto>0?'Canlı takip açık':null)
+    :id==='ses'?(n=>n?n+' uygulamada özel ayar':null)(Object.keys((cfg().sound||{}).apps||{}).length)
+    :id==='paylas'?(shareSess&&shareSess.info().running?'Paylaşım açık':null):null}});
 
 const INTERVALS=[2,5,10,30,60];
 const HISTORY_MAX=30;
@@ -711,7 +726,7 @@ function parseTest(text){
 
 function state(){
   const u=cfg().usage||{};
-  return{hasGrok:!!grokKey(),grokModel:cfg().grokModel||'',grokModels:cfg().grokModels||[],hasKey:!!getKey(),live:!!cfg().live,model:model(),models:ai.MODELS,interval:interval(),intervals:INTERVALS,engine:engineName(),mkt:mkt(),hasAv:!!avKey(),avLeft:market.avLeft(),tfs:Object.keys(market.TF),liveAi:!!cfg().liveAi,
+  return{mods:{ses:modOn('ses'),paylas:modOn('paylas')},hasGrok:!!grokKey(),grokModel:cfg().grokModel||'',grokModels:cfg().grokModels||[],hasKey:!!getKey(),live:!!cfg().live,model:model(),models:ai.MODELS,interval:interval(),intervals:INTERVALS,engine:engineName(),mkt:mkt(),hasAv:!!avKey(),avLeft:market.avLeft(),tfs:Object.keys(market.TF),liveAi:!!cfg().liveAi,
     history:cfg().history||[],perm:screenAllowed(),secure:safeStorage.isEncryptionAvailable(),alerts:!!cfg().alerts,pin:!!cfg().pin,ind:ind(),
     login:process.platform==='darwin'&&app.getLoginItemSettings().openAtLogin,alarms:Object.values(cfg().drawings||{}).flat().filter(x=>x.t==='alarm'&&!x.fired).length,
     usage:u.month===month()?u:{cost:0,count:0,total:u.total||0},sb:{...sync.state(),on:!!cfg().sbOn},
@@ -720,28 +735,35 @@ function state(){
 }
 
 app.whenReady().then(()=>{
-  app.dock&&app.dock.hide();migrateDrawings();mk();
+  migrateDrawings();mk();
   // Cozunurluk/olcek degisince imza degisir: katmanin durdugu ekranin cizimlerini yeni imzaya tasi.
   screen.on('display-metrics-changed',(e,d)=>{if(d.id!==ovDisplay||!ovKey||ovKey===dkey(d))return;const all=cfg().drawings||{},nk=dkey(d);
     if(all[ovKey]&&!(all[nk]||[]).length){const o={...all,[nk]:all[ovKey]};delete o[ovKey];save({drawings:o})}placeOverlay(d)});
   tray=new Tray(trayIcon());tray.setToolTip('Grafik Okuyucu');
-  tray.on('click',toggle);
+  tray.on('click',()=>modOn('borsa')?toggle():hubUi.open());
   tray.on('right-click',()=>tray.popUpContextMenu(Menu.buildFromTemplate([
-    {label:'Hızlı Analiz (yerel)',click:()=>analyze({engine:'yerel'})},
-    {label:'Claude ile Analiz',enabled:!!getKey(),click:()=>analyze({engine:'claude'})},
-    {label:'Ekranı Analiz Et',accelerator:sc().analyze,click:()=>analyze()},
-    {label:'Çizim Modu',accelerator:sc().draw,click:()=>setDrawing(true)},
-    {label:'Analiz Çizgilerini Gizle',click:clearAnalysis},{type:'separator'},
-    {label:'Ses…',click:()=>audioUi.open()},{label:'Telefonla Dosya Paylaş (QR)…',click:openShare},{type:'separator'},
-    {label:'Canlı Mod',type:'checkbox',accelerator:sc().live,checked:!!cfg().live,click:m=>{setLive(m.checked);send('state',state())}},{type:'separator'},
-    {label:'Çıkış',role:'quit'}])));
-  registerShortcuts();
-  pop.on('hide',()=>{if(scPaused)registerShortcuts()}); // yakalama yarida kaldiysa kisayollari geri yukle
+    {label:'Merkezi Aç',click:()=>hubUi.open()},{type:'separator'},
+    ...(modOn('borsa')?[
+      {label:'Hızlı Analiz (yerel)',click:()=>analyze({engine:'yerel'})},
+      {label:'Claude ile Analiz',enabled:!!getKey(),click:()=>analyze({engine:'claude'})},
+      {label:'Ekranı Analiz Et',accelerator:sc().analyze,click:()=>analyze()},
+      {label:'Çizim Modu',accelerator:sc().draw,click:()=>setDrawing(true)},
+      {label:'Analiz Çizgilerini Gizle',click:clearAnalysis},
+      {label:'Canlı Mod',type:'checkbox',accelerator:sc().live,checked:!!cfg().live,click:m=>{setLive(m.checked);send('state',state())}},{type:'separator'}]:[]),
+    ...(modOn('ses')?[{label:'Ses…',click:()=>audioUi.open()}]:[]),
+    ...(modOn('paylas')?[{label:'Telefonla Dosya Paylaş (QR)…',click:openShare}]:[]),
+    {type:'separator'},{label:'Çıkış',role:'quit'}])));
+  if(modOn('borsa'))registerShortcuts();
+  // Dock simgesi: tiklaninca Merkez acilir. Oturum acilisinda baslatildiysa pencere gosterilmez.
+  app.on('activate',()=>hubUi.open());
+  if(!app.getLoginItemSettings().wasOpenedAtLogin)hubUi.open();
+  pop.on('hide',()=>{if(scPaused&&modOn('borsa'))registerShortcuts()}); // yakalama yarida kaldiysa kisayollari geri yukle
   ipcMain.handle('scCapture',(e,on)=>{if(on){scPaused=true;globalShortcut.unregisterAll()}else registerShortcuts();return scState});
   ipcMain.handle('diag',()=>diagnostics());
   ipcMain.handle('karne',()=>scorecard());
-  ipcMain.handle('shareOpen',()=>{openShare();pop.hide()});
-  ipcMain.handle('sesOpen',()=>{audioUi.open();pop.hide()});
+  ipcMain.handle('shareOpen',()=>{if(modOn('paylas'))openShare();pop.hide()});
+  ipcMain.handle('sesOpen',()=>{if(modOn('ses'))audioUi.open();pop.hide()});
+  ipcMain.handle('hubOpen',()=>{hubUi.open();pop.hide()});
   ipcMain.handle('shareStart',async()=>{try{
     if(!shareSess||!shareSess.info().running){shareSess=shareLib.createShare({downloadsDir:app.getPath('downloads'),ask:shareAsk,onEvent:shareEvt,host:process.env.GRAFIK_SHARE_HOST||undefined});await shareSess.start()}
     return shareState()}catch(err){shareSess=null;return {ok:false,msg:err.message}}});

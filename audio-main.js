@@ -9,7 +9,7 @@ const PRESETS={
 const clampS=s=>({gain:Math.max(0,Math.min(2,+s.gain||0)),bass:Math.max(-12,Math.min(12,+s.bass||0)),treble:Math.max(-12,Math.min(12,+s.treble||0)),mute:!!s.mute});
 const neutral=s=>!s.mute&&Math.abs(s.gain-1)<0.005&&Math.abs(s.bass)<0.1&&Math.abs(s.treble)<0.1;
 
-function registerAudio({ipcMain,app,BrowserWindow,path,cfg,save}){
+function registerAudio({ipcMain,app,BrowserWindow,path,cfg,save,isOn=()=>true}){
   let child=null,win=null,buf='',state={supported:null,apps:[],devices:[],error:null},icons={};
   const conf=()=>({apps:{},global:{gain:1,bass:0,treble:0,mute:false},preset:'kapali',...(cfg().sound||{})});
   const bin=()=>process.env.GRAFIK_SES_BIN||(app.isPackaged?path.join(process.resourcesPath,'bin','ses-yardimcisi'):path.join(__dirname,'build','bin','ses-yardimcisi'));
@@ -31,6 +31,7 @@ function registerAudio({ipcMain,app,BrowserWindow,path,cfg,save}){
   }
   function start(){
     if(child)return true;
+    if(!isOn())return false;
     if(process.platform!=='darwin'&&!process.env.GRAFIK_SES_BIN||!fs.existsSync(bin())){state.error='Ses yardımcısı bulunamadı. Uygulamanın Mac sürümünü GitHub\'dan indirdiğinden emin ol.';toWin();return false}
     child=spawn(bin(),[],{stdio:['pipe','pipe','pipe']});buf='';state.error=null;
     child.stdout.on('data',d=>{buf+=d;let i;while((i=buf.indexOf('\n'))>=0){onLine(buf.slice(0,i));buf=buf.slice(i+1)}});

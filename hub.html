@@ -1,0 +1,70 @@
+<!doctype html><html lang="tr"><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; script-src 'self' 'unsafe-inline'">
+<title>Merkez</title><link rel="stylesheet" href="theme.css">
+<style>
+html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font:400 13px/1.45 var(--font);-webkit-user-select:none;user-select:none}
+.top{height:52px;-webkit-app-region:drag;display:flex;align-items:flex-end;padding:0 var(--s6,28px) 0 88px}
+.wrap{padding:var(--s2) var(--s6,28px) var(--s6,28px);max-width:1080px;margin:0 auto}
+h1{font:600 22px var(--font);margin:0;letter-spacing:-.01em}.sub{color:var(--fg-3);margin-top:2px}
+.bar{display:flex;align-items:center;gap:var(--s2);margin:var(--s5) 0 var(--s3)}
+.chip{border:1px solid var(--line-2);background:var(--surface);color:var(--fg-2);font:500 12px var(--font);padding:4px 11px;border-radius:999px;cursor:pointer}
+.chip.on{background:var(--fg);border-color:var(--fg);color:var(--bg)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:var(--s3)}
+.card{display:flex;flex-direction:column;gap:var(--s2);background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:var(--s4);min-height:150px;transition:border-color .15s,transform .15s}
+.card:hover{border-color:var(--line-2)}
+.card.off .ico,.card.soon .ico{background:var(--sunk);color:var(--fg-3)}.card.soon{opacity:.72}
+.ico{width:34px;height:34px;border-radius:8px;background:var(--acc-soft);color:var(--acc);display:flex;align-items:center;justify-content:center;flex:none}
+.hd{display:flex;align-items:center;gap:var(--s3)}.nm{font:600 14px var(--font)}.st{font-size:11.5px;color:var(--fg-3)}
+.ds{color:var(--fg-2);flex:1}
+.ft{display:flex;align-items:center;gap:var(--s2);border-top:1px solid var(--line);padding-top:var(--s3);margin-top:auto}
+.badge{font:500 11px var(--font);color:var(--fg-3);border:1px solid var(--line-2);border-radius:999px;padding:1px 8px}
+.btn{margin-left:auto;border:1px solid var(--line-2);background:var(--bg);color:var(--fg);font:500 12px var(--font);padding:5px 12px;border-radius:6px;cursor:pointer}
+.btn:hover{border-color:var(--fg-3)}.btn:disabled{opacity:.4;cursor:default}
+.sw{position:relative;width:32px;height:18px;flex:none}.sw input{opacity:0;width:0;height:0;position:absolute}
+.sw span{position:absolute;inset:0;border-radius:9px;background:var(--line-2);transition:background .15s;cursor:pointer}
+.sw span:before{content:'';position:absolute;left:2px;top:2px;width:14px;height:14px;border-radius:50%;background:#fff;transition:transform .15s;box-shadow:0 1px 2px rgba(0,0,0,.25)}
+.sw input:checked+span{background:var(--acc)}.sw input:checked+span:before{transform:translateX(14px)}.sw input:disabled+span{opacity:.4;cursor:default}
+.lbl{font-size:12px;color:var(--fg-2)}
+</style></head><body>
+<div class="top"></div>
+<div class="wrap">
+  <h1 id="title"></h1><div class="sub">Kullanmak istediğin özellikleri aç. Kapalı özellik menü çubuğunda görünmez ve arka planda çalışmaz.</div>
+  <div class="bar" id="flt"></div>
+  <div class="grid" id="grid"></div>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+const el=(t,c,txt)=>{const e=document.createElement(t);if(c)e.className=c;if(txt!=null)e.textContent=txt;return e};
+const P='<svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">';
+const ICONS={
+  borsa:'<path d="M2 12.5 6 8l3 2.5L14 4"/><path d="M10.5 4H14v3.5"/>',
+  ses:'<path d="M2.5 6h2.5l3.5-3v10l-3.5-3H2.5z"/><path d="M11 5.5a3.5 3.5 0 0 1 0 5M12.8 3.7a6 6 0 0 1 0 8.6"/>',
+  paylas:'<rect x="4.5" y="1.5" width="7" height="13" rx="1.5"/><path d="M8 5v5M6 8l2 2 2-2"/>',
+  temizlik:'<path d="M3 5h10M6.5 5V3.5h3V5M4.5 5l.6 8.5h5.8l.6-8.5"/>',
+  kilit:'<rect x="3.5" y="7" width="9" height="7" rx="1.5"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"/>',
+  yazi:'<path d="M2 4V2h2M12 2h2v2M14 12v2h-2M4 14H2v-2M5.5 5.5h5M8 5.5v5"/>',
+  ceviri:'<path d="M2 3.5h6M5 2v1.5M3.5 3.5c.5 2 2 3.5 4 4.5M7 3.5c-.4 2-1.8 3.8-4.5 5"/><path d="M8.5 14l2.5-6 2.5 6M9.4 12h3.2"/>',
+  goruntu:'<path d="M2 5V3a1 1 0 0 1 1-1h2M11 2h2a1 1 0 0 1 1 1v2M14 11v2a1 1 0 0 1-1 1h-2M5 14H3a1 1 0 0 1-1-1v-2"/><circle cx="8" cy="8" r="2.5"/>',
+  pano:'<rect x="3.5" y="2.5" width="9" height="11.5" rx="1.5"/><path d="M6 2.5h4v2H6zM6 8h4M6 10.5h3"/>',
+  qr:'<rect x="2" y="2" width="4.5" height="4.5" rx=".5"/><rect x="9.5" y="2" width="4.5" height="4.5" rx=".5"/><rect x="2" y="9.5" width="4.5" height="4.5" rx=".5"/><path d="M9.5 9.5h2v2M14 9.5v4.5h-2.5M9.5 13.5v.5"/>',
+  renk:'<path d="M8 2.5c2.5 3 4 5 4 7a4 4 0 0 1-8 0c0-2 1.5-4 4-7z"/>'};
+let S=null,F='hepsi';
+const FILTERS=[['hepsi','Tümü'],['acik','Açık'],['yakinda','Yakında']];
+function render(){
+  $('title').textContent=S.name;document.title=S.name;
+  $('flt').replaceChildren(...FILTERS.map(([k,l])=>{const b=el('button','chip'+(F===k?' on':''),l);b.onclick=()=>{F=k;render()};return b}));
+  const list=S.modules.filter(m=>F==='hepsi'||(F==='acik'?m.ready&&m.on:!m.ready));
+  $('grid').replaceChildren(...list.map(m=>{
+    const c=el('div','card'+(!m.ready?' soon':m.on?'':' off'));
+    const ic=el('div','ico');ic.innerHTML=P+(ICONS[m.id]||'')+'</svg>';
+    const hd=el('div','hd'),tx=el('div');tx.append(el('div','nm',m.name),el('div','st',!m.ready?'Yakında':m.on?(m.status||'Açık'):'Kapalı'));hd.append(ic,tx);
+    const ft=el('div','ft');
+    if(m.ready){const sw=el('label','sw'),inp=el('input');inp.type='checkbox';inp.checked=m.on;inp.title=m.on?'Kapat':'Aç';
+      inp.onchange=async()=>{S=await hub.toggle(m.id,inp.checked);render()};sw.append(inp,el('span'));
+      const open=el('button','btn','Aç');open.disabled=!m.on;open.onclick=()=>hub.open(m.id);
+      ft.append(sw,el('span','lbl',m.on?'Açık':'Kapalı'),open)}
+    else ft.append(el('span','badge','Yakında'));
+    c.append(hd,el('div','ds',m.desc),ft);return c}));
+}
+hub.on(s=>{S=s;render()});hub.state().then(s=>{S=s;render()});
+</script></body></html>

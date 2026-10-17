@@ -48,7 +48,7 @@
       "entitlementsInherit": "assets/entitlements.mac.plist",
       "category": "public.app-category.finance",
       "extendInfo": {
-        "LSUIElement": true,
+        "LSUIElement": false,
         "NSScreenCaptureUsageDescription": "Grafiği okumak için ekran görüntüsü gerekir",
         "NSAudioCaptureUsageDescription": "Uygulama başına ses seviyesi ve bas/tiz ayarı için uygulamaların sesine erişmek gerekir"
       },
