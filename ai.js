@@ -30,6 +30,15 @@ const modelInfo=id=>MODELS.find(m=>m.id===id)||MODELS[0];
 const cost=(id,u)=>{const m=modelInfo(id);return((u.input_tokens||0)*m.inM+(u.output_tokens||0)*m.outM)/1e6};
 
 // img: JPEG base64. crop: goruntunun tam ekrandaki yeri {x,y,w,h} (0-1); yanit tam ekrana cevrilir.
+// Kirpilmis goruntudeki 0-1 koordinatlari tam ekrana cevir (Claude ve Grok ortak).
+function mapCrop(a,crop){
+  const c=crop||{x:0,y:0,w:1,h:1},X=v=>c.x+v*c.w,Y=v=>c.y+v*c.h;
+  for(const l of [...(a.resistances||[]),...(a.supports||[])])l.y=Y(l.y);
+  for(const t of a.trendlines||[]){t.x1=X(t.x1);t.x2=X(t.x2);t.y1=Y(t.y1);t.y2=Y(t.y2)}
+  for(const t of a.axis||[])t.y=Y(t.y);
+  if(a.chart_box){const b=a.chart_box;a.chart_box={x1:X(b.x1),y1:Y(b.y1),x2:X(b.x2),y2:Y(b.y2)}}
+  return a;
+}
 async function analyze({key,model,img,crop,effort}){
   const req={model,max_tokens:16000,system:SYS,output_config:{effort,format:{type:'json_schema',schema:SCHEMA}},
     messages:[{role:'user',content:[{type:'image',source:{type:'base64',media_type:'image/jpeg',data:img}},{type:'text',text:'Grafigi analiz et.'}]}]};
@@ -40,11 +49,7 @@ async function analyze({key,model,img,crop,effort}){
   if(r.stop_reason==='refusal')throw new Error('Model bu isteği yanıtlamadı. Tekrar dene.');
   if(r.stop_reason==='max_tokens')throw new Error('Yanıt yarıda kesildi. Tekrar dene.');
   const a=JSON.parse(r.content.filter(c=>c.type==='text').map(c=>c.text).join(''));
-  const c=crop||{x:0,y:0,w:1,h:1},X=v=>c.x+v*c.w,Y=v=>c.y+v*c.h;
-  for(const l of [...(a.resistances||[]),...(a.supports||[])])l.y=Y(l.y);
-  for(const t of a.trendlines||[]){t.x1=X(t.x1);t.x2=X(t.x2);t.y1=Y(t.y1);t.y2=Y(t.y2)}
-  for(const t of a.axis||[])t.y=Y(t.y);
-  if(a.chart_box){const b=a.chart_box;a.chart_box={x1:X(b.x1),y1:Y(b.y1),x2:X(b.x2),y2:Y(b.y2)}}
+  mapCrop(a,crop);
   a.engine='claude';a.cost=cost(model,r.usage||{});
   return a;
 }
@@ -80,4 +85,4 @@ async function analyzeDepth({key,model,img,media='image/jpeg'}){
   d.cost=cost(model,r.usage||{});return d;
 }
 
-module.exports={MODELS,analyze,analyzeDepth,errorText,modelInfo};
+module.exports={MODELS,analyze,analyzeDepth,errorText,modelInfo,mapCrop,SYS,SCHEMA,DSYS,DSCHEMA};
