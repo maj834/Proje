@@ -1,4 +1,4 @@
-const {app,BrowserWindow,Tray,screen,desktopCapturer,ipcMain,globalShortcut,nativeImage,safeStorage,systemPreferences,shell,Menu,Notification,clipboard}=require('electron');
+const {app,BrowserWindow,Tray,screen,desktopCapturer,ipcMain,globalShortcut,nativeImage,safeStorage,systemPreferences,shell,Menu,Notification,clipboard,dialog}=require('electron');
 const fs=require('fs'),path=require('path');
 const engine=require('./engine');
 const ai=require('./ai');
@@ -8,6 +8,7 @@ const tg=require('./tg');
 const sync=require('./sync');
 const market=require('./market');
 const calendar=require('./calendar');
+const shareLib=require('./share');
 
 const INTERVALS=[2,5,10,30,60];
 const HISTORY_MAX=30;
@@ -97,6 +98,34 @@ function diff(a,b){
 // --- pencereler ----------------------------------------------------------
 const send=(ch,d)=>pop&&!pop.isDestroyed()&&pop.webContents.send(ch,d);
 const sendOv=(ch,d)=>ov&&!ov.isDestroyed()&&ov.webContents.send(ch,d);
+// --- QR ile dosya paylasimi -------------------------------------------------------
+let shareWin=null,shareSess=null;
+function openShare(){
+  if(shareWin){shareWin.show();shareWin.focus();return}
+  shareWin=new BrowserWindow({width:400,height:780,minWidth:360,minHeight:520,title:'Dosya paylaşımı',show:false,
+    webPreferences:{preload:path.join(__dirname,'share-preload.js'),sandbox:true}});
+  shareWin.loadFile(path.join(__dirname,'share.html'));shareWin.once('ready-to-show',()=>{shareWin.show();shareWin.focus()});
+  shareWin.webContents.setWindowOpenHandler(()=>({action:'deny'}));
+  shareWin.webContents.on('will-navigate',e=>e.preventDefault());
+  shareWin.on('closed',()=>{shareWin=null;if(shareSess){shareSess.stop('user');shareSess=null}});
+}
+async function shareState(){
+  const i=shareSess?shareSess.info():{running:false,files:[],received:[]};
+  const qr=i.url&&i.running?await require('qrcode').toString(i.url,{type:'svg',margin:1,errorCorrectionLevel:'M'}):null;
+  return {ok:true,...i,qr};
+}
+// Telefondan gelen dosyalar icin onay: cihaz basina bir kez sorulur
+function shareAsk({ip,count,bytes,names}){
+  if(shareWin){shareWin.show();shareWin.focus()}
+  return dialog.showMessageBox(shareWin||undefined,{type:'question',buttons:['Kabul et','Reddet'],defaultId:0,cancelId:1,
+    message:'Telefondan '+count+' dosya gönderilmek isteniyor ('+shareLib.human(bytes)+')',
+    detail:names.join('\n')+(count>names.length?'\n+'+(count-names.length)+' dosya daha':'')+'\n\nCihaz: '+ip+'\nKaydedileceği yer: İndirilenler'}).then(r=>r.response===0);
+}
+function shareEvt(e){
+  if(shareWin&&!shareWin.isDestroyed())shareWin.webContents.send('shareEvt',e);
+  if(e.type==='received'&&(!shareWin||!shareWin.isFocused())&&Notification.isSupported())new Notification({title:'Dosya alındı',body:e.name+' · İndirilenler'}).show();
+}
+
 function mk(){
   const pre=path.join(__dirname,'preload.js');
   pop=new BrowserWindow({width:380,height:560,show:false,frame:false,resizable:false,skipTaskbar:true,alwaysOnTop:true,transparent:true,
@@ -702,6 +731,7 @@ app.whenReady().then(()=>{
     {label:'Ekranı Analiz Et',accelerator:sc().analyze,click:()=>analyze()},
     {label:'Çizim Modu',accelerator:sc().draw,click:()=>setDrawing(true)},
     {label:'Analiz Çizgilerini Gizle',click:clearAnalysis},{type:'separator'},
+    {label:'Telefonla Dosya Paylaş (QR)…',click:openShare},{type:'separator'},
     {label:'Canlı Mod',type:'checkbox',accelerator:sc().live,checked:!!cfg().live,click:m=>{setLive(m.checked);send('state',state())}},{type:'separator'},
     {label:'Çıkış',role:'quit'}])));
   registerShortcuts();
@@ -709,6 +739,17 @@ app.whenReady().then(()=>{
   ipcMain.handle('scCapture',(e,on)=>{if(on){scPaused=true;globalShortcut.unregisterAll()}else registerShortcuts();return scState});
   ipcMain.handle('diag',()=>diagnostics());
   ipcMain.handle('karne',()=>scorecard());
+  ipcMain.handle('shareOpen',()=>{openShare();pop.hide()});
+  ipcMain.handle('shareStart',async()=>{try{
+    if(!shareSess||!shareSess.info().running){shareSess=shareLib.createShare({downloadsDir:app.getPath('downloads'),ask:shareAsk,onEvent:shareEvt,host:process.env.GRAFIK_SHARE_HOST||undefined});await shareSess.start()}
+    return shareState()}catch(err){shareSess=null;return {ok:false,msg:err.message}}});
+  ipcMain.handle('shareStop',()=>{if(shareSess)shareSess.stop('user');return shareState()});
+  ipcMain.handle('sharePick',async()=>{if(!shareSess)return null;const r=await dialog.showOpenDialog(shareWin||undefined,{properties:['openFile','multiSelections'],title:'Telefona gönderilecek dosyalar'});
+    if(!r.canceled)shareSess.add(r.filePaths);return shareState()});
+  ipcMain.handle('shareAdd',(e,paths)=>{if(shareSess&&Array.isArray(paths))shareSess.add(paths.filter(p=>typeof p==='string'&&path.isAbsolute(p)).slice(0,500));return shareState()});
+  ipcMain.handle('shareRemove',(e,id)=>{if(shareSess)shareSess.remove(String(id));return shareState()});
+  // Yalnizca bu oturumda telefondan gelen dosyalar Finder'da gosterilir
+  ipcMain.handle('shareReveal',(e,p)=>{if(shareSess&&shareSess.info().received.some(r=>r.path===p))shell.showItemInFolder(p)});
   ipcMain.handle('testNotify',()=>{if(!Notification.isSupported())return false;new Notification({title:'Grafik Okuyucu',body:'Test bildirimi: bildirimler çalışıyor.'}).show();return true});
   ipcMain.handle('parseTest',(e,t)=>parseTest(t));
   ipcMain.handle('scSet',(e,o)=>setShortcut(o&&o.name,o&&o.acc));
@@ -787,5 +828,5 @@ app.whenReady().then(()=>{
   if(cfg().live)setLive(true);
   trayTitle();
 });
-app.on('will-quit',()=>{globalShortcut.unregisterAll();try{require('./depthimg').close()}catch(e){}});
+app.on('will-quit',()=>{globalShortcut.unregisterAll();if(shareSess)shareSess.stop('quit');try{require('./depthimg').close()}catch(e){}});
 app.on('window-all-closed',e=>e.preventDefault());

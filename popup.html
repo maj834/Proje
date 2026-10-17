@@ -107,12 +107,14 @@ input[type=color]::-webkit-color-swatch-wrapper{padding:2px}input[type=color]::-
 .scr{display:flex;align-items:center;gap:var(--s2);padding:4px 0;font-size:12px;color:var(--fg-2)}.scr kbd{min-width:44px;text-align:center}
 textarea.inp{height:110px;padding:6px var(--s2);resize:vertical;font:400 11.5px/1.45 var(--mono);-webkit-user-select:text;user-select:text}
 .news a:hover{color:var(--acc);text-decoration:none}.news .ef{display:block;font-size:11px;color:var(--fg-2);margin-top:2px}.news .sc{font:600 10.5px var(--mono);margin-right:6px}
-#bnews .c,#dbnews .c{margin-bottom:10px}.news small{display:block;font:400 10.5px var(--mono);color:var(--fg-3);margin-top:2px}
+#bnews .c,#dbnews .c{margin-bottom:10px}
+.ib{border:0;background:none;color:var(--fg-2);padding:4px;border-radius:5px;cursor:pointer;display:flex}.ib:hover{background:var(--sunk);color:var(--fg)}.news small{display:block;font:400 10.5px var(--mono);color:var(--fg-3);margin-top:2px}
 </style></head><body><div class="win" id="win">
 <div class="h">
   <div class="logo"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12.5 6 8l3 2.5L14 4"/><path d="M10.5 4H14v3.5"/></svg></div>
   <div class="f1"><b>Grafik Okuyucu</b><div class="sub" id="sub">Hazır</div></div>
   <span class="livepill" id="lp"><span class="dot live"></span>CANLI</span>
+  <button class="ib" id="shr" title="Telefonla dosya paylaş (QR)"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="4.5" y="1.5" width="7" height="13" rx="1.5"/><path d="M8 5v5M6 8l2 2 2-2"/></svg></button>
 </div>
 <div class="tabs"><button data-p="an" class="on">Analiz</button><button data-p="dp">Derinlik</button><button data-p="hs">Geçmiş</button><button data-p="st">Ayarlar</button></div>
 <div class="body" id="body">
@@ -402,6 +404,7 @@ $('howkey').onclick=()=>{const t=$('howtxt');t.style.display=t.style.display==='
 $('billing').onclick=()=>api.openBilling();
 $('permb').onclick=()=>api.openPerm();
 $('quit').onclick=()=>api.quit();
+$('shr').onclick=()=>api.shareOpen();
 window.addEventListener('focus',()=>api.cfg().then(c=>{C=c;ui()}));
 
 

@@ -1,0 +1,72 @@
+<!doctype html><html lang="tr"><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; script-src 'self' 'unsafe-inline'">
+<title>Dosya paylaşımı</title><link rel="stylesheet" href="theme.css">
+<style>
+html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font:400 13px/1.45 var(--font);-webkit-user-select:none;user-select:none}
+.w{display:flex;flex-direction:column;gap:var(--s4);padding:var(--s4) var(--s5) var(--s5);min-height:100%;box-sizing:border-box}
+h1{font:600 15px var(--font);margin:0}.m{color:var(--fg-3);font-size:12px}.f1{flex:1;min-width:0}
+.qr{display:flex;flex-direction:column;align-items:center;gap:var(--s2);padding:var(--s4);border:1px solid var(--line);border-radius:8px;background:var(--surface)}
+.qr .code{width:220px;height:220px;background:#fff;border-radius:6px;padding:8px;box-sizing:border-box}.qr .code svg{width:100%;height:100%;display:block}
+.url{font:400 11px var(--mono);color:var(--fg-2);word-break:break-all;text-align:center;-webkit-user-select:text;user-select:text}
+.row{display:flex;align-items:center;gap:var(--s2)}
+.btn{border:1px solid var(--line-2);background:var(--surface);color:var(--fg);font:500 12px var(--font);padding:5px 10px;border-radius:5px;cursor:pointer}
+.btn:hover{border-color:var(--fg-3)}.btn.pri{background:var(--acc);border-color:var(--acc);color:var(--acc-ink)}
+.drop{border:1.5px dashed var(--line-2);border-radius:8px;padding:var(--s4);text-align:center;color:var(--fg-2);transition:background .15s,border-color .15s}
+.drop.on{background:var(--acc-soft);border-color:var(--acc)}
+.t{font:600 11px var(--font);letter-spacing:.06em;text-transform:uppercase;color:var(--fg-3);margin-bottom:var(--s1)}
+.list{border:1px solid var(--line);border-radius:8px;background:var(--surface)}.list:empty{display:none}
+.it{display:flex;align-items:center;gap:var(--s2);padding:7px 10px;border-top:1px solid var(--line)}.it:first-child{border-top:0}
+.it .n{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.it .s{font:400 11px var(--mono);color:var(--fg-3)}
+.x{border:0;background:none;color:var(--fg-3);cursor:pointer;font-size:14px;padding:0 4px}.x:hover{color:var(--fg)}
+.err{display:none;padding:var(--s3);border-radius:6px;background:var(--dn-soft);color:var(--dn)}
+.bar{height:3px;border-radius:2px;background:var(--line);overflow:hidden;margin-top:4px}.bar i{display:block;height:100%;background:var(--acc);width:0}
+.off .qr .code{opacity:.15}.off #url{text-decoration:line-through}
+</style></head><body><div class="w" id="w">
+  <div class="row"><div class="f1"><h1>Telefonla dosya paylaş</h1><div class="m">Telefonun kamerasıyla QR'ı okut. Uygulama gerekmez; aynı Wi-Fi yeterli.</div></div></div>
+  <div class="err" id="err"></div>
+  <div class="qr"><div class="code" id="qr"></div><div class="url" id="url"></div>
+    <div class="row"><button class="btn" id="copy">Adresi kopyala</button><span class="m" id="ttl"></span></div></div>
+  <div class="drop" id="drop">Telefona göndermek istediğin dosyaları buraya sürükle<br><button class="btn pri" id="pick" style="margin-top:8px">Dosya seç</button></div>
+  <div><div class="t" id="sh">Gönderilenler</div><div class="list" id="files"></div></div>
+  <div><div class="t" id="rh">Telefondan gelenler · İndirilenler klasörü</div><div class="list" id="recv"></div><div id="prog"></div></div>
+  <div class="row" style="margin-top:auto"><span class="m f1">Paylaşım 10 dakika işlem olmazsa kendiliğinden kapanır.</span><button class="btn" id="stop">Paylaşımı kapat</button></div>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+const human=n=>n>=1024**3?(n/1024**3).toFixed(1).replace('.',',')+' GB':n>=1024**2?(n/1024**2).toFixed(1).replace('.',',')+' MB':Math.max(1,Math.round(n/1024))+' KB';
+const el=(t,c,txt)=>{const e=document.createElement(t);if(c)e.className=c;if(txt!=null)e.textContent=txt;return e};
+let S={},left=600,tick=null;
+function render(){
+  $('err').style.display='none';
+  document.body.classList.toggle('off',!S.running);
+  if(S.qr)$('qr').innerHTML=S.qr;$('url').textContent=S.url||'';
+  $('stop').textContent=S.running?'Paylaşımı kapat':'Yeniden başlat';
+  const fl=$('files');fl.replaceChildren(...(S.files||[]).map(f=>{const r=el('div','it');const x=el('button','x','×');x.title='Listeden çıkar';
+    x.onclick=async()=>{S=await share.remove(f.id);render()};r.append(el('span','n',f.name),el('span','s',human(f.size)),x);return r}));
+  $('sh').style.display=(S.files||[]).length?'':'none';
+  const rv=$('recv');rv.replaceChildren(...(S.received||[]).slice().reverse().map(f=>{const r=el('div','it');const b=el('button','btn','Göster');
+    b.onclick=()=>share.reveal(f.path);r.append(el('span','n',f.name),el('span','s',human(f.size)),b);return r}));
+  $('rh').style.display=(S.received||[]).length||$('prog').childElementCount?'':'none';
+}
+function countdown(){clearInterval(tick);left=600;tick=setInterval(()=>{left=Math.max(0,left-1);$('ttl').textContent=S.running?'Kapanmasına '+Math.floor(left/60)+':'+String(left%60).padStart(2,'0'):'Kapalı'},1000)}
+function fail(m){$('err').textContent=m;$('err').style.display='block'}
+async function start(){const r=await share.start();if(!r.ok){fail(r.msg);S={running:false};document.body.classList.add('off');return}S=r;render();countdown()}
+share.on(e=>{
+  if(e.type==='stop'){S.running=false;render();$('ttl').textContent=e.reason==='time'?'Süre doldu, kapandı':'Kapalı';clearInterval(tick);return}
+  if(['visit','download','upload-progress','upload-start'].includes(e.type))left=600;
+  if(e.type==='upload-progress'||e.type==='upload-start'){let p=document.getElementById('p-'+e.name);
+    if(!p){p=el('div','it');p.id='p-'+e.name;p.append(el('span','n',e.name),el('span','s',''));const b=el('div','bar');b.append(el('i'));p.append(b);$('prog').append(p)}
+    p.querySelector('.s').textContent=e.bytes?human(e.bytes):'';if(e.total)p.querySelector('.bar i').style.width=Math.round(e.bytes/e.total*100)+'%';render()}
+  if(e.type==='received'||e.type==='upload-fail'){const p=document.getElementById('p-'+e.name);if(p)p.remove();
+    if(e.type==='received')(S.received=S.received||[]).push({name:e.name,size:e.size,path:e.path});else fail(e.name+' alınamadı: '+e.msg);render()}
+  if(e.type==='files'){S.files=e.files;render()}
+});
+$('pick').onclick=async()=>{const r=await share.pick();if(r)S=r;render()};
+$('copy').onclick=()=>{if(S.url){share.copy(S.url);$('copy').textContent='Kopyalandı';setTimeout(()=>$('copy').textContent='Adresi kopyala',1500)}};
+$('stop').onclick=async()=>{if(S.running){S=await share.stop();render();clearInterval(tick);$('ttl').textContent='Kapalı'}else start()};
+const d=$('drop');
+d.ondragover=e=>{e.preventDefault();d.classList.add('on')};d.ondragleave=()=>d.classList.remove('on');
+d.ondrop=async e=>{e.preventDefault();d.classList.remove('on');const paths=[...e.dataTransfer.files].map(f=>share.pathOf(f)).filter(Boolean);if(paths.length){S=await share.add(paths);render()}};
+document.addEventListener('dragover',e=>e.preventDefault());document.addEventListener('drop',e=>e.preventDefault());
+start();
+</script></body></html>

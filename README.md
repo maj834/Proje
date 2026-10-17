@@ -54,6 +54,16 @@ Her analizde (Hızlı ve Claude) şunlar hesaplanır:
 
 Fiyat ekseni okunmadan, mumların ekrandaki konumundan hesaplanır; EMA, Bollinger, MACD ve RSI bu dönüşümden etkilenmez. Claude analizi fiyatları ekler ve skora kendi yorumunu katar.
 
+## Telefonla dosya paylaşımı (QR)
+
+Menü çubuğu penceresindeki telefon simgesi ya da sağ tık › **Telefonla Dosya Paylaş (QR)**. Açılan penceredeki QR'ı telefonun kamerasıyla okut; telefonun kendi tarayıcısında bir sayfa açılır. **iPhone, Android ve iPad'de çalışır, telefona uygulama kurmak gerekmez.**
+
+- **Mac → telefon:** dosyaları pencereye sürükle ya da **Dosya seç**; telefondaki sayfada **İndir** görünür (liste kendiliğinden güncellenir).
+- **Telefon → Mac:** sayfadaki **Dosya seç** ile fotoğraf, video ya da herhangi bir dosya gönderilir. İlk gönderimde Mac'te onay sorulur; dosyalar **İndirilenler** klasörüne kaydedilir.
+- **Boyut sınırı yok:** dosyalar diskten akıtılır (50 GB'lık video da olur); yalnızca alıcı cihazdaki boş alan sınırdır. Yarıda kalan indirme kaldığı yerden devam eder.
+- **Güvenlik:** her paylaşımda tahmin edilemeyen yeni bir adres; dosyalar internete çıkmaz, yalnızca yerel ağda gider; 10 dakika işlem olmazsa ya da pencere kapanınca paylaşım kapanır. Telefon ile Mac aynı Wi-Fi'da olmalı (ya da telefon Mac'in kişisel erişim noktasına bağlı). Ortak kafe/otel ağlarında kullanma.
+- İlk kullanımda macOS "gelen bağlantılara izin verilsin mi" diye sorabilir: **İzin Ver**.
+
 ## Telegram derinlik botu
 
 Kullandığın Telegram derinlik botunu uygulamaya bağlayabilirsin:
