@@ -198,8 +198,9 @@ final class AppTap {
     var ioProc: AudioDeviceIOProcID?
     init?(bundle: String, objs: [AudioObjectID], outputUID: String, settings: Settings) {
         self.bundle = bundle; self.objs = objs
-        let desc = CATapDescription(stereoMixdownOfProcesses: objs.map { NSNumber(value: $0) })
-        desc.uuid = UUID(); desc.name = "ses-yardimcisi \(bundle)"; desc.isPrivate = true; desc.muteBehavior = .mutedWhenTapped
+        let desc = CATapDescription(stereoMixdownOfProcesses: objs)
+        desc.uuid = UUID(); desc.name = "ses-yardimcisi \(bundle)"; desc.isPrivate = true
+        desc.muteBehavior = CATapMuteBehavior.mutedWhenTapped
         var err = AudioHardwareCreateProcessTap(desc, &tapID)
         if err != noErr { fail("Ses yakalanamadı. Sistem Ayarları › Gizlilik ve Güvenlik › Ekran ve Sistem Sesi Kaydı'nda izin ver.", err); return nil }
         let aggUID = "ses-yardimcisi-\(UUID().uuidString)"
