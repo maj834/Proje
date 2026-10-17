@@ -24,6 +24,34 @@ function runs(arr,gap,minVal=1){
   return out;
 }
 
+
+// --- indikatorler ----------------------------------------------------------
+// Fiyat ekseni okunmadigi icin hesaplar piksel uzayinda yapilir: p = -y. EMA, Bollinger
+// ve MACD dogrusal donusumle birebir tasinir; RSI ise olcekten bagimsizdir.
+function ema(a,n){const k=2/(n+1),o=[];let e=a[0];for(let i=0;i<a.length;i++){e=i?a[i]*k+e*(1-k):a[0];o.push(e)}return o}
+function sma(a,n){const o=[];let s=0;for(let i=0;i<a.length;i++){s+=a[i];if(i>=n)s-=a[i-n];o.push(i>=n-1?s/n:null)}return o}
+function rsi(a,n=14){const o=new Array(a.length).fill(null);if(a.length<=n)return o;let g=0,l=0;
+  for(let i=1;i<=n;i++){const d=a[i]-a[i-1];if(d>0)g+=d;else l-=d}g/=n;l/=n;o[n]=l?100-100/(1+g/l):100;
+  for(let i=n+1;i<a.length;i++){const d=a[i]-a[i-1];g=(g*(n-1)+Math.max(d,0))/n;l=(l*(n-1)+Math.max(-d,0))/n;o[i]=l?100-100/(1+g/l):100}return o}
+
+// Son mumlardaki klasik mum formasyonlari. Degerler fiyat yonunde (yukari = buyuk).
+function candlePattern(cs){
+  const n=cs.length;if(n<3)return null;
+  const P=c=>({o:-c.open,c:-c.close,h:-c.hi,l:-c.lo}),a=P(cs[n-3]),b=P(cs[n-2]),c=P(cs[n-1]);
+  const body=x=>Math.abs(x.c-x.o),rng=x=>Math.max(1e-6,x.h-x.l),up=x=>x.c>x.o;
+  const uw=x=>x.h-Math.max(x.o,x.c),lw=x=>Math.min(x.o,x.c)-x.l;
+  const avg=cs.slice(-12).reduce((s,k)=>s+Math.abs(k.open-k.close),0)/Math.min(12,n)||1;
+  if(rng(c)<avg*0.6)return null; // cok kucuk mumlarda formasyon arama
+  if(!up(b)&&up(c)&&c.c>=b.o&&c.o<=b.c&&body(c)>body(b))return{name:'Yutan boğa',dir:1};
+  if(up(b)&&!up(c)&&c.c<=b.o&&c.o>=b.c&&body(c)>body(b))return{name:'Yutan ayı',dir:-1};
+  if(!up(a)&&body(a)>avg&&body(b)<avg*0.4&&up(c)&&c.c>(a.o+a.c)/2)return{name:'Sabah yıldızı',dir:1};
+  if(up(a)&&body(a)>avg&&body(b)<avg*0.4&&!up(c)&&c.c<(a.o+a.c)/2)return{name:'Akşam yıldızı',dir:-1};
+  if(lw(c)>=2*body(c)&&uw(c)<=Math.max(body(c),rng(c)*0.1)&&body(c)>0)return{name:'Çekiç',dir:1};
+  if(uw(c)>=2*body(c)&&lw(c)<=Math.max(body(c),rng(c)*0.1)&&body(c)>0)return{name:'Kayan yıldız',dir:-1};
+  if(body(c)<=rng(c)*0.1)return{name:'Doji',dir:0};
+  return null;
+}
+
 function analyzeBitmap(buf,W,H,opts={}){
   const bgra=opts.format!=='rgba';
   const mask=new Uint8Array(W*H);
@@ -74,7 +102,7 @@ function analyzeMask(mask,W,H){
   }
   // Mumlar birlesmisse (cok uzaklastirilmis grafik) sutun bazli calis.
   const widths=candles.map(c=>c.x1-c.x0+1).sort((a,b)=>a-b),medW=widths[widths.length>>1]||0;
-  if(candles.length<15||medW>14){
+  if(candles.length<15||medW>(X1-X0)/12){
     candles=[];const step=Math.max(2,Math.round((X1-X0)/150));
     for(let x=X0;x<=X1;x+=step){let hi=1e9,lo=-1,g=0,r=0;
       for(let k=x;k<Math.min(X1+1,x+step);k++)if(hiC[k]>=0){hi=Math.min(hi,hiC[k]);lo=Math.max(lo,loC[k]);g+=colG[k];r+=colR[k]}
@@ -159,15 +187,68 @@ function analyzeMask(mask,W,H){
 
   const nx=x=>+(x/W).toFixed(4),ny=y=>+(y/H).toFixed(4);
   const L=a=>a.map(l=>({price:null,y:ny(l.y),touches:l.touches}));
+
+  // 11) Indikatorler (kapanislar fiyat yonunde: -y).
+  const cl=candles.map(c=>-c.close),xsN=candles.map(c=>nx(c.x));
+  const e20=ema(cl,20),e50=ema(cl,50),m20=sma(cl,20),R=rsi(cl,14);
+  const sd=cl.map((_,i)=>{if(i<19)return null;let s2=0;for(let j=i-19;j<=i;j++)s2+=(cl[j]-m20[i])**2;return Math.sqrt(s2/20)});
+  const macd=ema(cl,12).map((v,i)=>v-ema(cl,26)[i]),sig=ema(macd,9),hist=macd.map((v,i)=>v-sig[i]);
+  const poly=(arr,from)=>arr.map((v,i)=>i>=from&&v!=null?[xsN[i],ny(-v)]:null).filter(Boolean);
+  const r=R[N-1],eUp=e20[N-1]>e50[N-1],aboveE20=cl[N-1]>e20[N-1];
+  const crossM=hist[N-1]>0&&hist.slice(-4,-1).some(h=>h<=0)?1:hist[N-1]<0&&hist.slice(-4,-1).some(h=>h>=0)?-1:0;
+  const crossE=e20[N-1]>e50[N-1]&&e20.slice(-6,-1).some((v,i)=>v<=e50[N-6+i])?1:e20[N-1]<e50[N-1]&&e20.slice(-6,-1).some((v,i)=>v>=e50[N-6+i])?-1:0;
+  const bbU=m20[N-1]!=null?m20[N-1]+2*sd[N-1]:null,bbL=m20[N-1]!=null?m20[N-1]-2*sd[N-1]:null;
+  // RSI uyumsuzlugu: son iki pivot dip/tepe.
+  let div=null;
+  const l2=pl.slice(-2),h2=ph.slice(-2);
+  if(l2.length===2&&R[l2[0]]!=null&&N-1-l2[1]<N*0.25&&-candles[l2[1]].lo<-candles[l2[0]].lo-tol*0.3&&R[l2[1]]>R[l2[0]]+3)div={name:'Pozitif RSI uyumsuzluğu',dir:1};
+  else if(h2.length===2&&R[h2[0]]!=null&&N-1-h2[1]<N*0.25&&-candles[h2[1]].hi>-candles[h2[0]].hi+tol*0.3&&R[h2[1]]<R[h2[0]]-3)div={name:'Negatif RSI uyumsuzluğu',dir:-1};
+  const cp=candlePattern(candles);
+  if(cp&&cp.dir!==0)patterns.push(cp.name);
+  if(div)patterns.push(div.name);
+
+  // 12) Otomatik Fibonacci: son %70'lik bolumdeki en buyuk salinim.
+  const from=Math.floor(N*0.3);let iH=from,iL=from;
+  for(let i=from;i<N;i++){if(candles[i].hi<candles[iH].hi)iH=i;if(candles[i].lo>candles[iL].lo)iL=i}
+  const fibUp=iL<iH; // dipten tepeye: geri cekilme seviyeleri asagi dogru
+  const fy0=candles[fibUp?iH:iL][fibUp?'hi':'lo'],fy1=candles[fibUp?iL:iH][fibUp?'lo':'hi'];
+  const fib=Math.abs(fy1-fy0)>span*0.15?{x1:nx(candles[Math.min(iH,iL)].x),x2:nx(X1),up:fibUp,
+    levels:[0,0.236,0.382,0.5,0.618,0.786,1].map(f=>({f,y:ny(fy0+(fy1-fy0)*f)}))}:null;
+
+  // 13) Teknik gorunum skoru (-100..100) ve gerekceleri.
+  const F=[];const add=(v,t)=>{if(v)F.push({v,t})};
+  add(bias==='yukselis'?Math.round(10+r2*15):bias==='dusus'?-Math.round(10+r2*15):0,trend);
+  add(eUp?12:-12,eUp?'EMA20 > EMA50':'EMA20 < EMA50');
+  add(crossE*10,crossE>0?'EMA20, EMA50\'yi yukarı kesti':'EMA20, EMA50\'yi aşağı kesti');
+  add(aboveE20?6:-6,aboveE20?'Fiyat EMA20 üzerinde':'Fiyat EMA20 altında');
+  if(r!=null)add(r>=70?-10:r<=30?10:r>=55?6:r<=45?-6:0,r>=70?'RSI aşırı alımda ('+Math.round(r)+')':r<=30?'RSI aşırı satımda ('+Math.round(r)+')':'RSI '+Math.round(r));
+  add(hist[N-1]>0?8:-8,hist[N-1]>0?'MACD pozitif':'MACD negatif');
+  add(crossM*7,crossM>0?'MACD sinyal kesişimi (yukarı)':'MACD sinyal kesişimi (aşağı)');
+  if(cp)add(cp.dir*10,cp.name+' mumu');
+  if(div)add(div.dir*14,div.name);
+  if(crossedUp.length)add(14,'Direnç kırılımı');else if(crossedDn.length)add(-14,'Destek kırılımı');
+  if(res.length&&(lastY-res[0].y)/span<0.04)add(-5,'Dirence çok yakın');
+  if(sup.length&&(sup[0].y-lastY)/span<0.04)add(5,'Desteğe çok yakın');
+  const score=Math.max(-100,Math.min(100,F.reduce((a,f)=>a+f.v,0)));
+  // Risk/odul: en yakin dirence uzaklik / en yakin destege uzaklik.
+  const riskReward=res.length&&sup.length?+((lastY-res[0].y)/Math.max(1,sup[0].y-lastY)).toFixed(2):null;
+  const ind={rsi:r!=null?Math.round(r):null,rsiSeries:R.slice(-60).map(v=>v==null?null:Math.round(v)),
+    macd:hist[N-1]>0?'pozitif':'negatif',macdCross:crossM,emaTrend:eUp?'yukari':'asagi',emaCross:crossE,
+    bb:bbU!=null?{pos:Math.round((cl[N-1]-bbL)/Math.max(1e-6,bbU-bbL)*100),width:Math.round((bbU-bbL)/span*100)}:null,
+    candle:cp&&cp.name,divergence:div&&div.name};
+  const lines={ema20:poly(e20,10),ema50:poly(e50,30),bbU:poly(m20.map((m,i)=>m==null?null:m+2*sd[i]),19),bbL:poly(m20.map((m,i)=>m==null?null:m-2*sd[i]),19)};
   const comment=[trend+' ('+N+' mum).',
     res.length?'En yakın direnç '+res[0].touches+' temaslı, grafik yüksekliğinin %'+Math.round((lastY-res[0].y)/span*100)+' kadar yukarısında.':'Yukarıda belirgin direnç yok.',
     sup.length?'En yakın destek '+sup[0].touches+' temaslı, %'+Math.round((sup[0].y-lastY)/span*100)+' aşağıda.':'Aşağıda belirgin destek yok.',
     tSup?'Yükselen destek trend çizgisi '+tSup.touch+' temasla çalışıyor.':null,
-    tRes?'Alçalan direnç trend çizgisi '+tRes.touch+' temasla çalışıyor.':null].filter(Boolean).join(' ');
+    tRes?'Alçalan direnç trend çizgisi '+tRes.touch+' temasla çalışıyor.':null,
+    r!=null?'RSI '+Math.round(r)+(r>=70?' (aşırı alım)':r<=30?' (aşırı satım)':'')+', MACD '+ind.macd+'.':null,
+    cp&&cp.dir?'Son mum: '+cp.name+'.':null,div?div.name+' var.':null].filter(Boolean).join(' ');
   return{chart_found:true,engine:'yerel',symbol:null,timeframe:null,bias,confidence,trend,
     resistances:L(res),supports:L(sup),breakout,patterns,comment,
     trendlines:[tSup&&{type:'destek',...tSup},tRes&&{type:'direnc',...tRes}].filter(Boolean).map(t=>({type:t.type,x1:nx(t.x1),y1:ny(t.y1),x2:nx(t.x2),y2:ny(t.y2)})),
-    chart_box:{x1:nx(X0),y1:ny(Y0),x2:nx(X1),y2:ny(Y1)},last:{x:nx(last.x),y:ny(lastY)},candles:N};
+    chart_box:{x1:nx(X0),y1:ny(Y0),x2:nx(X1),y2:ny(Y1)},last:{x:nx(last.x),y:ny(lastY)},candles:N,
+    ind,score,factors:F.sort((a,b)=>Math.abs(b.v)-Math.abs(a.v)),rr:riskReward,fib,lines};
 }
 
 const api={analyzeBitmap,analyzeMask,classify};

@@ -38,7 +38,7 @@ body.draw #hint{display:block}
 <svg id="dr" class="layer"></svg>
 <div id="badge"></div>
 <div id="tb"></div>
-<div id="hint">Sürükleyerek çiz · <b>Esc</b> bitir · <b>⌘Z</b> geri al · <b>Sil</b> seçileni kaldır</div>
+<div id="hint">Sürükleyerek çiz · <b>A</b> alarm çizgisi · <b>Esc</b> bitir · <b>⌘Z</b> geri al · <b>Sil</b> seçileni kaldır</div>
 <input id="noteIn" placeholder="Not yaz, Enter">
 <script>
 const NS='http://www.w3.org/2000/svg';
@@ -73,6 +73,21 @@ function drawAnalysis(a){
   (a.trendlines||[]).forEach((t,i)=>{const col=t.type==='destek'?'#2bb3ff':'#ff9f1a',g=S('g',{class:'tl',style:'animation-delay:'+(i*90+250)+'ms'},an);
     S('line',{x1:t.x1*W,y1:t.y1*H,x2:t.x2*W,y2:t.y2*H,stroke:col,'stroke-width':2,'stroke-linecap':'round'},g);
     tag(g,t.x2*W-104,t.y2*H+(t.type==='destek'?18:-18),t.type==='destek'?'Destek trendi':'Direnç trendi',col)});
+  const sh=a.show||{},Lp=a.lines||{},pts2=arr=>arr.map(p=>(p[0]*W).toFixed(1)+','+(p[1]*H).toFixed(1)).join(' ');
+  const endTag=(arr,text,col,dy=0)=>{if(arr&&arr.length){const p=arr[arr.length-1];tag(an,p[0]*W+8,p[1]*H+dy,text,col)}};
+  if(sh.bb&&Lp.bbU&&Lp.bbU.length>1){const g=S('g',{class:'tl'},an);
+    S('polygon',{points:pts2(Lp.bbU)+' '+pts2([...Lp.bbL].reverse()),fill:'rgba(140,160,200,.09)'},g);
+    for(const k of ['bbU','bbL'])S('polyline',{points:pts2(Lp[k]),fill:'none',stroke:'rgba(160,175,210,.7)','stroke-width':1.2},g)}
+  if(sh.ema){const g=S('g',{class:'tl'},an);
+    if(Lp.ema20&&Lp.ema20.length>1){S('polyline',{points:pts2(Lp.ema20),fill:'none',stroke:'#f5c518','stroke-width':1.6},g)}
+    if(Lp.ema50&&Lp.ema50.length>1){S('polyline',{points:pts2(Lp.ema50),fill:'none',stroke:'#b072ff','stroke-width':1.6},g)}
+    const e20=Lp.ema20&&Lp.ema20[Lp.ema20.length-1],e50=Lp.ema50&&Lp.ema50[Lp.ema50.length-1],close=e20&&e50&&Math.abs(e20[1]-e50[1])*H<22;
+    endTag(Lp.ema20,'EMA20','#b8920f',close&&e20[1]<e50[1]?-11:close?11:0);endTag(Lp.ema50,'EMA50','#8a4fe0',close&&e50[1]<e20[1]?-11:close?11:0)}
+  if(sh.fib&&a.fib){const g=S('g',{class:'tl'},an),fx1=a.fib.x1*W,fx2=a.fib.x2*W;
+    for(const l of a.fib.levels){const y=l.y*H,key=l.f===0.618||l.f===0.5;
+      S('line',{x1:fx1,x2:fx2,y1:y,y2:y,stroke:key?'rgba(255,190,80,.85)':'rgba(255,190,80,.45)','stroke-width':key?1.4:1,'stroke-dasharray':l.f===0||l.f===1?'':'3 4'},g);
+      const t=S('text',{x:fx2-4,y:y-4,'text-anchor':'end',fill:'rgba(255,200,110,.95)','font-size':10.5,'font-weight':600},g);
+      t.textContent='Fib '+l.f+(cal?' · '+fmt(cal(l.y)):'')}}
   if(a.last){const cx=a.last.x*W,cy=a.last.y*H,c=(BIAS[a.bias]||BIAS.notr)[1];
     S('circle',{cx,cy,r:5,fill:c,class:'pulse'},an);S('circle',{cx,cy,r:4,fill:c,stroke:'#fff','stroke-width':1.5},an)}
   const [bl,c,ar]=BIAS[a.bias]||BIAS.notr;
@@ -95,8 +110,9 @@ const TOOLS=[
   ['kutu','Dikdörtgen (B)','M5 6h14v12H5z'],
   ['fib','Fibonacci (F)','M4 5h16M4 9h16M4 12h16M4 16h16M4 19h16'],
   ['olc','Ölçüm (M)','M6 5v14M18 5v14M6 12h12M15 9l3 3-3 3'],
+  ['alarm','Alarm çizgisi (A)','M6 16V11a6 6 0 0112 0v5l2 2H4zM10 20a2 2 0 004 0'],
   ['not','Not (N)','M5 5h14v10H10l-5 4z']];
-const KEYS={v:'sec',t:'trend',r:'isin',h:'yatay',b:'kutu',f:'fib',m:'olc',n:'not'};
+const KEYS={v:'sec',t:'trend',r:'isin',h:'yatay',b:'kutu',f:'fib',m:'olc',a:'alarm',n:'not'};
 const icon=d=>'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="'+d+'"/></svg>';
 function toolbar(){
   const tb=$('tb');tb.replaceChildren();
@@ -126,6 +142,8 @@ function render(){
     if(d.t==='trend')ln(ax,ay,bx,by);
     else if(d.t==='isin'){const dx=bx-ax,dy=by-ay,k=dx||dy?Math.max(W,H)*4/Math.hypot(dx,dy):0;ln(ax,ay,ax+dx*k,ay+dy*k);S('circle',{cx:ax,cy:ay,r:3,fill:c},g)}
     else if(d.t==='yatay'){ln(0,ay,W,ay,1.6);const p=price(d.a[1]);if(p)tx(W-140,ay-6,p)}
+    else if(d.t==='alarm'){const col=d.fired?'#8a93a3':'#ff9f1a';ln(0,ay,W,ay,1.6,d.fired?'2 6':'8 5').setAttribute('stroke',col);
+      const p=price(d.a[1]),t=tx(W-24,ay-7,(d.fired?'✓ Alarm tetiklendi':'🔔 Alarm')+(p?' · '+p:''),'end',col);t.setAttribute('style','font-size:12px')}
     else if(d.t==='kutu')S('rect',{class:'fill',x:Math.min(ax,bx),y:Math.min(ay,by),width:Math.abs(bx-ax),height:Math.abs(by-ay),fill:c+'22',stroke:c,'stroke-width':1.5,rx:3},g);
     else if(d.t==='fib'){const l=Math.min(ax,bx),r=Math.max(ax,bx)+W*0.06;
       S('rect',{class:'fill',x:l,y:Math.min(ay,by),width:r-l,height:Math.abs(by-ay),fill:c+'12'},g);
@@ -154,11 +172,13 @@ addEventListener('mousedown',e=>{
   sel=-1;
   if(tool==='sec'){render();return}
   if(tool==='not'){openNote(e);return}
-  push();D.push({t:tool,c:color,a:pt,b:tool==='yatay'?null:pt});sel=D.length-1;
-  drag=tool==='yatay'?{k:'all',start:pt,orig:clone(D[sel])}:{k:1,start:pt,orig:null,fresh:true};render();
+  const single=tool==='yatay'||tool==='alarm';
+  push();D.push({t:tool,c:color,a:pt,b:single?null:pt});sel=D.length-1;
+  drag=single?{k:'all',start:pt,orig:clone(D[sel])}:{k:1,start:pt,orig:null,fresh:true};render();
 });
 addEventListener('mousemove',e=>{
   if(!drag||sel<0)return;const pt=norm(e),d=D[sel];
+  if(d.t==='alarm')delete d.fired; // tasinan alarm yeniden kurulur
   if(drag.k==='all'){const dx=pt[0]-drag.start[0],dy=pt[1]-drag.start[1],o=drag.orig;
     d.a=[o.a[0]+dx,o.a[1]+dy];if(o.b)d.b=[o.b[0]+dx,o.b[1]+dy]}
   else if(drag.k===0)d.a=pt;else d.b=pt;

@@ -72,6 +72,16 @@ input[type=password]:focus,select:focus{border-color:var(--acc);box-shadow:0 0 0
 .hi:hover{background:var(--card2)}
 .hi .bd{width:8px;height:8px;border-radius:50%;flex:none}
 a{color:var(--acc);cursor:pointer;text-decoration:none}
+.gauge{position:relative;height:8px;border-radius:9px;background:linear-gradient(90deg,var(--dn),#8a8f9a 50%,var(--up));margin:10px 0 4px;opacity:.85}
+.gauge i{position:absolute;top:-4px;width:4px;height:16px;border-radius:3px;background:var(--fg);box-shadow:0 0 0 2px var(--bg);transform:translateX(-2px);transition:left .5s ease}
+.gl{display:flex;justify-content:space-between;font-size:10px;color:var(--mut)}
+.fx{display:flex;justify-content:space-between;gap:8px;font-size:12px;padding:3px 0;border-top:1px dashed var(--ln)}.fx:first-of-type{border-top:0}
+.fx b{font-variant-numeric:tabular-nums}.pos{color:var(--up)}.neg{color:var(--dn)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.kv{background:var(--card2);border-radius:9px;padding:7px 9px}.kv .m{font-size:10.5px}.kv b{display:block;font-size:13px;margin-top:1px}
+.spark{width:100%;height:34px;display:block;margin-top:4px}
+.toast{position:fixed;left:50%;bottom:58px;transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:6px 12px;border-radius:9px;font-size:12px;font-weight:600;opacity:0;transition:opacity .25s;pointer-events:none}
+.toast.on{opacity:1}
 </style></head><body><div class="win" id="win">
 <div class="h">
   <div class="logo"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12.5 6 8l3 2.5L14 4"/><path d="M10.5 4H14v3.5"/></svg></div>
@@ -88,6 +98,7 @@ a{color:var(--acc);cursor:pointer;text-decoration:none}
     <div class="act">
       <button id="go"><span class="spin"></span><span id="gol">Ekranı Analiz Et</span></button>
       <button class="ib" id="drawb" title="Çizim modu (⌘⇧D)"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20l4-1L19 8l-3-3L5 16z"/><path d="M14 7l3 3"/></svg></button>
+      <button class="ib" id="copyb" title="Analizi panoya kopyala"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 00-1-1H5a1 1 0 00-1 1v10a1 1 0 001 1h3"/></svg></button>
       <button class="ib" id="hideb" title="Analiz çizgilerini gizle"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l18 18M10.6 6.1A9.7 9.7 0 0112 6c5 0 9 6 9 6a16 16 0 01-2.6 3.2M6.1 7.6C4 9.2 3 12 3 12s4 6 9 6a8.6 8.6 0 004.3-1.2"/></svg></button>
     </div>
     <div class="alert" id="err"><div id="errm"></div><button class="btn" id="errb" style="display:none"></button></div>
@@ -103,6 +114,12 @@ a{color:var(--acc);cursor:pointer;text-decoration:none}
       <label class="tg"><span class="f1">Kırılım bildirimleri</span><span class="sw"><input type="checkbox" id="alerts"><span></span></span></label>
       <label class="tg"><span class="f1">Analiz çizgilerini ekranda tut</span><span class="sw"><input type="checkbox" id="pin"><span></span></span></label>
     </div>
+    <div class="c"><div class="t">Grafikte göster</div>
+      <label class="tg"><span class="f1"><span style="color:#d4a90f">━</span> EMA 20 / <span style="color:#9b5cf0">━</span> EMA 50</span><span class="sw"><input type="checkbox" data-ind="ema"><span></span></span></label>
+      <label class="tg"><span class="f1">Bollinger bantları (20, 2)</span><span class="sw"><input type="checkbox" data-ind="bb"><span></span></span></label>
+      <label class="tg"><span class="f1">Otomatik Fibonacci</span><span class="sw"><input type="checkbox" data-ind="fib"><span></span></span></label>
+    </div>
+    <div class="c"><div class="t">Alarmlar</div><div class="m" id="alarminfo"></div></div>
     <div class="c"><div class="t">Claude API anahtarı (isteğe bağlı)</div>
       <div id="kst" class="m" style="margin-bottom:8px"></div>
       <input type="password" id="key" placeholder="sk-ant-..." autocomplete="off" spellcheck="false">
@@ -113,11 +130,13 @@ a{color:var(--acc);cursor:pointer;text-decoration:none}
     <div class="c"><div class="t">Harcama</div><div class="row"><div class="f1" id="usage"></div><a class="m" id="billing">Kredi yükle ›</a></div></div>
     <div class="c"><div class="t">Kısayollar</div><div class="kb">
       <span>Ekranı analiz et</span><kbd>⌘⇧A</kbd><span>Çizim modu</span><kbd>⌘⇧D</kbd><span>Canlı modu aç/kapat</span><kbd>⌘⇧L</kbd>
-      <span>Çizimde araçlar</span><kbd>V T R H B F M N</kbd><span>Geri al / sil</span><kbd>⌘Z · ⌫</kbd></div></div>
+      <span>Çizimde araçlar</span><kbd>V T R H B F M A N</kbd><span>Geri al / sil</span><kbd>⌘Z · ⌫</kbd></div></div>
     <div class="c"><div class="t">Ekran kaydı izni</div><div class="row"><div class="f1" id="perm"></div><button class="btn" id="permb">Ayarları Aç</button></div></div>
-    <div class="row" style="margin-top:12px;justify-content:space-between"><span class="m">Sürüm 1.2</span><button class="btn" id="quit">Çıkış</button></div>
+    <label class="tg c" style="margin-top:10px;padding:8px 12px"><span class="f1">Oturum açılınca başlat</span><span class="sw"><input type="checkbox" id="login"><span></span></span></label>
+    <div class="row" style="margin-top:12px;justify-content:space-between"><span class="m">Sürüm 1.3</span><button class="btn" id="quit">Çıkış</button></div>
   </section>
 </div>
+<div class="toast" id="toast"></div>
 <div class="foot"><span class="dot" id="ld"></span><span class="f1" id="lt">Canlı mod kapalı</span><label class="sw" title="⌘⇧L"><input type="checkbox" id="live"><span></span></label></div>
 </div>
 <script>
@@ -165,6 +184,25 @@ function render(a,anim=true){
     el('div',{class:'bar'},el('i',{style:'width:'+a.confidence+'%;background:'+col+(anim?'':';transition:none')}))));
   const lv=(arr,c,lab)=>el('div',{class:'f1'},el('div',{class:'t'},lab),...(arr&&arr.length?arr.map((x,i)=>el('div',{class:'lv '+c},fmt(x.price)||(x.touches?x.touches+' temas':'~'),el('small',{},(c==='r'?'R':'S')+(i+1)))):[el('div',{class:'m'},'yok')]));
   out.append(el('div',{class:'c'},el('div',{class:'row',style:'align-items:flex-start'},lv(a.resistances,'r','Direnç'),lv(a.supports,'s','Destek'))));
+  if(typeof a.score==='number'){const sc=a.score,lab=sc>=40?'Güçlü pozitif':sc>=12?'Pozitif':sc<=-40?'Güçlü negatif':sc<=-12?'Negatif':'Nötr';
+    const g=el('div',{class:'gauge'},el('i',{style:'left:'+((sc+100)/2)+'%'+(anim?'':';transition:none')}));
+    out.append(el('div',{class:'c'},el('div',{class:'row'},el('div',{class:'t f1',style:'margin:0'},'Teknik görünüm'),el('b',{class:sc>=12?'pos':sc<=-12?'neg':''},lab+' · '+(sc>0?'+':'')+sc)),
+      g,el('div',{class:'gl'},el('span',{},'-100'),el('span',{},'0'),el('span',{},'+100')),
+      el('div',{style:'margin-top:8px'},...(a.factors||[]).slice(0,6).map(f=>el('div',{class:'fx'},el('span',{},f.t),el('b',{class:f.v>0?'pos':'neg'},(f.v>0?'+':'')+f.v))))))}
+  const I=a.ind;
+  if(I){const kv=(k,v,cls='')=>el('div',{class:'kv'},el('div',{class:'m'},k),el('b',{class:cls},v));
+    const rs=I.rsiSeries||[],sp=document.createElementNS('http://www.w3.org/2000/svg','svg');sp.setAttribute('class','spark');sp.setAttribute('viewBox','0 0 100 34');sp.setAttribute('preserveAspectRatio','none');
+    const vals=rs.map((v,i)=>v==null?null:[i/(Math.max(1,rs.length-1))*100,34-v/100*34]).filter(Boolean);
+    sp.innerHTML='<rect x="0" y="'+(34-0.7*34)+'" width="100" height="'+(0.4*34)+'" fill="currentColor" opacity=".06"/><line x1="0" x2="100" y1="'+(34-0.7*34)+'" y2="'+(34-0.7*34)+'" stroke="currentColor" opacity=".25" stroke-dasharray="2 2" vector-effect="non-scaling-stroke"/><line x1="0" x2="100" y1="'+(34-0.3*34)+'" y2="'+(34-0.3*34)+'" stroke="currentColor" opacity=".25" stroke-dasharray="2 2" vector-effect="non-scaling-stroke"/>'+
+      (vals.length>1?'<polyline fill="none" stroke="#7a8cff" stroke-width="1.6" vector-effect="non-scaling-stroke" points="'+vals.map(p=>p[0].toFixed(1)+','+p[1].toFixed(1)).join(' ')+'"/>':'');
+    out.append(el('div',{class:'c'},el('div',{class:'t'},'İndikatörler'),
+      el('div',{class:'row'},el('span',{class:'f1'},'RSI (14)'),el('b',{class:I.rsi>=70?'neg':I.rsi<=30?'pos':''},I.rsi!=null?I.rsi+(I.rsi>=70?' · aşırı alım':I.rsi<=30?' · aşırı satım':''):'—')),sp,
+      el('div',{class:'grid2',style:'margin-top:8px'},
+        kv('MACD',I.macd==='pozitif'?'▲ Pozitif':'▼ Negatif',I.macd==='pozitif'?'pos':'neg'),
+        kv('EMA 20/50',I.emaTrend==='yukari'?'▲ Yukarı':'▼ Aşağı',I.emaTrend==='yukari'?'pos':'neg'),
+        kv('Bollinger',I.bb?'%'+Math.max(0,Math.min(100,I.bb.pos))+' konumda':'—'),
+        kv('Risk / Ödül',a.rr!=null?'1 : '+a.rr.toLocaleString('tr-TR'):'—',a.rr>=2?'pos':a.rr!=null&&a.rr<1?'neg':'')),
+      I.candle||I.divergence?el('div',{class:'chips',style:'margin-top:8px'},...[I.candle&&'🕯 '+I.candle,I.divergence&&'↯ '+I.divergence].filter(Boolean).map(t=>el('span',{class:'chip'},t))):null))}
   const tl=a.trendlines||[];
   if((a.patterns&&a.patterns.length)||tl.length)out.append(el('div',{class:'c'},el('div',{class:'t'},'Formasyon ve trend çizgileri'),el('div',{class:'chips'},
     ...(a.patterns||[]).map(p=>el('span',{class:'chip'},p)),...tl.map(t=>el('span',{class:'chip',style:'color:'+(t.type==='destek'?'var(--tup)':'var(--tdn)')},t.type==='destek'?'↗ Destek trendi':'↘ Direnç trendi')))));
@@ -192,7 +230,9 @@ function settings(){
   $('models').replaceChildren(...C.models.map(m=>el('div',{class:'opt'+(m.id===C.model?' on':''),onclick:async()=>{C=await api.set({model:m.id});ui()}},
     el('span',{class:'rd'}),el('div',{class:'f1'},el('b',{},m.name),el('div',{class:'m'},m.note)),el('span',{class:'m'},'~'+usd(EST[m.id]||0)))));
   $('iv').replaceChildren(...C.intervals.map(s=>{const o=el('option',{value:s},s<60?s+' saniye':s/60+' dakika');if(s===C.interval)o.selected=true;return o}));
-  $('alerts').checked=C.alerts;$('pin').checked=C.pin;
+  $('alerts').checked=C.alerts;$('pin').checked=C.pin;$('login').checked=!!C.login;
+  document.querySelectorAll('[data-ind]').forEach(i=>i.checked=!!(C.ind||{})[i.dataset.ind]);
+  $('alarminfo').textContent=(C.alarms?C.alarms+' alarm çizgisi kurulu. ':'Kurulu alarm yok. ')+'Çizim modunda A tuşu ya da 🔔 aracıyla yatay alarm çizgisi koy; fiyat çizgiyi geçince bildirim gelir (canlı mod otomatik açılır).';
   const u=C.usage||{cost:0,count:0};
   $('usage').replaceChildren(el('b',{},usd(u.cost||0)),el('span',{class:'m'},' bu ay · '+(u.count||0)+' Claude analizi'),el('div',{class:'m'},'Hızlı analizler ücretsizdir.'));
   $('perm').replaceChildren(C.perm?el('span',{class:'ok'},'✓ İzin verildi'):el('span',{style:'color:var(--dn)'},'İzin verilmedi'));
@@ -208,10 +248,22 @@ load();
 document.querySelectorAll('#seg button').forEach(b=>b.onclick=()=>pick(b.dataset.e));
 $('go').onclick=()=>{if(C.engine==='yerel'){$('gol').textContent='Okunuyor…'}api.analyze()};
 $('drawb').onclick=()=>api.draw(true);
+function toast(t){const e=$('toast');e.textContent=t;e.classList.add('on');setTimeout(()=>e.classList.remove('on'),1600)}
+$('copyb').onclick=()=>{const a=shown;if(!a||!a.chart_found)return toast('Önce bir analiz yap');
+  const L=(arr,p)=>(arr||[]).map((l,i)=>p+(i+1)+' '+(fmt(l.price)||(l.touches?l.touches+' temas':'~'))).join(', ')||'yok';
+  const t=[(a.symbol||'Grafik')+(a.timeframe?' · '+a.timeframe:'')+' — '+(BIAS[a.bias]||BIAS.notr)[0]+' (güven %'+a.confidence+')',
+    typeof a.score==='number'?'Teknik görünüm: '+(a.score>0?'+':'')+a.score:null,
+    'Direnç: '+L(a.resistances,'R'),'Destek: '+L(a.supports,'S'),
+    a.ind?'RSI '+a.ind.rsi+' · MACD '+a.ind.macd+' · EMA20/50 '+(a.ind.emaTrend==='yukari'?'yukarı':'aşağı'):null,
+    a.rr!=null?'Risk/ödül 1:'+a.rr:null,a.patterns&&a.patterns.length?'Formasyon: '+a.patterns.join(', '):null,
+    a.breakout?'Kırılım: '+a.breakout:null,a.comment,'— Grafik Okuyucu · yatırım tavsiyesi değildir'].filter(Boolean).join('\n');
+  api.copy(t);toast('Analiz panoya kopyalandı')};
 $('hideb').onclick=()=>api.hideOverlay();
 $('live').onchange=async e=>{await api.live(e.target.checked);C.live=e.target.checked;ui()};
 $('iv').onchange=async e=>{C=await api.set({interval:+e.target.value});ui()};
 $('alerts').onchange=async e=>{C=await api.set({alerts:e.target.checked})};
+$('login').onchange=async e=>{C=await api.set({login:e.target.checked})};
+document.querySelectorAll('[data-ind]').forEach(i=>i.onchange=async()=>{C=await api.set({ind:{[i.dataset.ind]:i.checked}})});
 $('liveai').onchange=async e=>{C=await api.set({liveAi:e.target.checked});ui()};
 $('pin').onchange=async e=>{C=await api.set({pin:e.target.checked})};
 $('ksave').onclick=async()=>{const v=$('key').value.trim();if(!v)return;C=await api.key(v);$('key').value='';ui()};

@@ -9,7 +9,7 @@ const MODELS=[
 
 const SYS='Sen deneyimli bir teknik analiz uzmanisin. Goruntudeki fiyat grafigini (TradingView, broker, Matriks, tarayici vb.) oku. '+
   'Tum x ve y degerleri goruntunun sol ust kosesine gore 0-1 araligindadir (x: 0 sol, 1 sag; y: 0 ust, 1 alt). '+
-  'chart_box mumlarin cizildigi alanin sinirlaridir (eksenler haric). Fiyat eksenini oku; okuyamayip tahmin ettiysen price null birak. '+
+  'chart_box mumlarin cizildigi alanin sinirlaridir (eksenler haric). last_price son mumun kapanis fiyatidir. Fiyat eksenini oku; okuyamayip tahmin ettiysen price null birak. '+
   'En fazla 3 destek, 3 direnc ve 2 trend cizgisi ver; trend cizgisi en az iki tepe/dibe degen gecerli bir cizgi olmali. '+
   'confidence 0-100 arasi tam sayidir. comment Turkce, kisa, net ve gerekceli olsun. Ekranda grafik yoksa chart_found false dondur.';
 const LEVEL={type:'object',properties:{price:{type:['number','null']},y:{type:'number'}},required:['price','y'],additionalProperties:false};
@@ -17,9 +17,9 @@ const BOX={type:'object',properties:{x1:{type:'number'},y1:{type:'number'},x2:{t
 const TLINE={type:'object',properties:{type:{type:'string',enum:['destek','direnc']},x1:{type:'number'},y1:{type:'number'},x2:{type:'number'},y2:{type:'number'}},
   required:['type','x1','y1','x2','y2'],additionalProperties:false};
 const SCHEMA={type:'object',additionalProperties:false,
-  required:['chart_found','symbol','timeframe','bias','confidence','trend','chart_box','resistances','supports','trendlines','breakout','patterns','comment'],
+  required:['chart_found','symbol','timeframe','last_price','bias','confidence','trend','chart_box','resistances','supports','trendlines','breakout','patterns','comment'],
   properties:{
-    chart_found:{type:'boolean'},symbol:{type:['string','null']},timeframe:{type:['string','null']},
+    chart_found:{type:'boolean'},symbol:{type:['string','null']},timeframe:{type:['string','null']},last_price:{type:['number','null']},
     bias:{type:'string',enum:['yukselis','dusus','notr']},confidence:{type:'integer'},trend:{type:'string'},chart_box:BOX,
     resistances:{type:'array',items:LEVEL},supports:{type:'array',items:LEVEL},trendlines:{type:'array',items:TLINE},
     breakout:{type:['string','null']},patterns:{type:'array',items:{type:'string'}},comment:{type:'string'}
