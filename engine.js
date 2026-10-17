@@ -52,14 +52,58 @@ function candlePattern(cs){
   return null;
 }
 
-function analyzeBitmap(buf,W,H,opts={}){
-  const bgra=opts.format!=='rgba';
-  const mask=new Uint8Array(W*H);
+// Renk yardimcilari: ton (derece), ton farki, '#rrggbb' -> [r,g,b].
+function hueOf(r,g,b){const mx=Math.max(r,g,b),d=mx-Math.min(r,g,b);if(!d)return 0;let h=mx===r?((g-b)/d)%6:mx===g?(b-r)/d+2:(r-g)/d+4;h*=60;return h<0?h+360:h}
+function hueDist(a,b){const d=Math.abs(a-b)%360;return d>180?360-d:d}
+function parseHex(s){const m=/^#?([0-9a-f]{6})$/i.exec(String(s==null?'':s).trim());if(!m)return null;const v=parseInt(m[1],16);return[v>>16,(v>>8)&255,v&255]}
+// Iki renge RGB uzakligiyla siniflandir (1 = yukselis, 2 = dusus).
+function maskByColors(buf,W,H,bgra,up,dn,tol){
+  const mask=new Uint8Array(W*H),t2=tol*tol;
   for(let i=0,p=0;i<W*H;i++,p+=4){
     const r=bgra?buf[p+2]:buf[p],g=buf[p+1],b=bgra?buf[p]:buf[p+2];
-    mask[i]=classify(r,g,b);
+    const du=(r-up[0])**2+(g-up[1])**2+(b-up[2])**2,dd=(r-dn[0])**2+(g-dn[1])**2+(b-dn[2])**2;
+    if(du<=t2&&du<=dd)mask[i]=1;else if(dd<=t2)mask[i]=2;
   }
-  return analyzeMask(mask,W,H);
+  return mask;
+}
+
+// opts.colors: undefined/'auto' (yesil-kirmizi, yetmezse baskin iki tonu otomatik bul),
+// 'green-red' (yalniz klasik), {up:'#rrggbb',down:'#rrggbb',tol:60} (ozel renkler).
+function analyzeBitmap(buf,W,H,opts={}){
+  const bgra=opts.format!=='rgba',col=opts.colors;
+  if(col&&typeof col==='object'){
+    const up=parseHex(col.up),dn=parseHex(col.down);
+    if(up&&dn){const out=analyzeMask(maskByColors(buf,W,H,bgra,up,dn,+col.tol>0?+col.tol:60),W,H);out.colorMode='custom';return out}
+  }
+  const mask=new Uint8Array(W*H),q=new Uint32Array(32768);let c1=0,c2=0;
+  for(let i=0,p=0;i<W*H;i++,p+=4){
+    const r=bgra?buf[p+2]:buf[p],g=buf[p+1],b=bgra?buf[p]:buf[p+2];
+    const m=classify(r,g,b);mask[i]=m;if(m===1)c1++;else if(m===2)c2++;
+    // doygun+parlak piksellerin kaba renk histogrami (5 bit/kanal)
+    const mx=Math.max(r,g,b);if(mx>=120&&mx-Math.min(r,g,b)>=90)q[(r>>3)<<10|(g>>3)<<5|b>>3]++;
+  }
+  // Yesil/kirmizi az ya da tek yanliysa (mavi-kirmizi, turkuaz-turuncu temalar) baskin iki rengi bul.
+  if(col!=='green-red'&&(Math.min(c1,c2)<Math.max(c1,c2)*0.25||c1+c2<W*H*0.002)){
+    const rep=k=>[(k>>10)*8+4,((k>>5)&31)*8+4,(k&31)*8+4],ks=[],hs=[],chs=[],hist=new Float64Array(36);
+    for(let k=0;k<32768;k++)if(q[k]){const c=rep(k),h=hueOf(c[0],c[1],c[2]);ks.push(k);hs.push(h);chs.push(Math.max(...c)-Math.min(...c));hist[Math.floor(h/10)%36]+=q[k]}
+    const sm=i=>hist[(i+35)%36]+hist[i]+hist[(i+1)%36];
+    let b1=0;for(let i=1;i<36;i++)if(sm(i)>sm(b1))b1=i;
+    let b2=-1;for(let i=0;i<36;i++)if(hueDist(i*10+5,b1*10+5)>=50&&(b2<0||sm(i)>sm(b2)))b2=i;
+    // Kumedeki temsilci: en doygun renklere yakin (yari saydam hacim karisimlari daha soluk) en sik renk.
+    const pickRep=bin=>{const hc=bin*10+5,idx=[];let tot=0,cmax=0;for(let j=0;j<ks.length;j++)if(hueDist(hs[j],hc)<=20){idx.push(j);tot+=q[ks[j]]}
+      for(const j of idx)if(q[ks[j]]>=Math.max(20,tot*0.01)&&chs[j]>cmax)cmax=chs[j];
+      let best=-1;for(const j of idx)if(chs[j]>=cmax*0.8&&(best<0||q[ks[j]]>q[ks[best]]))best=j;return best<0?-1:ks[best]};
+    const k1=pickRep(b1),k2=b2>=0&&sm(b2)>=sm(b1)*0.08?pickRep(b2):-1,hk=k=>{const c=rep(k);return hueOf(c[0],c[1],c[2])};
+    if(k1>=0&&k2>=0&&q[k2]>=W*H*0.0003){
+      const a=rep(k1),b=rep(k2),ca=classify(...a),cb=classify(...b);
+      if(!(ca&&cb&&ca!==cb)){ // klasik cift degilse ton modu
+        const aUp=hueDist(hk(k1),120)<=hueDist(hk(k2),120);
+        const out=analyzeMask(maskByColors(buf,W,H,bgra,aUp?a:b,aUp?b:a,60),W,H);
+        if(out.chart_found){out.colorMode='auto-hue';return out}
+      }
+    }
+  }
+  const out=analyzeMask(mask,W,H);out.colorMode='green-red';return out;
 }
 
 function analyzeMask(mask,W,H){
@@ -111,14 +155,25 @@ function analyzeMask(mask,W,H){
   if(candles.length<10)return none;
   const N=candles.length;
   // Kapanis: govdenin (en az 2 sutun dolu satirlar) ust/alt kenari.
+  let hollowN=0;
   for(const c of candles){
     let bt=-1,bb=-1;
     if(c.x1-c.x0>=2)for(let y=c.hi;y<=c.lo;y++){let n=0;for(let x=c.x0;x<=c.x1;x++)if(mask[y*W+x])n++;if(n>=2){if(bt<0)bt=y;bb=y}}
+    // Ici bos (cerceve) govde: sol ve sag kenar sutunlari ayni satirlarda dolu, ic kisim bos.
+    // Govde = kenarlarin birlikte dolu oldugu satirlarin dikdortgeni. Dolu mumlarda ic dolu oldugundan degismez.
+    if(c.x1-c.x0>=3&&bt>=0&&bb-bt>=3){
+      const on=(x,y)=>mask[y*W+x]||mask[y*W+x+(x===c.x0?1:-1)];
+      let et=-1,eb=-1,rows=0,fill=0,inner=0;
+      for(let y=bt;y<=bb;y++){if(on(c.x0,y)&&on(c.x1,y)){if(et<0)et=y;eb=y;rows++;for(let x=c.x0+2;x<=c.x1-2;x++){inner++;if(mask[y*W+x])fill++}}}
+      if(rows>=3&&inner&&fill/inner<0.45&&rows>=(eb-et+1)*0.8){c.hollow=true;hollowN++;bt=et;bb=eb}
+    }
     if(bt<0){bt=c.hi;bb=c.lo}
     c.open=c.up?bb:bt;c.close=c.up?bt:bb;
   }
 
-  return analyzeCandles(candles,{X0,X1,Y0,Y1,W,H,minTol:3});
+  const out=analyzeCandles(candles,{X0,X1,Y0,Y1,W,H,minTol:3});
+  out.candleStyle=hollowN>=Math.max(3,N*0.15)?'hollow':'filled';
+  return out;
 }
 
 // Mumlardan analiz. Koordinatlar "y" ekseninde: buyuk y = dusuk fiyat (ekran pikseli gibi).
@@ -290,20 +345,29 @@ function analyzeSeries(rows,opts={}){
   const fix=l=>({...l,price:P(l.y),y:undefined});
   const out={...a,engine:'piyasa',resistances:a.resistances.map(fix),supports:a.supports.map(fix),
     signals:a.signals.map(s=>({...s,t:rs[s.i].t,price:rs[s.i].c})),allSignals:undefined,
-    last_price:rs[rs.length-1].c,backtest:backtest(rs,a.allSignals,opts.horizon||5)};
+    last_price:rs[rs.length-1].c,backtest:backtest(rs,a.allSignals,opts.horizon||5,{cost:opts.cost!=null?opts.cost:0.2})};
   if(out.fib)out.fib.levels=out.fib.levels.map(l=>({f:l.f,price:P(l.y)}));
   delete out.lines;delete out.chart_box;delete out.lastCandle;
   out.trendlines=a.trendlines.map(t=>({type:t.type,i1:t.x1,p1:P(t.y1),i2:t.x2,p2:P(t.y2)}));
   return out;
 }
-// Basit geriye donuk test: sinyalden h mum sonra yon dogru mu? (komisyon/kayma yok, tavsiye degil)
-function backtest(rs,sigs,h){
-  const done=(sigs||[]).filter(s=>s.i+h<rs.length);
-  if(!done.length)return {count:0,horizon:h};
-  const rets=done.map(s=>(rs[s.i+h].c-rs[s.i].c)/rs[s.i].c*100*s.dir);
+// Basit geriye donuk test: sinyalden h mum sonra yon dogru mu? opts.cost = gidis-donus komisyon+kayma (%),
+// her islemin getirisinden dusulur. Ayrica kural (why) bazinda ve 3/5/10 mum ufuklarinda ozet. (Tavsiye degil.)
+function backtest(rs,sigs,h,opts={}){
+  h=h||5;const cost=opts&&opts.cost!=null&&Number.isFinite(+opts.cost)?+opts.cost:0.2;
+  const all=sigs||[],gross=(s,hh)=>(rs[s.i+hh].c-rs[s.i].c)/rs[s.i].c*100*s.dir;
+  const stat=(sg,hh)=>{const d=sg.filter(s=>s.i+hh<rs.length),r=d.map(s=>gross(s,hh)-cost);
+    return{count:d.length,winRate:d.length?Math.round(r.filter(x=>x>0).length/d.length*100):null,avgRet:d.length?+(r.reduce((a,b)=>a+b,0)/d.length).toFixed(2):null}};
+  const done=all.filter(s=>s.i+h<rs.length);
+  if(!done.length)return {count:0,horizon:h,cost};
+  const g=done.map(s=>gross(s,h)),rets=g.map(x=>x-cost);
   const wins=rets.filter(r=>r>0).length;
-  return {count:done.length,horizon:h,winRate:Math.round(wins/done.length*100),avgRet:+(rets.reduce((a,b)=>a+b,0)/rets.length).toFixed(2),
-    byDir:[1,-1].map(d=>{const x=done.map((s,i)=>[s,rets[i]]).filter(([s])=>s.dir===d);return {dir:d,count:x.length,winRate:x.length?Math.round(x.filter(([,r])=>r>0).length/x.length*100):null}})};
+  const reasons=[...new Set(done.flatMap(s=>s.why||[]))];
+  return {count:done.length,horizon:h,cost,winRate:Math.round(wins/done.length*100),avgRet:+(rets.reduce((a,b)=>a+b,0)/rets.length).toFixed(2),
+    avgRetGross:+(g.reduce((a,b)=>a+b,0)/g.length).toFixed(2),
+    byDir:[1,-1].map(d=>{const x=done.map((s,i)=>[s,rets[i]]).filter(([s])=>s.dir===d);return {dir:d,count:x.length,winRate:x.length?Math.round(x.filter(([,r])=>r>0).length/x.length*100):null}}),
+    byRule:reasons.map(rule=>({rule,...stat(done.filter(s=>(s.why||[]).includes(rule)),h)})).sort((a,b)=>b.count-a.count),
+    horizons:[3,5,10].map(hh=>({h:hh,...stat(all,hh)}))};
 }
 
 // Ekrandaki mumlari gercek mumlarla eslestirip fiyat olcegi cikar (Claude'suz fiyat ekseni).
