@@ -6,6 +6,7 @@ const depthLib=require('./depth');
 const tg=require('./tg');
 const sync=require('./sync');
 const market=require('./market');
+const calendar=require('./calendar');
 
 const INTERVALS=[2,5,10,30,60];
 const HISTORY_MAX=30;
@@ -43,6 +44,9 @@ const avKey=()=>dec(cfg().avKey)||null;
 // Canli mod, kullanici ayarlardan acikca izin vermedikce ucretsiz yerel motoru kullanir.
 const liveEngine=()=>cfg().liveAi&&getKey()?'claude':cfg().engine==='piyasa'&&cfg().symbol?'piyasa':'yerel';
 const month=()=>new Date().toISOString().slice(0,7);
+// Mum renkleri: 'auto' (varsayilan), 'green-red' ya da {up:'#rrggbb',down:'#rrggbb',tol}.
+const HEX=/^#[0-9a-f]{6}$/i;
+const candleColors=()=>{const c=cfg().candleColors;return c==='green-red'?c:c&&typeof c==='object'&&HEX.test(c.up)&&HEX.test(c.down)?{up:c.up,down:c.down,tol:+c.tol>0?+c.tol:60}:'auto'};
 const IND_DEFAULT={ema:true,bb:false,fib:false};
 const ind=()=>({...IND_DEFAULT,...(cfg().ind||{}),signals:cfg().signals!==false});
 function addCost(c){
@@ -229,7 +233,7 @@ function merge(a,local){
   const R=(a.resistances||[])[0],S=(a.supports||[])[0];
   if(typeof a.last_price==='number'&&R&&S&&R.price!=null&&S.price!=null&&R.price>a.last_price&&S.price<a.last_price)
     rr=+((R.price-a.last_price)/(a.last_price-S.price)).toFixed(2);
-  return{...a,last:local.last,candles:local.candles,ind:local.ind,lines:local.lines,fib:local.fib,rr,signals:local.signals,lastCandle:local.lastCandle,
+  return{...a,colorMode:local.colorMode,candleStyle:local.candleStyle,last:local.last,candles:local.candles,ind:local.ind,lines:local.lines,fib:local.fib,rr,signals:local.signals,lastCandle:local.lastCandle,
     factors:f,score:Math.max(-100,Math.min(100,f.reduce((s,x)=>s+x.v,0)))};
 }
 
@@ -250,7 +254,7 @@ async function analyze(opts={}){
     const change=d.id===ovDisplay?diff(sig,lastSig):1;
     if(opts.silent&&change===0){send('skip',Date.now());return}
     const {width:W,height:H}=shot.getSize();
-    const local=engine.analyzeBitmap(shot.toBitmap(),W,H);
+    const local=engine.analyzeBitmap(shot.toBitmap(),W,H,{colors:candleColors()});
     let a=local;
     if(eng==='claude'){
       send('busy',1);
@@ -350,20 +354,19 @@ const depthHist={},flowHist={};
 // saatlik/gunluk sinir ve Telegram "bekle" derse otomatik duraklama.
 const SAFE={minSec:20,hourCap:100,dayCap:700};
 const sent=[];let floodUntil=0;
-function istanbulNow(){const p=Object.fromEntries(new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Istanbul',weekday:'short',hour:'2-digit',minute:'2-digit',hour12:false}).formatToParts(new Date()).map(x=>[x.type,x.value]));
-  return {day:p.weekday,min:(+p.hour)*60+(+p.minute)}}
-function marketOpen(){const t=istanbulNow();return !['Sat','Sun'].includes(t.day)&&t.min>=9*60+55&&t.min<=18*60+15}
+// Seans: hafta sonu, resmi tatil ve arife (yarim gun) calendar.js'te.
+const marketOpen=()=>calendar.isOpen(new Date());
 function canSend(auto){
   const now=Date.now();while(sent.length&&now-sent[0]>86400000)sent.shift();
   if(now<floodUntil)return 'Telegram bekletiyor, '+Math.ceil((floodUntil-now)/1000)+' sn sonra devam edilecek';
-  if(auto&&!marketOpen())return 'Seans dışı: otomatik yenileme duraklatıldı';
+  if(auto&&!marketOpen())return 'Seans kapalı: '+(calendar.status(new Date()).reason||'seans dışı')+'; otomatik yenileme duraklatıldı';
   const lastHour=sent.filter(t=>now-t<3600000).length;
   if(auto&&lastHour>=SAFE.hourCap)return 'Saatlik güvenli sınıra ulaşıldı ('+SAFE.hourCap+')';
   if(sent.length>=SAFE.dayCap)return 'Günlük güvenli sınıra ulaşıldı ('+SAFE.dayCap+')';
   if(sent.length&&now-sent[sent.length-1]<(auto?SAFE.minSec:5)*1000)return 'Çok sık istek: biraz bekle';
   return null;
 }
-const safeInfo=()=>{const now=Date.now();return {hour:sent.filter(t=>now-t<3600000).length,day:sent.length,hourCap:SAFE.hourCap,dayCap:SAFE.dayCap,market:marketOpen(),flood:Math.max(0,Math.ceil((floodUntil-now)/1000))}};
+const safeInfo=()=>{const now=Date.now();return {hour:sent.filter(t=>now-t<3600000).length,day:sent.length,hourCap:SAFE.hourCap,dayCap:SAFE.dayCap,market:marketOpen(),marketWhy:calendar.status(new Date()).reason,flood:Math.max(0,Math.ceil((floodUntil-now)/1000))}};
 
 function tgAsk(step,hint){
   send('tgAsk',{step,hint:hint||null});showPop();
@@ -456,13 +459,88 @@ function setDepthAuto(sec){
   loop();
 }
 
+// --- kisayollar (ayarlardan degistirilebilir) ---
+const SC_DEFAULT={analyze:'CommandOrControl+Shift+A',draw:'CommandOrControl+Shift+D',live:'CommandOrControl+Shift+L'};
+const SC_NAME={analyze:'Ekranı analiz et',draw:'Çizim modu',live:'Canlı mod'};
+const SC_FN={analyze:()=>analyze(),draw:()=>setDrawing(!drawing),live:()=>{setLive(!cfg().live);send('state',state())}};
+const sc=()=>({...SC_DEFAULT,...(cfg().shortcuts||{})});
+let scState={},scPaused=false;
+const tryReg=(acc,f)=>{try{return globalShortcut.register(acc,f)}catch(e){return false}}; // gecersiz kisayol hata atar
+function registerShortcuts(){
+  globalShortcut.unregisterAll();scPaused=false;const s=sc();
+  for(const k in SC_DEFAULT){const ok=tryReg(s[k],SC_FN[k]);scState[k]={acc:s[k],ok};if(!ok)console.warn(s[k]+' kısayolu kaydedilemedi.')}
+  return scState;
+}
+// Yeni kisayol kaydedilemezse eskisi kalir ve hata doner.
+function setShortcut(name,acc){
+  acc=String(acc||'').trim();
+  const fail=msg=>{registerShortcuts();return {ok:false,msg,shortcuts:scState}};
+  if(!SC_DEFAULT[name])return fail('Bilinmeyen kısayol.');
+  if(!acc||acc.length>60||!/^[\w+\-=\[\];',./\\`]+$/.test(acc))return fail('Geçersiz kısayol.');
+  const s=sc(),other=Object.keys(s).find(k=>k!==name&&s[k].toLowerCase()===acc.toLowerCase());
+  if(other)return fail('Bu kısayol zaten "'+SC_NAME[other]+'" için kullanılıyor.');
+  globalShortcut.unregisterAll();
+  if(!tryReg(acc,SC_FN[name]))return fail('Kısayol kaydedilemedi: geçersiz ya da başka bir uygulama kullanıyor. Eski kısayol korundu.');
+  save({shortcuts:{...(cfg().shortcuts||{}),[name]:acc}});registerShortcuts();
+  return {ok:true,shortcuts:scState};
+}
+
+// --- sistem kontrolu: her madde {name,st:'ok'|'warn'|'fail',msg}. Rapor gizli bilgi icermez (anahtar, belirtec, telefon, oturum yok).
+const withTimeout=(p,ms,msg)=>Promise.race([p,new Promise((_,rej)=>setTimeout(()=>rej(new Error(msg)),ms))]);
+async function diagnostics(){
+  const out=[],add=(name,st,msg)=>out.push({name,st,msg}),mac=process.platform==='darwin';
+  const osv=mac?'macOS '+process.getSystemVersion():process.platform+' '+require('os').release();
+  add('Sistem',mac&&parseInt(process.getSystemVersion())<12?'warn':'ok',osv+' · '+process.arch+' · Electron '+process.versions.electron+' · uygulama '+require('./package.json').version+(mac&&parseInt(process.getSystemVersion())<12?' · Electron 43 için macOS 12 ve üstü gerekir':''));
+  if(mac){const st=systemPreferences.getMediaAccessStatus('screen');
+    add('Ekran kaydı izni',st==='granted'?'ok':st==='not-determined'?'warn':'fail',st==='granted'?'İzin verildi.':st==='not-determined'?'Henüz sorulmadı; ilk analizde macOS izin isteyecek.':'İzin yok ('+st+'). Sistem Ayarları › Gizlilik ve Güvenlik › Ekran Kaydı.')}
+  else add('Ekran kaydı izni','ok','Bu platformda ayrı izin gerekmez.');
+  try{const srcs=await withTimeout(desktopCapturer.getSources({types:['screen'],thumbnailSize:{width:320,height:200}}),8000,'zaman aşımı');
+    const t=srcs[0]&&srcs[0].thumbnail;
+    if(!t||t.isEmpty())add('Test ekran görüntüsü','fail','Görüntü boş geldi: izin eksik olabilir.');
+    else{const b=t.toBitmap();let mn=255,mx=0;for(let i=0;i<b.length;i+=4*37){const v=(b[i]+b[i+1]+b[i+2])/3;if(v<mn)mn=v;if(v>mx)mx=v}
+      add('Test ekran görüntüsü',mx-mn<4?'warn':'ok',srcs.length+' ekran · '+t.getSize().width+'×'+t.getSize().height+(mx-mn<4?' · görüntü tek renk; izin yoksa macOS yalnızca masaüstü arka planını verir.':' · görüntü alındı.'))}
+  }catch(e){add('Test ekran görüntüsü','fail','Alınamadı: '+e.message)}
+  const enc=safeStorage.isEncryptionAvailable();
+  add('Şifreli saklama',enc?'ok':'warn',enc?'Anahtar Zinciri kullanılabilir; anahtarlar şifreli saklanır.':'Kullanılamıyor; anahtarlar düz metin saklanır.');
+  add('Bildirimler',Notification.isSupported()?'ok':'warn',Notification.isSupported()?'Destekleniyor. Test bildirimi gönderip görünüp görünmediğine bak.':'Desteklenmiyor.');
+  const bad=Object.entries(scState).filter(([,v])=>!v.ok);
+  const accL=a=>String(a).replace(/CommandOrControl|CmdOrCtrl/g,mac?'Cmd':'Ctrl');
+  add('Kısayollar',bad.length?'warn':'ok',Object.entries(scState).map(([k,v])=>SC_NAME[k]+' '+accL(v.acc)+(v.ok?'':' (kayıtsız)')).join(' · ')+(bad.length?' · başka bir uygulama kullanıyor olabilir; Kısayollar kartından değiştir.':''));
+  try{const r=await withTimeout(market.candles('THYAO','1g','BIST'),8000,'Yahoo 8 sn içinde yanıt vermedi');
+    add('Yahoo Finance',r.stale?'warn':'ok',(r.rows||[]).length+' günlük mum (THYAO)'+(r.stale?' · bağlantı yok, eski önbellek: '+(r.staleReason||''):r.cached?' · önbellekten':' · canlı bağlantı')+' · Alpha Vantage kotası harcanmaz.')}
+  catch(e){add('Yahoo Finance','fail','Ulaşılamadı: '+e.message)}
+  const left=market.avLeft();
+  add('Alpha Vantage',avKey()?(left>0?'ok':'warn'):'ok',avKey()?'Anahtar kayıtlı · bugün '+left+'/25 istek kaldı (kontrol istek atmaz).':'Anahtar yok (isteğe bağlı; BIST için gerekmez).');
+  add('Claude API','ok',getKey()?'Anahtar kayıtlı (kontrol istek atmaz).':'Anahtar yok (isteğe bağlı; Hızlı analiz ücretsiz).');
+  const t=tgCfg();
+  add('Telegram',tgUser?'ok':t.session?'warn':'ok',tgUser?'Bağlı'+(t.bot?' · bot ayarlı':' · bot adı yazılmadı'):t.session?'Kayıtlı oturum var ama bağlantı kurulamadı.':'Kurulmamış (isteğe bağlı).');
+  const b=sync.state();
+  add('Supabase',b.configured?(b.error?'warn':'ok'):'ok',b.configured?'Bağlı · '+b.sent+' gönderildi · '+b.pending+' bekliyor'+(b.dropped?' · '+b.dropped+' reddedildi':'')+(b.error?' · hata: '+b.error:''):'Kurulmamış (isteğe bağlı).');
+  const cs=calendar.status(new Date()),yi=calendar.yearInfo();
+  add('Seans takvimi',yi.verified?'ok':'warn',(cs.open?'Seans açık':'Seans kapalı: '+cs.reason)+' · '+(yi.known?(yi.verified?'bu yılın tatilleri doğrulanmış':'bu yılın dini bayram tarihleri doğrulanmamış'):'bu yıl için takvim verisi yok'));
+  let size=0;try{size=fs.statSync(F()).size}catch(e){}
+  add('Ayar dosyası',size>1e6?'warn':'ok',(size/1024).toFixed(1).replace('.',',')+' KB'+(size>1e6?' · büyük; Geçmiş ya da çizimleri temizle.':''));
+  const icon={ok:'[TAMAM]',warn:'[UYARI]',fail:'[HATA]'};
+  const report=['Grafik Okuyucu sistem kontrolü · '+new Date().toISOString(),...out.map(x=>icon[x.st]+' '+x.name+': '+x.msg)].join('\n');
+  return {items:out,report};
+}
+// Bot mesaji ayristirici testi: Telegram'a istek atmadan yapistirilan metni ayristir.
+function parseTest(text){
+  const d=depthLib.parseText(String(text||'').slice(0,20000));
+  return {symbol:d.symbol,last:d.last,change:d.change,ceiling:d.ceiling,floor:d.floor,buyRatio:d.buyRatio,hasData:depthLib.hasData(d),
+    counts:{bids:d.bids.length,asks:d.asks.length,trades:d.trades.length,buyers:d.buyers.length,sellers:d.sellers.length},
+    bids:d.bids.slice(0,3),asks:d.asks.slice(0,3),buyers:d.buyers.slice(0,3),sellers:d.sellers.slice(0,3),trades:d.trades.slice(0,3),
+    walls:depthLib.walls(d),pressure:depthLib.pressure(d)};
+}
+
 function state(){
   const u=cfg().usage||{};
   return{hasKey:!!getKey(),live:!!cfg().live,model:model(),models:ai.MODELS,interval:interval(),intervals:INTERVALS,engine:engineName(),mkt:mkt(),hasAv:!!avKey(),avLeft:market.avLeft(),tfs:Object.keys(market.TF),liveAi:!!cfg().liveAi,
     history:cfg().history||[],perm:screenAllowed(),secure:safeStorage.isEncryptionAvailable(),alerts:!!cfg().alerts,pin:!!cfg().pin,ind:ind(),
     login:process.platform==='darwin'&&app.getLoginItemSettings().openAtLogin,alarms:Object.values(cfg().drawings||{}).flat().filter(x=>x.t==='alarm'&&!x.fired).length,
     usage:u.month===month()?u:{cost:0,count:0,total:u.total||0},sb:{...sync.state(),on:!!cfg().sbOn},
-    signals:cfg().signals!==false,safe:safeInfo(),tg:tgState(),depthSource:cfg().depthSource||'telegram',depthAuto:cfg().depthAuto||0,depthOverlay:cfg().depthOverlay!==false,symbol:currentSymbol()};
+    signals:cfg().signals!==false,safe:safeInfo(),tg:tgState(),depthSource:cfg().depthSource||'telegram',depthAuto:cfg().depthAuto||0,depthOverlay:cfg().depthOverlay!==false,symbol:currentSymbol(),
+    shortcuts:scState,candleColors:candleColors(),cal:{...calendar.yearInfo(),year:new Date().getFullYear()},notify:Notification.isSupported()};
 }
 
 app.whenReady().then(()=>{
@@ -475,13 +553,18 @@ app.whenReady().then(()=>{
   tray.on('right-click',()=>tray.popUpContextMenu(Menu.buildFromTemplate([
     {label:'Hızlı Analiz (yerel)',click:()=>analyze({engine:'yerel'})},
     {label:'Claude ile Analiz',enabled:!!getKey(),click:()=>analyze({engine:'claude'})},
-    {label:'Çizim Modu',accelerator:'CommandOrControl+Shift+D',click:()=>setDrawing(true)},
+    {label:'Ekranı Analiz Et',accelerator:sc().analyze,click:()=>analyze()},
+    {label:'Çizim Modu',accelerator:sc().draw,click:()=>setDrawing(true)},
     {label:'Analiz Çizgilerini Gizle',click:clearAnalysis},{type:'separator'},
-    {label:'Canlı Mod',type:'checkbox',accelerator:'CommandOrControl+Shift+L',checked:!!cfg().live,click:m=>{setLive(m.checked);send('state',state())}},{type:'separator'},
+    {label:'Canlı Mod',type:'checkbox',accelerator:sc().live,checked:!!cfg().live,click:m=>{setLive(m.checked);send('state',state())}},{type:'separator'},
     {label:'Çıkış',role:'quit'}])));
-  const sc=[['CommandOrControl+Shift+A',()=>analyze()],['CommandOrControl+Shift+D',()=>setDrawing(!drawing)],
-    ['CommandOrControl+Shift+L',()=>{setLive(!cfg().live);send('state',state())}]];
-  for(const [k,f] of sc)if(!globalShortcut.register(k,f))console.warn(k+' kısayolu başka bir uygulama tarafından kullanılıyor.');
+  registerShortcuts();
+  pop.on('hide',()=>{if(scPaused)registerShortcuts()}); // yakalama yarida kaldiysa kisayollari geri yukle
+  ipcMain.handle('scCapture',(e,on)=>{if(on){scPaused=true;globalShortcut.unregisterAll()}else registerShortcuts();return scState});
+  ipcMain.handle('diag',()=>diagnostics());
+  ipcMain.handle('testNotify',()=>{if(!Notification.isSupported())return false;new Notification({title:'Grafik Okuyucu',body:'Test bildirimi: bildirimler çalışıyor.'}).show();return true});
+  ipcMain.handle('parseTest',(e,t)=>parseTest(t));
+  ipcMain.handle('scSet',(e,o)=>setShortcut(o&&o.name,o&&o.acc));
   ipcMain.handle('analyze',(e,eng)=>analyze({engine:['claude','yerel','piyasa'].includes(eng)?eng:undefined}));
   ipcMain.handle('key',(e,k)=>{setKey(typeof k==='string'?k.trim():'');trayTitle();return state()});
   ipcMain.handle('cfg',state);
@@ -498,6 +581,10 @@ app.whenReady().then(()=>{
     if(typeof o.liveAi==='boolean'){save({liveAi:o.liveAi});lastSig=null;trayTitle()}
     if(typeof o.pin==='boolean'){save({pin:o.pin});if(o.pin)clearTimeout(fadeTimer)}
     if(o.ind&&typeof o.ind==='object'){const n=ind();for(const k in IND_DEFAULT)if(typeof o.ind[k]==='boolean')n[k]=o.ind[k];save({ind:n});if(lastResult)sendOv('draw',{...lastResult,anim:false,show:n})}
+    if(o.candleColors==='auto'||o.candleColors==='green-red')save({candleColors:o.candleColors});
+    else if(o.candleColors&&typeof o.candleColors==='object'){const c=o.candleColors;if(!HEX.test(c.up)||!HEX.test(c.down))return {...state(),err:'Renkler #rrggbb biçiminde olmalı.'};
+      save({candleColors:{up:c.up.toLowerCase(),down:c.down.toLowerCase(),tol:Math.max(20,Math.min(120,+c.tol||60))}})}
+    if(o.candleColors!==undefined)lastSig=null;
     if(typeof o.login==='boolean')app.setLoginItemSettings({openAtLogin:o.login});
     return state();
   });
