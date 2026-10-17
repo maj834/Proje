@@ -1,22 +1,21 @@
-const {app,BrowserWindow,Tray,screen,desktopCapturer,ipcMain,globalShortcut,nativeImage,safeStorage,systemPreferences,shell,Menu}=require('electron');
-const Anthropic=require('@anthropic-ai/sdk');
+const {app,BrowserWindow,Tray,screen,desktopCapturer,ipcMain,globalShortcut,nativeImage,safeStorage,systemPreferences,shell,Menu,Notification}=require('electron');
 const fs=require('fs'),path=require('path');
+const engine=require('./engine');
+const ai=require('./ai');
 
-const MODELS=[
-  {id:'claude-sonnet-5-5',name:'Sonnet 5.5',note:'Dengeli (önerilen)'},
-  {id:'claude-opus-5-5',name:'Opus 5.5',note:'En isabetli, daha yavaş'},
-  {id:'claude-haiku-5-5',name:'Haiku 5.5',note:'En hızlı ve ucuz'}
-];
-const INTERVALS=[15,30,60,120];
-const HISTORY_MAX=20;
+const INTERVALS=[2,5,10,30,60];
+const HISTORY_MAX=30;
 const SETTINGS_URL='x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture';
+const SHOT_W=1568; // Claude'un yeniden boyutlandirmadan kabul ettigi genislik
 
-let tray,pop,ov,timer=null,busy=false,ovTimer,lastSig=null;
+let tray,pop,ov,timer=null,busy=false,fadeTimer,lastSig=null,ovDisplay=null,drawing=false,lastResult=null,lastAi=null;
+const alerted=new Map();
 
 // --- ayarlar -------------------------------------------------------------
 const F=()=>path.join(app.getPath('userData'),'cfg.json');
-const cfg=()=>{try{return JSON.parse(fs.readFileSync(F()))}catch(e){return{}}};
-const save=o=>{const c={...cfg(),...o};for(const k in c)if(c[k]===undefined)delete c[k];fs.writeFileSync(F(),JSON.stringify(c),{mode:0o600})};
+let C=null;
+const cfg=()=>{if(!C){try{C=JSON.parse(fs.readFileSync(F()))}catch(e){C={}}}return C};
+const save=o=>{const c={...cfg(),...o};for(const k in c)if(c[k]===undefined)delete c[k];C=c;fs.writeFileSync(F(),JSON.stringify(c),{mode:0o600})};
 
 // API anahtari macOS Anahtar Zinciri destekli safeStorage ile sifrelenir.
 function getKey(){
@@ -32,45 +31,15 @@ function setKey(k){
   if(safeStorage.isEncryptionAvailable())save({keyEnc:safeStorage.encryptString(k).toString('base64'),key:undefined});
   else save({key:k});
 }
-const model=()=>MODELS.some(m=>m.id===cfg().model)?cfg().model:MODELS[0].id;
-const interval=()=>INTERVALS.includes(cfg().interval)?cfg().interval:30;
-
-// --- model istegi --------------------------------------------------------
-const SYS='Sen deneyimli bir teknik analiz uzmanisin. Ekran goruntusunde herhangi bir programdaki (TradingView, broker, Matriks, tarayici vb.) fiyat grafigini bul ve oku. '+
-  'y degeri cizginin ekran goruntusunun ustunden itibaren dikey konumudur (0 ust, 1 alt). Fiyat eksenini oku; fiyati okuyamayip tahmin ettiysen price null birak. '+
-  'En fazla 3 destek ve 3 direnc ver. confidence 0-100 arasi bir tam sayidir. comment Turkce, kisa, net ve gerekceli olsun. Ekranda grafik yoksa chart_found false dondur.';
-const LEVEL={type:'object',properties:{price:{type:['number','null']},y:{type:'number'}},required:['price','y'],additionalProperties:false};
-const SCHEMA={type:'object',additionalProperties:false,
-  required:['chart_found','symbol','timeframe','bias','confidence','trend','resistances','supports','breakout','patterns','comment'],
-  properties:{
-    chart_found:{type:'boolean'},symbol:{type:['string','null']},timeframe:{type:['string','null']},
-    bias:{type:'string',enum:['yukselis','dusus','notr']},confidence:{type:'integer'},trend:{type:'string'},
-    resistances:{type:'array',items:LEVEL},supports:{type:'array',items:LEVEL},
-    breakout:{type:['string','null']},patterns:{type:'array',items:{type:'string'}},comment:{type:'string'}
-  }};
-
-async function ask(key,img){
-  const m=model();
-  const req={model:m,max_tokens:16000,system:SYS,output_config:{effort:'medium',format:{type:'json_schema',schema:SCHEMA}},
-    messages:[{role:'user',content:[{type:'image',source:{type:'base64',media_type:'image/jpeg',data:img}},{type:'text',text:'Ekrandaki grafiği analiz et.'}]}]};
-  const client=new Anthropic({apiKey:key,maxRetries:2});
-  // Sonnet/Opus: guvenlik filtresi reddederse sunucu tarafinda yedek modele gec.
-  const r=m.startsWith('claude-haiku')?await client.messages.create(req)
-    :await client.beta.messages.create({...req,betas:['server-side-fallback-2026-07-01'],fallbacks:'default'});
-  if(r.stop_reason==='refusal')throw new Error('Model bu isteği yanıtlamadı. Tekrar dene.');
-  if(r.stop_reason==='max_tokens')throw new Error('Yanıt yarıda kesildi. Tekrar dene.');
-  const t=r.content.filter(c=>c.type==='text').map(c=>c.text).join('');
-  return JSON.parse(t);
-}
-
-function apiError(e){
-  if(e instanceof Anthropic.AuthenticationError)return 'API anahtarı geçersiz. Ayarlar sekmesinden kontrol et.';
-  if(e instanceof Anthropic.PermissionDeniedError)return 'Bu anahtarın seçili modele erişimi yok.';
-  if(e instanceof Anthropic.RateLimitError)return 'İstek sınırı aşıldı, biraz bekleyip tekrar dene.';
-  if(e instanceof Anthropic.APIConnectionError)return 'Bağlantı kurulamadı. İnternet bağlantını kontrol et.';
-  if(e instanceof Anthropic.APIError)return 'API hatası ('+(e.status||'?')+'): '+e.message;
-  if(e instanceof SyntaxError)return 'Model yanıtı okunamadı. Tekrar dene.';
-  return String(e.message||e);
+const model=()=>ai.MODELS.some(m=>m.id===cfg().model)?cfg().model:ai.MODELS[0].id;
+const interval=()=>INTERVALS.includes(cfg().interval)?cfg().interval:2;
+const engineName=()=>cfg().engine==='claude'&&getKey()?'claude':'yerel';
+// Canli mod, kullanici ayarlardan acikca izin vermedikce ucretsiz yerel motoru kullanir.
+const liveEngine=()=>cfg().liveAi&&getKey()?'claude':'yerel';
+const month=()=>new Date().toISOString().slice(0,7);
+function addCost(c){
+  const u=cfg().usage||{};const m=u.month===month()?u:{month:month(),cost:0,count:0};
+  save({usage:{month:m.month,cost:m.cost+c,count:m.count+1,total:(u.total||0)+c}});
 }
 
 // --- ekran ---------------------------------------------------------------
@@ -78,29 +47,31 @@ const activeDisplay=()=>screen.getDisplayNearestPoint(screen.getCursorScreenPoin
 const screenAllowed=()=>process.platform!=='darwin'||systemPreferences.getMediaAccessStatus('screen')==='granted';
 
 async function capture(d){
-  const w=1600,h=Math.round(w*d.size.height/d.size.width);
-  const srcs=await desktopCapturer.getSources({types:['screen'],thumbnailSize:{width:w,height:h}});
+  const h=Math.round(SHOT_W*d.size.height/d.size.width);
+  const srcs=await desktopCapturer.getSources({types:['screen'],thumbnailSize:{width:SHOT_W,height:h}});
   const src=srcs.find(s=>s.display_id===String(d.id))||srcs[0];
   if(!src||src.thumbnail.isEmpty())throw new Error('Ekran görüntüsü alınamadı.');
   return src.thumbnail;
 }
-// Kucuk gri tonlu imza: canli modda ekran degismediyse istegi atla.
+// Kucuk gri tonlu imza: canli modda ekran degismediyse analizi atla.
 function signature(img){
-  const b=img.resize({width:48,height:27}).toBitmap(),s=new Uint8Array(b.length/4);
+  const b=img.resize({width:64,height:36}).toBitmap(),s=new Uint8Array(b.length/4);
   for(let i=0;i<s.length;i++)s[i]=(b[i*4]+b[i*4+1]+b[i*4+2])/3;
   return s;
 }
-function changed(a,b){
-  if(!a||!b||a.length!==b.length)return true;
-  let n=0;for(let i=0;i<a.length;i++)if(Math.abs(a[i]-b[i])>12)n++;
-  return n/a.length>0.01;
+// Degisen piksel orani (0 = ayni ekran, 1 = tamamen farkli).
+function diff(a,b){
+  if(!a||!b||a.length!==b.length)return 1;
+  let n=0;for(let i=0;i<a.length;i++)if(Math.abs(a[i]-b[i])>10)n++;
+  return n/a.length;
 }
 
 // --- pencereler ----------------------------------------------------------
 const send=(ch,d)=>pop&&!pop.isDestroyed()&&pop.webContents.send(ch,d);
+const sendOv=(ch,d)=>ov&&!ov.isDestroyed()&&ov.webContents.send(ch,d);
 function mk(){
   const pre=path.join(__dirname,'preload.js');
-  pop=new BrowserWindow({width:380,height:600,show:false,frame:false,resizable:false,skipTaskbar:true,alwaysOnTop:true,transparent:true,
+  pop=new BrowserWindow({width:380,height:560,show:false,frame:false,resizable:false,skipTaskbar:true,alwaysOnTop:true,transparent:true,
     vibrancy:'popover',visualEffectState:'active',roundedCorners:true,webPreferences:{preload:pre,sandbox:true}});
   pop.setContentProtection(true);pop.loadFile(path.join(__dirname,'popup.html'));
   pop.on('blur',()=>{if(!pop.webContents.isDevToolsOpened())pop.hide()});
@@ -108,6 +79,7 @@ function mk(){
     webPreferences:{preload:pre,sandbox:true}});
   ov.setAlwaysOnTop(true,'screen-saver');ov.setVisibleOnAllWorkspaces(true,{visibleOnFullScreen:true});
   ov.setIgnoreMouseEvents(true);ov.setContentProtection(true);ov.loadFile(path.join(__dirname,'overlay.html'));
+  ov.webContents.once('did-finish-load',()=>placeOverlay(screen.getPrimaryDisplay()));
   for(const w of [pop,ov])w.webContents.setWindowOpenHandler(()=>({action:'deny'}));
 }
 function showPop(){
@@ -117,10 +89,31 @@ function showPop(){
 }
 const toggle=()=>pop.isVisible()?pop.hide():showPop();
 
-function hideOverlay(){clearTimeout(ovTimer);if(ov.isVisible())ov.hide()}
-function drawOverlay(a,d){
-  ov.setBounds(d.bounds);ov.webContents.send('draw',a);ov.showInactive();
-  clearTimeout(ovTimer);ovTimer=setTimeout(()=>ov.hide(),Math.max(25,interval()+10)*1000);
+// Overlay tek bir ekranda durur ve o ekranin cizimlerini gosterir.
+function placeOverlay(d){
+  if(ovDisplay===d.id)return;
+  ovDisplay=d.id;ov.setBounds(d.bounds);
+  sendOv('drawings',(cfg().drawings||{})[d.id]||[]);
+  syncOverlay();
+}
+function syncOverlay(){
+  const hasDraw=((cfg().drawings||{})[ovDisplay]||[]).length>0;
+  if(drawing||hasDraw||lastResult)ov.showInactive();else ov.hide();
+}
+function drawOverlay(a,d,anim){
+  placeOverlay(d);lastResult=a;
+  sendOv('draw',{...a,anim});syncOverlay();
+  clearTimeout(fadeTimer);
+  if(!cfg().live&&!cfg().pin)fadeTimer=setTimeout(clearAnalysis,30000);
+}
+function clearAnalysis(){clearTimeout(fadeTimer);lastResult=null;sendOv('draw',null);syncOverlay()}
+
+function setDrawing(on){
+  if(on===drawing)return;
+  drawing=on;
+  if(on){placeOverlay(activeDisplay());pop.hide();ov.setIgnoreMouseEvents(false);ov.setFocusable(true);ov.show();ov.focus();app.focus({steal:true})}
+  else{ov.setIgnoreMouseEvents(true);ov.setFocusable(false)}
+  sendOv('mode',on);syncOverlay();
 }
 
 function trayIcon(){
@@ -128,12 +121,23 @@ function trayIcon(){
   const img=nativeImage.createFromPath(path.join(__dirname,'assets','trayTemplate.png'));
   img.setTemplateImage(true);return img;
 }
+function trayTitle(){tray&&tray.setTitle(cfg().live?(liveEngine()==='claude'?' Canlı AI':' Canlı'):'')}
+
+// --- bildirimler ---------------------------------------------------------
+function checkAlerts(prev,a){
+  if(!cfg().alerts||!prev||!prev.last||!a.last||!Notification.isSupported())return;
+  const py=prev.last.y,y=a.last.y,now=Date.now(),sym=a.symbol||(lastAi&&lastAi.symbol)||'Grafik';
+  const fire=(id,body)=>{if(now-(alerted.get(id)||0)<120000)return;alerted.set(id,now);new Notification({title:sym,body}).show()};
+  for(const [i,l] of (prev.resistances||[]).entries())if(py>l.y&&y<l.y)fire('r'+Math.round(l.y*200),'▲ R'+(i+1)+' direnci yukarı kırıldı'+(l.price!=null?' ('+l.price+')':''));
+  for(const [i,l] of (prev.supports||[]).entries())if(py<l.y&&y>l.y)fire('s'+Math.round(l.y*200),'▼ S'+(i+1)+' desteği aşağı kırıldı'+(l.price!=null?' ('+l.price+')':''));
+}
 
 // --- analiz --------------------------------------------------------------
 async function analyze(opts={}){
   if(busy)return;
-  const key=getKey();
-  if(!key){send('err',{msg:'Önce Ayarlar sekmesinden API anahtarını gir.',settings:true});return opts.silent||showPop()}
+  const eng=opts.engine||(opts.silent?liveEngine():engineName());
+  const key=eng==='claude'?getKey():null;
+  if(eng==='claude'&&!key){send('err',{msg:'Claude analizi için Ayarlar sekmesinden API anahtarını gir. Anahtarsız da Hızlı (yerel) analiz kullanılabilir.',settings:true});return opts.silent||showPop()}
   if(!screenAllowed()){
     try{await desktopCapturer.getSources({types:['screen'],thumbnailSize:{width:1,height:1}})}catch(e){} // izin istemini tetikler
     send('err',{msg:'Ekran Kaydı izni gerekli. Sistem Ayarları › Gizlilik ve Güvenlik › Ekran Kaydı bölümünden Grafik Okuyucu\'yu aç, sonra uygulamayı yeniden başlat.',perm:true});
@@ -142,45 +146,91 @@ async function analyze(opts={}){
   busy=true;
   try{
     const d=activeDisplay(),shot=await capture(d),sig=signature(shot);
-    if(opts.silent&&!changed(sig,lastSig)){send('skip',Date.now());return}
-    send('busy',1);
-    const a=await ask(key,shot.toJPEG(80).toString('base64'));
+    const change=d.id===ovDisplay?diff(sig,lastSig):1;
+    if(opts.silent&&change===0){send('skip',Date.now());return}
+    const {width:W,height:H}=shot.getSize();
+    const local=engine.analyzeBitmap(shot.toBitmap(),W,H);
+    let a=local;
+    if(eng==='claude'){
+      send('busy',1);
+      // Grafik alani bulunduysa yalnizca o bolumu (fiyat ekseniyle) gonder: daha az token, daha net okuma.
+      let crop=null,img=shot;
+      if(local.chart_found){const b=local.chart_box;
+        const x=Math.max(0,b.x1-0.03),y=Math.max(0,b.y1-0.08),x2=Math.min(1,b.x2+0.14),y2=Math.min(1,b.y2+0.08);
+        if((x2-x)*(y2-y)<0.85){crop={x,y,w:x2-x,h:y2-y};img=shot.crop({x:Math.round(x*W),y:Math.round(y*H),width:Math.round(crop.w*W),height:Math.round(crop.h*H)})}}
+      a=await ai.analyze({key,model:model(),img:img.toJPEG(82).toString('base64'),crop,effort:opts.silent?'low':'medium'});
+      addCost(a.cost);
+      if(local.chart_found)a.last=local.last;
+      lastAi=a;
+    }
     lastSig=sig;
+    const prev=lastResult;
+    // Canli yerel takipte son 60 sn icindeki Claude sonucunu (fiyatli seviyeler) koru, yalnizca son fiyat noktasini guncelle.
+    if(opts.silent&&eng==='yerel'&&prev&&prev.engine==='claude'&&Date.now()-prev.at<60000&&local.chart_found&&change<0.25){
+      const keep={...prev,last:local.last};drawOverlay(keep,d,false);checkAlerts(prev,keep);return}
+    a.at=Date.now();
     a.confidence=Math.max(0,Math.min(100,Math.round(a.confidence||0)));
-    const entry={...a,at:Date.now(),model:model()};
-    if(a.chart_found){save({history:[entry,...(cfg().history||[])].slice(0,HISTORY_MAX)});drawOverlay(a,d)}else hideOverlay();
-    send('result',entry);
-  }catch(e){send('err',{msg:apiError(e)})}
+    const entry={...a,model:eng==='claude'?model():null};
+    if(a.chart_found){
+      if(!opts.silent||eng==='claude')save({history:[entry,...(cfg().history||[])].slice(0,HISTORY_MAX)});
+      drawOverlay(a,d,!opts.silent);checkAlerts(prev,a);
+    }else if(!opts.silent)clearAnalysis();
+    send('result',{...entry,silent:!!opts.silent,usage:state().usage});
+  }catch(e){send('err',{msg:ai.errorText(e)})}
   finally{busy=false}
 }
 
 function setLive(on){
   save({live:on});clearInterval(timer);timer=null;lastSig=null;
-  if(on)timer=setInterval(()=>analyze({silent:true}),interval()*1000);
-  tray&&tray.setTitle(on?' Canlı':'');
+  if(on){timer=setInterval(()=>analyze({silent:true}),interval()*1000);analyze({silent:true})}
+  else if(!cfg().pin){clearTimeout(fadeTimer);fadeTimer=setTimeout(clearAnalysis,30000)}
+  trayTitle();
+}
+
+function state(){
+  const u=cfg().usage||{};
+  return{hasKey:!!getKey(),live:!!cfg().live,model:model(),models:ai.MODELS,interval:interval(),intervals:INTERVALS,engine:engineName(),liveAi:!!cfg().liveAi,
+    history:cfg().history||[],perm:screenAllowed(),secure:safeStorage.isEncryptionAvailable(),alerts:!!cfg().alerts,pin:!!cfg().pin,
+    usage:u.month===month()?u:{cost:0,count:0,total:u.total||0}};
 }
 
 app.whenReady().then(()=>{
   app.dock&&app.dock.hide();mk();
-  tray=new Tray(trayIcon());tray.setToolTip('Grafik Okuyucu (⌘⇧A)');
+  tray=new Tray(trayIcon());tray.setToolTip('Grafik Okuyucu');
   tray.on('click',toggle);
   tray.on('right-click',()=>tray.popUpContextMenu(Menu.buildFromTemplate([
-    {label:'Ekranı Analiz Et',accelerator:'CommandOrControl+Shift+A',click:()=>analyze()},
-    {label:'Çizgileri Gizle',click:hideOverlay},{type:'separator'},
+    {label:'Hızlı Analiz (yerel)',click:()=>analyze({engine:'yerel'})},
+    {label:'Claude ile Analiz',enabled:!!getKey(),click:()=>analyze({engine:'claude'})},
+    {label:'Çizim Modu',accelerator:'CommandOrControl+Shift+D',click:()=>setDrawing(true)},
+    {label:'Analiz Çizgilerini Gizle',click:clearAnalysis},{type:'separator'},
+    {label:'Canlı Mod',type:'checkbox',accelerator:'CommandOrControl+Shift+L',checked:!!cfg().live,click:m=>{setLive(m.checked);send('state',state())}},{type:'separator'},
     {label:'Çıkış',role:'quit'}])));
-  if(!globalShortcut.register('CommandOrControl+Shift+A',()=>analyze()))console.warn('Kısayol başka bir uygulama tarafından kullanılıyor.');
-  ipcMain.handle('analyze',()=>analyze());
-  ipcMain.handle('key',(e,k)=>{setKey(typeof k==='string'?k.trim():'');return !!getKey()});
-  ipcMain.handle('cfg',()=>({hasKey:!!getKey(),live:!!cfg().live,model:model(),models:MODELS,interval:interval(),intervals:INTERVALS,
-    history:cfg().history||[],perm:screenAllowed(),secure:safeStorage.isEncryptionAvailable()}));
+  const sc=[['CommandOrControl+Shift+A',()=>analyze()],['CommandOrControl+Shift+D',()=>setDrawing(!drawing)],
+    ['CommandOrControl+Shift+L',()=>{setLive(!cfg().live);send('state',state())}]];
+  for(const [k,f] of sc)if(!globalShortcut.register(k,f))console.warn(k+' kısayolu başka bir uygulama tarafından kullanılıyor.');
+  ipcMain.handle('analyze',(e,eng)=>analyze({engine:eng==='claude'||eng==='yerel'?eng:undefined}));
+  ipcMain.handle('key',(e,k)=>{setKey(typeof k==='string'?k.trim():'');trayTitle();return state()});
+  ipcMain.handle('cfg',state);
   ipcMain.handle('live',(e,on)=>setLive(!!on));
-  ipcMain.handle('model',(e,m)=>{if(MODELS.some(x=>x.id===m))save({model:m})});
-  ipcMain.handle('interval',(e,s)=>{if(INTERVALS.includes(s)){save({interval:s});if(cfg().live)setLive(true)}});
+  ipcMain.handle('set',(e,o)=>{
+    if(ai.MODELS.some(x=>x.id===o.model))save({model:o.model});
+    if(INTERVALS.includes(o.interval)){save({interval:o.interval});if(cfg().live)setLive(true)}
+    if(o.engine==='yerel'||o.engine==='claude'){save({engine:o.engine});lastSig=null;trayTitle()}
+    if(typeof o.alerts==='boolean')save({alerts:o.alerts});
+    if(typeof o.liveAi==='boolean'){save({liveAi:o.liveAi});lastSig=null;trayTitle()}
+    if(typeof o.pin==='boolean'){save({pin:o.pin});if(o.pin)clearTimeout(fadeTimer)}
+    return state();
+  });
   ipcMain.handle('clearHistory',()=>save({history:[]}));
-  ipcMain.handle('hideOverlay',hideOverlay);
+  ipcMain.handle('hideOverlay',clearAnalysis);
+  ipcMain.handle('draw',(e,on)=>setDrawing(on!==false));
+  ipcMain.handle('saveDrawings',(e,list)=>{if(!Array.isArray(list))return;save({drawings:{...(cfg().drawings||{}),[ovDisplay]:list.slice(0,200)}});syncOverlay()});
+  ipcMain.handle('resize',(e,h)=>{if(Number.isFinite(h))pop.setSize(380,Math.max(320,Math.min(680,Math.round(h))))});
   ipcMain.handle('openPerm',()=>shell.openExternal(SETTINGS_URL));
+  ipcMain.handle('openBilling',()=>shell.openExternal('https://console.anthropic.com/settings/billing'));
   ipcMain.handle('quit',()=>app.quit());
   if(cfg().live)setLive(true);
+  trayTitle();
 });
 app.on('will-quit',()=>globalShortcut.unregisterAll());
 app.on('window-all-closed',e=>e.preventDefault());

@@ -1,28 +1,192 @@
 <!DOCTYPE html><html lang="tr"><head><meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
 <style>
-html,body{margin:0;height:100%;background:transparent;overflow:hidden;font:600 12px -apple-system,BlinkMacSystemFont,"Inter",sans-serif;-webkit-font-smoothing:antialiased}
-.l{position:absolute;left:0;right:0;height:0;border-top:1.5px dashed;opacity:0;transform:scaleX(.2);transform-origin:left;animation:ln .5s ease forwards}
-.l:before{content:"";position:absolute;left:0;right:0;top:-6px;height:11px;background:linear-gradient(90deg,transparent,var(--c) 70%);opacity:.09}
-.l span{position:absolute;left:28px;top:-12px;display:flex;align-items:center;gap:6px;padding:3px 9px;border-radius:7px;color:#fff;background:var(--c);box-shadow:0 2px 10px rgba(0,0,0,.25);font-variant-numeric:tabular-nums;white-space:nowrap}
-.l span i{font-style:normal;opacity:.75;font-weight:500}
-@keyframes ln{to{opacity:.95;transform:none}}
-.b{position:absolute;top:48px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:10px;padding:9px 14px;border-radius:14px;color:#fff;font-size:13px;box-shadow:0 8px 28px rgba(0,0,0,.3);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);animation:bi .35s ease}
-.b small{font-weight:500;opacity:.85}
-@keyframes bi{from{opacity:0;transform:translate(-50%,-8px)}}
-</style></head><body><script>
+html,body{margin:0;height:100%;background:transparent;overflow:hidden;font:600 12px -apple-system,BlinkMacSystemFont,"Inter",sans-serif;-webkit-font-smoothing:antialiased;-webkit-user-select:none;user-select:none}
+svg.layer{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+#an .lv line{stroke-width:1.5;stroke-dasharray:6 5}
+#an.anim .lv,#an.anim .tl{animation:grow .6s ease both}
+@keyframes grow{from{opacity:0}}
+#an .tag text{fill:#fff;font-weight:700;font-size:11.5px}
+#an .pulse{animation:pl 1.6s ease-out infinite;transform-box:fill-box;transform-origin:center}
+@keyframes pl{from{opacity:.7;transform:scale(1)}to{opacity:0;transform:scale(3.2)}}
+#badge{position:absolute;top:44px;left:50%;transform:translateX(-50%);display:none;align-items:center;gap:10px;padding:8px 14px;border-radius:14px;color:#fff;font-size:13px;box-shadow:0 8px 28px rgba(0,0,0,.3);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);white-space:nowrap}
+#badge small{font-weight:500;opacity:.88}#badge .eng{font-size:10px;padding:2px 6px;border-radius:6px;background:rgba(255,255,255,.22);font-weight:700;letter-spacing:.03em}
+#badge.in{animation:bi .35s ease}@keyframes bi{from{opacity:0;transform:translate(-50%,-8px)}}
+body.draw #badge{display:none!important}
+/* cizim */
+body.draw #dr .d{cursor:move}body.draw #dr .d *{pointer-events:stroke}body.draw #dr .d text,body.draw #dr .d .fill{pointer-events:all}
+#dr .sel line,#dr .sel rect:not(.h){filter:drop-shadow(0 0 3px rgba(79,107,255,.9))}
+#dr .h{fill:#fff;stroke:#4f6bff;stroke-width:2;cursor:grab;pointer-events:all}
+#dr text{font-weight:600;font-size:11px;paint-order:stroke;stroke:rgba(0,0,0,.55);stroke-width:3px}
+#dr .note text{font-size:13px}
+/* Saydam pikseller tiklamayi gecirir; cizim modunda hafif zemin olaylari yakalar. */
+body.draw{cursor:crosshair;background:rgba(10,14,30,.06)}
+#tb{position:absolute;top:44px;left:50%;transform:translateX(-50%);display:none;align-items:center;gap:2px;padding:5px;border-radius:14px;background:rgba(28,30,38,.92);border:1px solid rgba(255,255,255,.1);box-shadow:0 12px 40px rgba(0,0,0,.45);-webkit-backdrop-filter:blur(20px);backdrop-filter:blur(20px);color:#e9edf5;cursor:default;z-index:5}
+body.draw #tb{display:flex}
+#tb button{all:unset;display:grid;place-items:center;width:32px;height:32px;border-radius:9px;cursor:pointer;color:#cdd3df;position:relative}
+#tb button:hover{background:rgba(255,255,255,.1)}#tb button.on{background:#4f6bff;color:#fff}
+#tb button[data-tip]:hover:after{content:attr(data-tip);position:absolute;top:40px;left:50%;transform:translateX(-50%);white-space:nowrap;font:600 11px -apple-system,sans-serif;padding:4px 8px;border-radius:7px;background:#000;color:#fff}
+#tb .sep{width:1px;height:20px;background:rgba(255,255,255,.14);margin:0 5px}
+#tb .sw{width:16px;height:16px;border-radius:50%;cursor:pointer;margin:0 3px;box-shadow:inset 0 0 0 2px rgba(255,255,255,.2)}
+#tb .sw.on{box-shadow:0 0 0 2px #fff}
+#tb .done{all:unset;padding:7px 12px;border-radius:9px;background:#fff;color:#111;font-weight:700;cursor:pointer;margin-left:4px}
+#hint{position:absolute;bottom:22px;left:50%;transform:translateX(-50%);display:none;padding:7px 12px;border-radius:10px;background:rgba(10,12,20,.8);color:#fff;font-weight:500}
+body.draw #hint{display:block}
+#noteIn{position:absolute;display:none;font:600 13px -apple-system,sans-serif;padding:4px 8px;border-radius:7px;border:2px solid #4f6bff;outline:none;background:rgba(20,22,30,.92);color:#fff;min-width:140px}
+</style></head><body>
+<svg id="an" class="layer"></svg>
+<svg id="dr" class="layer"></svg>
+<div id="badge"></div>
+<div id="tb"></div>
+<div id="hint">Sürükleyerek çiz · <b>Esc</b> bitir · <b>⌘Z</b> geri al · <b>Sil</b> seçileni kaldır</div>
+<input id="noteIn" placeholder="Not yaz, Enter">
+<script>
+const NS='http://www.w3.org/2000/svg';
+const S=(tag,attrs={},parent)=>{const e=document.createElementNS(NS,tag);for(const k in attrs)e.setAttribute(k,attrs[k]);parent&&parent.append(e);return e};
+const $=i=>document.getElementById(i);
 const BIAS={yukselis:['Yükseliş','#14a06b','▲'],dusus:['Düşüş','#e5484d','▼'],notr:['Nötr','#6b7482','●']};
-const fmt=n=>typeof n==='number'?n.toLocaleString('tr-TR',{maximumFractionDigits:6}):null;
-api.on('draw',a=>{
-  document.body.replaceChildren();
-  const add=(x,i,c,n)=>{if(typeof x.y!=='number'||x.y<0||x.y>1)return;
-    const d=document.createElement('div'),s=document.createElement('span'),k=document.createElement('i');
-    d.className='l';d.style.top=(x.y*100)+'%';d.style.borderColor=c;d.style.setProperty('--c',c);d.style.animationDelay=(i*80)+'ms';
-    k.textContent=n;s.append(k,fmt(x.price)||'~');d.append(s);document.body.append(d)};
-  (a.resistances||[]).forEach((x,i)=>add(x,i,'#e5484d','R'+(i+1)));
-  (a.supports||[]).forEach((x,i)=>add(x,i+3,'#14a06b','S'+(i+1)));
-  const [bl,c,ar]=BIAS[a.bias]||BIAS.notr,b=document.createElement('div'),sm=document.createElement('small');
-  b.className='b';b.style.background=c+'e6';sm.textContent='Güven %'+a.confidence;
-  b.append((a.symbol||'Grafik')+'  '+ar+' '+bl,sm);document.body.append(b);
+const fmt=n=>typeof n==='number'?n.toLocaleString('tr-TR',{maximumFractionDigits:Math.abs(n)<10?4:2}):null;
+const VW=()=>innerWidth,VH=()=>innerHeight;
+let A=null,cal=null; // son analiz ve y->fiyat kalibrasyonu
+
+// --- analiz katmani -----------------------------------------------------
+function tag(g,x,y,text,color){
+  const t=S('g',{class:'tag'},g),tx=S('text',{x:x+7,y:y+4},t);tx.textContent=text;
+  t.insertBefore(S('rect',{x,y:y-10,width:tx.getComputedTextLength()+14,height:20,fill:color,rx:6}),tx);
+}
+function drawAnalysis(a){
+  const an=$('an'),b=$('badge');an.replaceChildren();A=a;cal=null;
+  if(!a){b.style.display='none';render();return}
+  // Claude fiyatlari verdiyse y -> fiyat dogrusal kalibrasyonu (Fibonacci, yatay cizgi ve olcum icin).
+  const pts=[...(a.resistances||[]),...(a.supports||[])].filter(l=>typeof l.price==='number');
+  if(pts.length>=2){const n=pts.length,mx=pts.reduce((s,p)=>s+p.y,0)/n,my=pts.reduce((s,p)=>s+p.price,0)/n;
+    let sxy=0,sxx=0;for(const p of pts){sxy+=(p.y-mx)*(p.price-my);sxx+=(p.y-mx)**2}
+    if(sxx>1e-6&&sxy<0){const k=sxy/sxx;cal=y=>my+k*(y-mx)}}
+  an.classList.toggle('anim',!!a.anim);
+  const W=VW(),H=VH(),bx=a.chart_box||{x1:0.02,y1:0,x2:0.98,y2:1};
+  const x1=bx.x1*W,x2=Math.min(W,bx.x2*W+W*0.02);
+  const lv=(l,i,col,name)=>{if(typeof l.y!=='number'||l.y<0||l.y>1)return;const y=l.y*H,g=S('g',{class:'lv',style:'animation-delay:'+i*70+'ms'},an);
+    S('line',{x1,x2,y1:y,y2:y,stroke:col},g);
+    tag(g,x1+6,y,name+'  '+(fmt(l.price)||(l.touches?l.touches+' temas':'')),col)};
+  (a.resistances||[]).forEach((l,i)=>lv(l,i,'#e5484d','R'+(i+1)));
+  (a.supports||[]).forEach((l,i)=>lv(l,i+3,'#14a06b','S'+(i+1)));
+  (a.trendlines||[]).forEach((t,i)=>{const col=t.type==='destek'?'#2bb3ff':'#ff9f1a',g=S('g',{class:'tl',style:'animation-delay:'+(i*90+250)+'ms'},an);
+    S('line',{x1:t.x1*W,y1:t.y1*H,x2:t.x2*W,y2:t.y2*H,stroke:col,'stroke-width':2,'stroke-linecap':'round'},g);
+    tag(g,t.x2*W-104,t.y2*H+(t.type==='destek'?18:-18),t.type==='destek'?'Destek trendi':'Direnç trendi',col)});
+  if(a.last){const cx=a.last.x*W,cy=a.last.y*H,c=(BIAS[a.bias]||BIAS.notr)[1];
+    S('circle',{cx,cy,r:5,fill:c,class:'pulse'},an);S('circle',{cx,cy,r:4,fill:c,stroke:'#fff','stroke-width':1.5},an)}
+  const [bl,c,ar]=BIAS[a.bias]||BIAS.notr;
+  b.replaceChildren();const eng=document.createElement('span');eng.className='eng';eng.textContent=a.engine==='claude'?'CLAUDE':'YEREL';
+  const sm=document.createElement('small');sm.textContent='Güven %'+a.confidence+(a.patterns&&a.patterns.length?' · '+a.patterns[0]:'');
+  b.append(eng,(a.symbol?a.symbol+'  ':'')+ar+' '+bl,sm);b.style.background=c+'e6';b.style.display='flex';
+  if(a.anim){b.classList.remove('in');void b.offsetWidth;b.classList.add('in')}
+  render();
+}
+
+// --- cizim katmani -----------------------------------------------------
+const COLORS=['#4f8cff','#ffb020','#e5484d','#14a06b','#f5f7fa'];
+const FIB=[0,0.236,0.382,0.5,0.618,0.786,1];
+let D=[],undo=[],tool='trend',color=COLORS[0],sel=-1,drag=null,mode=false;
+const TOOLS=[
+  ['sec','Seç / taşı (V)','M5 3l12 8-5 1.4L9.5 18z'],
+  ['trend','Trend çizgisi (T)','M4 18L18 5'],
+  ['isin','Işın (R)','M4 18L20 4M17 4h3v3'],
+  ['yatay','Yatay çizgi (H)','M3 12h18'],
+  ['kutu','Dikdörtgen (B)','M5 6h14v12H5z'],
+  ['fib','Fibonacci (F)','M4 5h16M4 9h16M4 12h16M4 16h16M4 19h16'],
+  ['olc','Ölçüm (M)','M6 5v14M18 5v14M6 12h12M15 9l3 3-3 3'],
+  ['not','Not (N)','M5 5h14v10H10l-5 4z']];
+const KEYS={v:'sec',t:'trend',r:'isin',h:'yatay',b:'kutu',f:'fib',m:'olc',n:'not'};
+const icon=d=>'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="'+d+'"/></svg>';
+function toolbar(){
+  const tb=$('tb');tb.replaceChildren();
+  const btn=(tip,d,f,on)=>{const b=document.createElement('button');b.dataset.tip=tip;b.className=on?'on':'';b.innerHTML=icon(d);b.onclick=f;tb.append(b)};
+  const sep=()=>tb.append(Object.assign(document.createElement('div'),{className:'sep'}));
+  for(const [id,tip,d] of TOOLS)btn(tip,d,()=>{tool=id;sel=-1;toolbar();render()},tool===id);
+  sep();
+  for(const c of COLORS){const s=document.createElement('div');s.className='sw'+(c===color?' on':'');s.style.background=c;
+    s.onclick=()=>{color=c;if(sel>=0){push();D[sel].c=c;commit()}toolbar()};tb.append(s)}
+  sep();
+  btn('Geri al (⌘Z)','M9 7L4 12l5 5M4 12h11a5 5 0 010 10h-2',undoLast);
+  btn('Hepsini sil','M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13',()=>{if(!D.length)return;push();D=[];sel=-1;commit()});
+  const done=document.createElement('button');done.className='done';done.textContent='Bitti';done.onclick=()=>api.draw(false);tb.append(done);
+}
+const push=()=>{undo.push(JSON.stringify(D));if(undo.length>50)undo.shift()};
+function undoLast(){if(!undo.length)return;D=JSON.parse(undo.pop());sel=-1;commit()}
+function commit(){render();api.saveDrawings(D)}
+const P=(x,y)=>[x*VW(),y*VH()];
+const price=y=>cal?fmt(cal(y)):null;
+
+function render(){
+  const dr=$('dr');dr.replaceChildren();const W=VW(),H=VH();
+  D.forEach((d,i)=>{const g=S('g',{class:'d'+(i===sel&&mode?' sel':'')+(d.t==='not'?' note':''),'data-i':i},dr),c=d.c;
+    const [ax,ay]=P(d.a[0],d.a[1]),[bx,by]=d.b?P(d.b[0],d.b[1]):[ax,ay];
+    const ln=(x1,y1,x2,y2,w=2,dash)=>S('line',{x1,y1,x2,y2,stroke:c,'stroke-width':w,'stroke-linecap':'round',...(dash?{'stroke-dasharray':dash}:{})},g);
+    const tx=(x,y,t,anchor='start',col=c)=>{const e=S('text',{x,y,fill:col,'text-anchor':anchor},g);e.textContent=t;return e};
+    if(d.t==='trend')ln(ax,ay,bx,by);
+    else if(d.t==='isin'){const dx=bx-ax,dy=by-ay,k=dx||dy?Math.max(W,H)*4/Math.hypot(dx,dy):0;ln(ax,ay,ax+dx*k,ay+dy*k);S('circle',{cx:ax,cy:ay,r:3,fill:c},g)}
+    else if(d.t==='yatay'){ln(0,ay,W,ay,1.6);const p=price(d.a[1]);if(p)tx(W-140,ay-6,p)}
+    else if(d.t==='kutu')S('rect',{class:'fill',x:Math.min(ax,bx),y:Math.min(ay,by),width:Math.abs(bx-ax),height:Math.abs(by-ay),fill:c+'22',stroke:c,'stroke-width':1.5,rx:3},g);
+    else if(d.t==='fib'){const l=Math.min(ax,bx),r=Math.max(ax,bx)+W*0.06;
+      S('rect',{class:'fill',x:l,y:Math.min(ay,by),width:r-l,height:Math.abs(by-ay),fill:c+'12'},g);
+      FIB.forEach(f=>{const y=by+(ay-by)*f,edge=f===0||f===1;ln(l,y,r,y,edge?1.6:1.1,edge?null:'4 4');const p=price(y/H);tx(l-6,y+4,f.toFixed(3)+(p?' · '+p:''),'end')});
+      ln(ax,ay,bx,by,1,'2 4')}
+    else if(d.t==='olc'){const up=by<ay,col=up?'#14a06b':'#e5484d';
+      S('rect',{class:'fill',x:Math.min(ax,bx),y:Math.min(ay,by),width:Math.abs(bx-ax),height:Math.abs(by-ay),fill:col+'26',stroke:col,'stroke-width':1,rx:3},g);
+      ln(ax,ay,bx,by,1.5);
+      const pa=cal&&cal(d.a[1]),pb=cal&&cal(d.b[1]);
+      // Mum sayisi: son analizin grafik alani / mum sayisindan mum genisligi.
+      const bw=A&&A.candles&&A.chart_box?(A.chart_box.x2-A.chart_box.x1)*W/A.candles:0,bars=bw?' · '+Math.round(Math.abs(bx-ax)/bw)+' mum':'';
+      const lab=(pa&&pb?(pb-pa>=0?'+':'')+fmt(pb-pa)+'  ('+(pb-pa>=0?'+':'')+((pb-pa)/pa*100).toFixed(2)+'%)':(up?'▲ ':'▼ ')+Math.round(Math.abs(by-ay))+' px')+bars;
+      tx((ax+bx)/2,Math.min(ay,by)-8,lab,'middle','#fff').setAttribute('style','font-size:12px')}
+    else if(d.t==='not')tx(ax,ay,d.txt||'');
+    if(i===sel&&mode)(d.b?[[ax,ay],[bx,by]]:[[ax,ay]]).forEach(([x,y],k)=>S('circle',{class:'h',cx:x,cy:y,r:5,'data-h':k},g));
+  });
+}
+
+// --- fare ----------------------------------------------------------------
+const norm=e=>[+(e.clientX/VW()).toFixed(5),+(e.clientY/VH()).toFixed(5)];
+const clone=o=>JSON.parse(JSON.stringify(o));
+addEventListener('mousedown',e=>{
+  if(!mode||e.button!==0||e.target.closest('#tb')||e.target.id==='noteIn')return;
+  const pt=norm(e),gEl=e.target.closest('.d'),h=e.target.dataset&&e.target.dataset.h;
+  if(gEl&&(tool==='sec'||h!=null)){sel=+gEl.dataset.i;push();drag={k:h!=null?+h:'all',start:pt,orig:clone(D[sel])};render();return}
+  sel=-1;
+  if(tool==='sec'){render();return}
+  if(tool==='not'){openNote(e);return}
+  push();D.push({t:tool,c:color,a:pt,b:tool==='yatay'?null:pt});sel=D.length-1;
+  drag=tool==='yatay'?{k:'all',start:pt,orig:clone(D[sel])}:{k:1,start:pt,orig:null,fresh:true};render();
 });
+addEventListener('mousemove',e=>{
+  if(!drag||sel<0)return;const pt=norm(e),d=D[sel];
+  if(drag.k==='all'){const dx=pt[0]-drag.start[0],dy=pt[1]-drag.start[1],o=drag.orig;
+    d.a=[o.a[0]+dx,o.a[1]+dy];if(o.b)d.b=[o.b[0]+dx,o.b[1]+dy]}
+  else if(drag.k===0)d.a=pt;else d.b=pt;
+  render();
+});
+addEventListener('mouseup',()=>{
+  if(!drag)return;const d=D[sel];
+  // Yanlislikla tiklama: neredeyse sifir uzunluktaki yeni cizimi at.
+  if(drag.fresh&&d&&d.b&&Math.hypot((d.b[0]-d.a[0])*VW(),(d.b[1]-d.a[1])*VH())<4){D.splice(sel,1);undo.pop();sel=-1}
+  drag=null;commit();
+});
+function openNote(e){
+  const n=$('noteIn');n.style.left=e.clientX+'px';n.style.top=(e.clientY-14)+'px';n.style.display='block';n.value='';n.dataset.at=JSON.stringify(norm(e));setTimeout(()=>n.focus(),0);
+}
+$('noteIn').addEventListener('keydown',e=>{const n=e.target;
+  if(e.key==='Enter'&&n.value.trim()){push();D.push({t:'not',c:color,a:JSON.parse(n.dataset.at),txt:n.value.trim().slice(0,120)});commit()}
+  if(e.key==='Escape'||e.key==='Enter'){n.style.display='none';e.stopPropagation()}});
+addEventListener('keydown',e=>{
+  if(!mode||e.target.id==='noteIn')return;
+  if(e.key==='Escape'){if(sel>=0){sel=-1;render()}else api.draw(false);return}
+  if((e.key==='Backspace'||e.key==='Delete')&&sel>=0){push();D.splice(sel,1);sel=-1;commit();return}
+  if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='z'){undoLast();return}
+  const t=KEYS[e.key.toLowerCase()];if(t&&!e.metaKey&&!e.ctrlKey){tool=t;sel=-1;toolbar();render()}
+});
+addEventListener('resize',()=>{if(A)drawAnalysis({...A,anim:false});else render()});
+
+api.on('draw',a=>drawAnalysis(a));
+api.on('drawings',l=>{D=Array.isArray(l)?l:[];undo=[];sel=-1;render()});
+api.on('mode',on=>{mode=on;document.body.classList.toggle('draw',on);sel=-1;$('noteIn').style.display='none';toolbar();render()});
+toolbar();
 </script></body></html>
