@@ -12,10 +12,11 @@ const shareLib=require('./share');
 const APP_NAME='Grafik Okuyucu';
 let hubUi=null;
 const modOn=id=>!hubUi||hubUi.enabled(id);
+const cleanerUi=require('./cleaner-main').registerCleaner({ipcMain,dialog,shell,app,BrowserWindow,path});
 const audioUi=require('./audio-main').registerAudio({ipcMain,app,BrowserWindow,path,cfg:()=>cfg(),save:o=>save(o),isOn:()=>modOn('ses')});
 // Merkez penceresi: ozellikleri ac/kapat. Kapatilan ozellik menude gorunmez ve arka planda calismaz.
 hubUi=require('./hub-main').registerHub({ipcMain,app,BrowserWindow,path,cfg:()=>cfg(),save:o=>save(o),name:APP_NAME,actions:{
-  open:id=>({borsa:()=>showPop(),ses:()=>audioUi.open(),paylas:()=>openShare()})[id]?.(),
+  open:id=>({borsa:()=>showPop(),ses:()=>audioUi.open(),paylas:()=>openShare(),temizlik:()=>cleanerUi.open()})[id]?.(),
   toggle:(id,on)=>{
     if(id==='borsa'){if(on)registerShortcuts();else{globalShortcut.unregisterAll();if(cfg().live)setLive(false);setDepthAuto(0);clearAnalysis();pop.hide()}}
     if(id==='ses'&&!on)audioUi.stop();
@@ -752,6 +753,7 @@ app.whenReady().then(()=>{
       {label:'Canlı Mod',type:'checkbox',accelerator:sc().live,checked:!!cfg().live,click:m=>{setLive(m.checked);send('state',state())}},{type:'separator'}]:[]),
     ...(modOn('ses')?[{label:'Ses…',click:()=>audioUi.open()}]:[]),
     ...(modOn('paylas')?[{label:'Telefonla Dosya Paylaş (QR)…',click:openShare}]:[]),
+    ...(modOn('temizlik')?[{label:'Temizlik…',click:()=>cleanerUi.open()}]:[]),
     {type:'separator'},{label:'Çıkış',role:'quit'}])));
   if(modOn('borsa'))registerShortcuts();
   // Dock simgesi: tiklaninca Merkez acilir. Oturum acilisinda baslatildiysa pencere gosterilmez.

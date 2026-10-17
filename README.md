@@ -54,6 +54,13 @@ Her analizde (Hızlı ve Claude) şunlar hesaplanır:
 
 Fiyat ekseni okunmadan, mumların ekrandaki konumundan hesaplanır; EMA, Bollinger, MACD ve RSI bu dönüşümden etkilenmez. Claude analizi fiyatları ekler ve skora kendi yorumunu katar.
 
+## Merkez ve diğer özellikler
+
+Uygulama açılınca **Merkez** penceresi gelir (Dock simgesinden de açılır). Her özellik buradan açılıp kapatılır; kapalı özellik menü çubuğunda görünmez ve arka planda çalışmaz.
+
+- **Ses:** her uygulamanın sesi ayrı (%0–200), bas/tiz, hazır efektler (Bas, Ekstra bas, Konuşma, Tiz, Yükselt, Gece), çıkış aygıtı ve ana ses. macOS 14.4+ gerekir; ilk kullanımda "Ekran ve Sistem Sesi Kaydı" izni istenir. Ayarı olmayan uygulamanın sesine dokunulmaz.
+- **Temizlik:** birebir aynı dosyaları bulur (boyut + tam SHA-256; sabit bağlantılar kopya sayılmaz) ve seçtiklerini **yalnızca Çöp Sepeti'ne** taşır; her gruptan en az bir kopya mutlaka kalır. Sistem temizliği yalnızca yeniden oluşturulan önbellekleri, 7 günden eski günlükleri, geliştirici önbelleklerini, 30 günden eski kurulum dosyalarını ve boş klasörleri listeler; açık uygulamaların ve iCloud/Safari/Anahtar Zinciri gibi sistem önbelleklerinin hiçbirine dokunulmaz. Hiçbir şey seçip onaylamadan kaldırılmaz; her işlem `temizlik-kaydi.jsonl` dosyasına yazılır.
+
 ## Telefonla dosya paylaşımı (QR)
 
 Menü çubuğu penceresindeki telefon simgesi ya da sağ tık › **Telefonla Dosya Paylaş (QR)**. Açılan penceredeki QR'ı telefonun kamerasıyla okut; telefonun kendi tarayıcısında bir sayfa açılır. **iPhone, Android ve iPad'de çalışır, telefona uygulama kurmak gerekmez.**
