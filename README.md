@@ -64,6 +64,17 @@ Grafikte trendin döndüğü mumlara **AL** (yeşil, mumun altında) ve **SAT** 
 
 Telegram'dan veri **güvenli modda** çekilir: en az 20 sn ve rastgele sapmalı aralık, yalnızca seans saatlerinde (09:55–18:15) otomatik yenileme, saatte 100 / günde 700 istek sınırı; Telegram bekleme isterse uygulama otomatik durur ve süre dolunca devam eder.
 
+## Supabase yedek (isteğe bağlı)
+
+Sinyaller, al/sat baskısı geçmişi, kurum akışı özeti ve alarmlar buluta yedeklenebilir; ham derinlik tablosu, Telegram mesajları ve anahtarlar Mac'te kalır.
+
+1. Supabase panelinde **SQL Editor**'e [`supabase.sql`](supabase.sql) dosyasını yapıştırıp çalıştır (tablolar + Row Level Security).
+2. **Authentication › Users**'tan e-posta ve şifreli bir kullanıcı ekle.
+3. **Project Settings › API**'den **Project URL** ve **anon public** anahtarını al. `service_role` anahtarını asla girme; uygulama reddeder.
+4. Ayarlar › **Supabase yedek** kartına URL, anon anahtar, e-posta ve şifreni gir.
+
+Yerel kayıt ana kayıttır; satırlar kuyruğa alınır ve internet varken arka planda gönderilir. Şifre saklanmaz, yalnızca yenileme belirteci Anahtar Zinciri ile şifreli tutulur.
+
 ## Tasarım
 
 "Piyasa terminali" yönü: IBM Plex Sans + IBM Plex Mono (uygulamaya gömülü, SIL OFL), soğuk grafit nötr skala, tek vurgu rengi kehribar, 4–6px köşe, gölgesiz çizgi ayrımı, emoji yerine ince çizgi ikonlar. Tüm değerler `theme.css` içindeki token'lardan gelir.
@@ -105,6 +116,8 @@ GitHub Actions her push'ta macOS için imzasız bir `.dmg` üretir (Actions › 
 | `preload.js` | Pencerelere açılan sınırlı API |
 | `popup.html` | Menü çubuğu penceresi (Analiz / Geçmiş / Ayarlar) |
 | `overlay.html` | Ekrana çizilen analiz katmanı ve çizim araçları |
+| `sync.js` | Supabase yedekleme (kuyruk, giriş, yenileme) |
+| `supabase.sql` | Tablolar ve Row Level Security |
 | `theme.css` | Tasarım token'ları ve gömülü fontlar |
 
 > Bu uygulama yatırım tavsiyesi vermez; analizler hatalı olabilir.

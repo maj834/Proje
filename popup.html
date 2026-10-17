@@ -158,6 +158,17 @@ a{color:var(--acc);cursor:pointer;text-decoration:none}a:hover{text-decoration:u
       <label class="tg"><span class="f1"><b style="color:var(--up)">AL</b> / <b style="color:var(--dn)">SAT</b> işaretleri</span><span class="sw"><input type="checkbox" id="sigs"><span></span></span></label>
     </div>
     <div class="c"><div class="t">Alarmlar</div><div class="m" id="alarminfo"></div></div>
+    <div class="c" id="sbcard"><div class="t">Supabase yedek (isteğe bağlı)</div>
+      <div id="sbst" class="m" style="margin-bottom:8px"></div>
+      <div id="sbform">
+        <input class="inp" id="sburl" placeholder="https://xxxxxxxxxxxxxxx.supabase.co" spellcheck="false" autocomplete="off">
+        <input class="inp" id="sbanon" type="password" placeholder="anon (public) anahtar" autocomplete="off" style="margin-top:6px">
+        <div class="row" style="margin-top:6px"><input class="inp f1" id="sbmail" placeholder="E-posta" autocomplete="off"><input class="inp f1" id="sbpass" type="password" placeholder="Şifre" autocomplete="off"></div>
+      </div>
+      <label class="tg" id="sbtoggle"><span class="f1">Sinyal, baskı ve alarm kayıtlarını yedekle</span><span class="sw"><input type="checkbox" id="sbon"><span></span></span></label>
+      <div class="row" style="margin-top:6px"><a class="f1 m" id="sbhow">Nasıl kurulur?</a><button class="btn" id="sbflush">Şimdi gönder</button><button class="btn dn" id="sbout">Çıkış</button><button class="btn pri" id="sbconn">Bağlan</button></div>
+      <div class="m" id="sbhowtxt" style="display:none;margin-top:8px;line-height:1.5">1) Supabase panelinde SQL Editor'e depodaki <b>supabase.sql</b> dosyasını yapıştırıp çalıştır. 2) Authentication › Users'tan kendi e-posta ve şifrenle bir kullanıcı ekle. 3) Project Settings › API'den <b>Project URL</b> ve <b>anon public</b> anahtarını al. <b>service_role</b> anahtarını asla girme. Şifre kaydedilmez; yalnızca yenileme belirteci Anahtar Zinciri'nde şifreli tutulur. Buluta yalnızca hesaplanmış çıktılar gider (sinyal, baskı skoru, kurum akışı özeti, alarm); ham derinlik tablosu ve Telegram mesajları Mac'te kalır.</div>
+    </div>
     <div class="c"><div class="t">Claude API anahtarı (isteğe bağlı)</div>
       <div id="kst" class="m" style="margin-bottom:8px"></div>
       <input type="password" id="key" placeholder="sk-ant-..." autocomplete="off" spellcheck="false">
@@ -171,7 +182,7 @@ a{color:var(--acc);cursor:pointer;text-decoration:none}a:hover{text-decoration:u
       <span>Çizimde araçlar</span><kbd>V T R H B F M A N</kbd><span>Geri al / sil</span><kbd>⌘Z · ⌫</kbd></div></div>
     <div class="c"><div class="t">Ekran kaydı izni</div><div class="row"><div class="f1" id="perm"></div><button class="btn" id="permb">Ayarları Aç</button></div></div>
     <label class="tg c" style="margin-top:10px;padding:8px 12px"><span class="f1">Oturum açılınca başlat</span><span class="sw"><input type="checkbox" id="login"><span></span></span></label>
-    <div class="row" style="margin-top:12px;justify-content:space-between"><span class="m">Sürüm 1.5</span><button class="btn" id="quit">Çıkış</button></div>
+    <div class="row" style="margin-top:12px;justify-content:space-between"><span class="m">Sürüm 1.6</span><button class="btn" id="quit">Çıkış</button></div>
   </section>
 </div>
 <div class="toast" id="toast"></div>
@@ -212,7 +223,7 @@ function ui(){
   $('lt').textContent=C.live?'Canlı · her '+C.interval+' sn · '+(liveAi?'Claude':'Hızlı (ücretsiz)'):'Canlı mod kapalı';
   $('liveai').checked=C.liveAi;$('liveai').disabled=!C.hasKey;
   $('livecost').textContent=liveAi?'Ekran sürekli değişirse ≈ '+usd(3600/Math.max(C.interval,6)*perCall())+'/saat harcar. Ekran değişmezse istek gitmez.':'';
-  settings();depthUi();
+  settings();depthUi();sbUi();
 }
 
 function render(a,anim=true){
@@ -333,6 +344,15 @@ function depthUi(){
   if(document.activeElement!==$('tgbot'))$('tgbot').value=t.bot||'';if(document.activeElement!==$('tgcmd'))$('tgcmd').value=t.cmd||'{KOD}';
   if(!$('tgid').value&&t.apiId)$('tgid').value=t.apiId;$('tghash').placeholder=t.hasHash?'api_hash (kayıtlı)':'api_hash';
 }
+function sbUi(){
+  const b=C.sb||{};
+  $('sbst').replaceChildren(b.configured?el('span',{class:'ok'},'Bağlı: '+(b.user||'')):'Bağlı değil. Yedekleme kapalı.');
+  if(b.configured){const parts=[b.sent+' gönderildi',b.pending+' bekliyor'];if(b.dropped)parts.push(b.dropped+' satır reddedildi');
+    $('sbst').append(el('div',{class:'m'},parts.join(' · ')),b.error?el('div',{class:'warn'},b.error):null,b.lastDrop?el('div',{class:'warn'},b.lastDrop):null)}
+  $('sbform').style.display=b.configured?'none':'';$('sbtoggle').style.display=b.configured?'':'none';
+  $('sbout').style.display=b.configured?'':'none';$('sbflush').style.display=b.configured?'':'none';$('sbconn').style.display=b.configured?'none':'';
+  $('sbon').checked=!!b.on;
+}
 function safeText(sf){if(!sf)return;$('dsafe').textContent='Güvenli mod · bu saat '+sf.hour+'/'+sf.hourCap+' istek · bugün '+sf.day+'/'+sf.dayCap+(sf.market?' · seans açık':' · seans kapalı (otomatik durur)')+(sf.flood?' · Telegram beklemesi '+sf.flood+' sn':'')}
 function sigCard(sg){if(!sg)return null;const up=sg.dir>0;
   return el('div',{class:'c',style:'border-color:'+(up?'var(--up)':'var(--dn)')},el('div',{class:'row'},el('span',{class:'pill',style:'background:'+(up?'var(--up)':'var(--dn)')},up?'▲ AL':'▼ SAT'),
@@ -387,6 +407,14 @@ $('askv').onkeydown=e=>{if(e.key==='Enter')$('askok').click()};
 $('askno').onclick=()=>{api.tgAnswer(null);$('ask').style.display='none'};
 api.on('depthBusy',o=>{$('dgo').disabled=true;$('dgo').textContent='…';$('derr').style.display='none';$('sub').textContent=o.symbol+' derinliği alınıyor…'});
 api.on('depthWait',w=>{$('dgo').disabled=false;$('dgo').textContent='Getir';safeText(w.safe);$('sub').textContent='⏸ '+w.msg});
+$('sbhow').onclick=()=>{const t=$('sbhowtxt');t.style.display=t.style.display==='none'?'block':'none';fit()};
+$('sbconn').onclick=async()=>{$('sbconn').disabled=true;$('sbconn').textContent='Bağlanıyor…';
+  const r=await api.sbConnect({url:$('sburl').value,anon:$('sbanon').value,email:$('sbmail').value,password:$('sbpass').value});
+  $('sbconn').disabled=false;$('sbconn').textContent='Bağlan';$('sbpass').value='';$('sbanon').value='';
+  if(r.ok){C=r.state;toast('Supabase bağlandı');ui()}else toast(r.msg)};
+$('sbout').onclick=async()=>{C=await api.sbLogout();ui()};
+$('sbon').onchange=async e=>{C=await api.sbToggle(e.target.checked);ui()};
+$('sbflush').onclick=async()=>{C=await api.sbFlush();ui();toast(C.sb.error||'Gönderildi')};
 $('sigs').onchange=async e=>{C=await api.depthSet({signals:e.target.checked})};
 api.on('depthErr',e=>{$('dgo').disabled=false;$('dgo').textContent='Getir';$('derr').textContent=e.msg;$('derr').style.display='block';tab('dp');fit()});
 api.on('depth',d=>{$('dgo').disabled=false;$('dgo').textContent='Getir';$('sub').textContent=d.symbol+' derinlik · '+hm(d.at);if(d.usage)C.usage=d.usage;$('dsym').value=d.symbol;renderDepth(d)});

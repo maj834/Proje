@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('api',{
   draw:on=>i.invoke('draw',on),copy:t=>i.invoke('copy',t),saveDrawings:l=>i.invoke('saveDrawings',l),resize:h=>i.invoke('resize',h),
   tgConnect:p=>i.invoke('tgConnect',p),tgAnswer:v=>i.invoke('tgAnswer',v),tgLogout:()=>i.invoke('tgLogout'),tgSet:o=>i.invoke('tgSet',o),tgClick:o=>i.invoke('tgClick',o),
   depth:o=>i.invoke('depth',o),depthSet:o=>i.invoke('depthSet',o),openUrl:u=>i.invoke('openUrl',u),
+  sbConnect:p=>i.invoke('sbConnect',p),sbLogout:()=>i.invoke('sbLogout'),sbToggle:o=>i.invoke('sbToggle',o),sbFlush:()=>i.invoke('sbFlush'),
   openPerm:()=>i.invoke('openPerm'),openBilling:()=>i.invoke('openBilling'),quit:()=>i.invoke('quit'),
   on:(c,f)=>{if(CH.includes(c))i.on(c,(_,d)=>f(d))}
 });

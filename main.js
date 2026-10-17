@@ -4,6 +4,7 @@ const engine=require('./engine');
 const ai=require('./ai');
 const depthLib=require('./depth');
 const tg=require('./tg');
+const sync=require('./sync');
 
 const INTERVALS=[2,5,10,30,60];
 const HISTORY_MAX=30;
@@ -106,9 +107,24 @@ function syncOverlay(){
   const hasDraw=((cfg().drawings||{})[ovDisplay]||[]).length>0;
   if(drawing||hasDraw||lastResult||(lastDepth&&cfg().depthOverlay!==false))ov.showInactive();else ov.hide();
 }
+// --- bulut yedek (Supabase) kayitlari: yalnizca hesaplanmis ciktilar, ham derinlik/mesaj degil ---
+let lastSigKey='';
+function recordSignal(sig,a){
+  const sym=(a&&a.symbol)||(lastDepth&&lastDepth.symbol)||currentSymbol()||'';
+  if(!cfg().sbOn||!sig||!sym){if(!sig)lastSigKey='';return}
+  const key=sym+':'+sig.dir;if(key===lastSigKey)return;lastSigKey=key; // yalnizca yon degisince kaydet
+  sync.enqueue('signals',{symbol:sym,timeframe:a.timeframe||null,dir:sig.dir,strength:+sig.strength.toFixed(2),source:a.engine||null,why:sig.why||[],
+    score:typeof a.score==='number'?a.score:null,pressure:lastDepth&&lastDepth.pressure?lastDepth.pressure.score:null,rr:a.rr??null,price:a.last_price??null});
+}
+function recordDepth(d){
+  if(!cfg().sbOn)return;
+  if(d.pressure)sync.enqueue('pressure_log',{symbol:d.symbol,score:d.pressure.score,parts:d.pressure.parts,trend_dir:d.trend?d.trend.dir:0});
+  if(d.flow&&d.flow.top)sync.enqueue('flow_log',{symbol:d.symbol,net:Math.round(d.flow.net),top_name:d.flow.top.name,top_net:Math.round(d.flow.top.net||0),top_cost:d.flow.top.cost??null});
+}
 function drawOverlay(a,d,anim){
   placeOverlay(d);lastResult=a;
-  sendOv('draw',{...a,anim,show:ind(),live:liveSignal()});syncOverlay();
+  const live=liveSignal();recordSignal(live,a);
+  sendOv('draw',{...a,anim,show:ind(),live});syncOverlay();
   if(lastDepth&&a.engine==='claude')pushDepthOverlay();
   clearTimeout(fadeTimer);
   if(!cfg().live&&!cfg().pin)fadeTimer=setTimeout(clearAnalysis,30000);
@@ -172,6 +188,7 @@ function checkAlarms(d,py,y){
     if(l.t!=='alarm'||l.fired)continue;const ly=l.a[1];
     if((py>ly&&y<=ly)||(py<ly&&y>=ly)){
       l.fired=Date.now();hit=true;
+      if(cfg().sbOn)sync.enqueue('alarms',{symbol:sym,price:cal?+cal(ly).toFixed(4):null,direction:y<py?'yukari':'asagi'});
       if(Notification.isSupported())new Notification({title:sym+' · alarm',body:(y<py?'▲ Fiyat alarm çizgisini yukarı geçti':'▼ Fiyat alarm çizgisini aşağı geçti')+(cal?' ('+fmtP(cal(ly))+')':''),sound:'Glass'}).show();
     }
   }
@@ -333,6 +350,7 @@ async function fetchDepth(opts={}){
     lastDepth={...d,symbol,at:Date.now(),source,walls:depthLib.walls(d),pressure:pr,trend:depthLib.trend(depthHist[symbol]||[]),history:(depthHist[symbol]||[]).slice(-40),
       flow:{net:flow,change:fd,top:(d.buyers[0]||null)},safe:safeInfo()};
     lastDepth.signal=liveSignal();
+    recordDepth(lastDepth);recordSignal(lastDepth.signal,lastResult||{});
     send('depth',{...lastDepth,messages:messages.map(m=>({...m,photo:m.photo?m.photo.slice(0,200000):null})),usage:state().usage});
     pushDepthOverlay();
   }catch(e){send('depthErr',{msg:ai.errorText(e)})}
@@ -370,7 +388,7 @@ function state(){
   return{hasKey:!!getKey(),live:!!cfg().live,model:model(),models:ai.MODELS,interval:interval(),intervals:INTERVALS,engine:engineName(),liveAi:!!cfg().liveAi,
     history:cfg().history||[],perm:screenAllowed(),secure:safeStorage.isEncryptionAvailable(),alerts:!!cfg().alerts,pin:!!cfg().pin,ind:ind(),
     login:process.platform==='darwin'&&app.getLoginItemSettings().openAtLogin,alarms:Object.values(cfg().drawings||{}).flat().filter(x=>x.t==='alarm'&&!x.fired).length,
-    usage:u.month===month()?u:{cost:0,count:0,total:u.total||0},
+    usage:u.month===month()?u:{cost:0,count:0,total:u.total||0},sb:{...sync.state(),on:!!cfg().sbOn},
     signals:cfg().signals!==false,safe:safeInfo(),tg:tgState(),depthSource:cfg().depthSource||'telegram',depthAuto:cfg().depthAuto||0,depthOverlay:cfg().depthOverlay!==false,symbol:currentSymbol()};
 }
 
@@ -414,6 +432,17 @@ app.whenReady().then(()=>{
   ipcMain.handle('openPerm',()=>shell.openExternal(SETTINGS_URL));
   ipcMain.handle('openBilling',()=>shell.openExternal('https://console.anthropic.com/settings/billing'));
   ipcMain.handle('quit',()=>app.quit());
+  ipcMain.handle('sbConnect',async(e,p)=>{try{
+    const r=await sync.signIn({url:p.url,anon:p.anon,email:String(p.email||'').trim(),password:String(p.password||'')});
+    save({sb:{url:r.url,anon:enc(String(p.anon).trim()),email:r.user,refresh:enc(sync.tokens().refresh)},sbOn:true});
+    return {ok:true,state:state()}}catch(err){return {ok:false,msg:err.message}}});
+  ipcMain.handle('sbLogout',()=>{sync.signOut();save({sb:undefined,sbOn:false});return state()});
+  ipcMain.handle('sbToggle',(e,on)=>{save({sbOn:!!on});return state()});
+  ipcMain.handle('sbFlush',async()=>{await sync.flush();return state()});
+  // Kayitli Supabase oturumunu yukle ve bekleyen kuyrugu gonder.
+  const sb=cfg().sb;
+  sync.init({dir:app.getPath('userData'),onToken:t=>{if(!t)return;const c=cfg().sb;if(c)save({sb:{...c,refresh:enc(t.refresh),email:t.user||c.email}})}});
+  if(sb&&sb.url&&sb.anon&&sb.refresh)sync.restore({url:sb.url,anon:dec(sb.anon),refresh:dec(sb.refresh),user:sb.email});
   ipcMain.handle('tgConnect',async(e,p)=>{try{return {ok:true,tg:await tgConnect(p||{})}}catch(err){return {ok:false,msg:ai.errorText(err)}}});
   ipcMain.handle('tgAnswer',(e,v)=>{if(tgAskResolve){const r=tgAskResolve;tgAskResolve=null;v==null?r.rej(new Error('Giriş iptal edildi.')):r.res(String(v))}});
   ipcMain.handle('tgLogout',async()=>{await tg.logout();tgUser=null;save({tg:{...tgCfg(),session:undefined}});return tgState()});
