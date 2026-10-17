@@ -58,6 +58,16 @@ Uygulama bota senin hesabınla mesaj atar, cevabı ayrıştırır ve:
 
 Telegram yoksa **Ekrandan** kaynağı, açık olan derinlik terminalini Claude ile okur. Oturum ve `api_hash` Anahtar Zinciri ile şifreli saklanır.
 
+## Al/Sat işaretleri
+
+Grafikte trendin döndüğü mumlara **AL** (yeşil, mumun altında) ve **SAT** (kırmızı, üstünde) işaretleri konur: EMA20/50 kesişimi, MACD dönüşü, RSI'nin aşırı bölgelerden çıkışı ve 12 mumluk zirve/dip kırılımları birlikte değerlendirilir, EMA50 yönüne ters zayıf sinyaller elenir. Son mumdaki **canlı işaret**, teknik skoru Telegram'dan gelen al/sat baskısı, baskı trendi ve kurum akışıyla ("Bank of America topluyor") birleştirir. Teknik sinyaldir, yatırım tavsiyesi değildir.
+
+Telegram'dan veri **güvenli modda** çekilir: en az 20 sn ve rastgele sapmalı aralık, yalnızca seans saatlerinde (09:55–18:15) otomatik yenileme, saatte 100 / günde 700 istek sınırı; Telegram bekleme isterse uygulama otomatik durur ve süre dolunca devam eder.
+
+## Tasarım
+
+"Piyasa terminali" yönü: IBM Plex Sans + IBM Plex Mono (uygulamaya gömülü, SIL OFL), soğuk grafit nötr skala, tek vurgu rengi kehribar, 4–6px köşe, gölgesiz çizgi ayrımı, emoji yerine ince çizgi ikonlar. Tüm değerler `theme.css` içindeki token'lardan gelir.
+
 ## Özellikler
 
 - **⌘⇧A** analiz, **⌘⇧D** çizim modu, **⌘⇧L** canlı mod
@@ -95,5 +105,6 @@ GitHub Actions her push'ta macOS için imzasız bir `.dmg` üretir (Actions › 
 | `preload.js` | Pencerelere açılan sınırlı API |
 | `popup.html` | Menü çubuğu penceresi (Analiz / Geçmiş / Ayarlar) |
 | `overlay.html` | Ekrana çizilen analiz katmanı ve çizim araçları |
+| `theme.css` | Tasarım token'ları ve gömülü fontlar |
 
 > Bu uygulama yatırım tavsiyesi vermez; analizler hatalı olabilir.

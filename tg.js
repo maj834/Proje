@@ -1,6 +1,6 @@
 // Telegram baglantisi: kullanicinin kendi hesabiyla derinlik botuna hisse kodu gonderir,
 // botun cevaplarini (yazi, resim, butonlar) toplar. GramJS (MTProto) kullanir.
-const {TelegramClient,Api}=require('telegram');
+const {TelegramClient,Api,errors}=require('telegram');
 const {StringSession}=require('telegram/sessions');
 const {NewMessage}=require('telegram/events');
 const {EditedMessage}=require('telegram/events/EditedMessage');
@@ -9,7 +9,7 @@ let client=null,me=null;
 
 async function connect({apiId,apiHash,session,ask,onSession}){
   await disconnect();
-  client=new TelegramClient(new StringSession(session||''),Number(apiId),String(apiHash),{connectionRetries:3,useWSS:false});
+  client=new TelegramClient(new StringSession(session||''),Number(apiId),String(apiHash),{connectionRetries:3,useWSS:false,floodSleepThreshold:0});
   client.setLogLevel&&client.setLogLevel('error');
   // ask(step,hint) arayuzden telefon / kod / 2FA sifresini ister.
   await client.start({
@@ -26,7 +26,7 @@ async function connect({apiId,apiHash,session,ask,onSession}){
 async function restore({apiId,apiHash,session}){
   if(!session)return null;
   await disconnect();
-  client=new TelegramClient(new StringSession(session),Number(apiId),String(apiHash),{connectionRetries:3});
+  client=new TelegramClient(new StringSession(session),Number(apiId),String(apiHash),{connectionRetries:3,floodSleepThreshold:0});
   client.setLogLevel&&client.setLogLevel('error');
   await client.connect();
   if(!(await client.checkAuthorization())){await disconnect();return null}
@@ -89,4 +89,7 @@ async function webAppUrl(bot,url){
   return r.url;
 }
 
-module.exports={connect,restore,disconnect,logout,connected,query,click,webAppUrl};
+// Telegram'in "bekle" hatasi: kac saniye beklenmesi gerektigini dondurur (yoksa 0).
+const floodSeconds=e=>e instanceof errors.FloodWaitError||/FLOOD_WAIT/.test(String(e&&e.message))?(e.seconds||+((String(e.message).match(/(\d+)/)||[])[1])||60):0;
+
+module.exports={floodSeconds,connect,restore,disconnect,logout,connected,query,click,webAppUrl};

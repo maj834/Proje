@@ -236,6 +236,25 @@ function analyzeMask(mask,W,H){
     macd:hist[N-1]>0?'pozitif':'negatif',macdCross:crossM,emaTrend:eUp?'yukari':'asagi',emaCross:crossE,
     bb:bbU!=null?{pos:Math.round((cl[N-1]-bbL)/Math.max(1e-6,bbU-bbL)*100),width:Math.round((bbU-bbL)/span*100)}:null,
     candle:cp&&cp.name,divergence:div&&div.name};
+  // 14) Gecmis AL/SAT isaretleri: trendin dondugu mumlar (her biri gerekceleriyle).
+  const signals=[];let lastDir=0,lastI=-99;
+  for(let i=Math.max(26,20);i<N;i++){
+    let v=0;const why=[];
+    if(e20[i]>e50[i]&&e20[i-1]<=e50[i-1]){v+=2;why.push('EMA20↑EMA50')}
+    if(e20[i]<e50[i]&&e20[i-1]>=e50[i-1]){v-=2;why.push('EMA20↓EMA50')}
+    if(hist[i]>0&&hist[i-1]<=0){v+=1;why.push('MACD↑')}
+    if(hist[i]<0&&hist[i-1]>=0){v-=1;why.push('MACD↓')}
+    if(R[i]!=null&&R[i-1]!=null){if(R[i-1]<30&&R[i]>=30){v+=1.5;why.push('RSI dipten döndü')}if(R[i-1]>70&&R[i]<=70){v-=1.5;why.push('RSI tepeden döndü')}}
+    const lb=Math.max(0,i-12),hh=Math.max(...cl.slice(lb,i)),ll=Math.min(...cl.slice(lb,i));
+    if(cl[i]>hh&&cl[i-1]<=hh){v+=1;why.push('12 mumun zirvesi kırıldı')}
+    if(cl[i]<ll&&cl[i-1]>=ll){v-=1;why.push('12 mumun dibi kırıldı')}
+    // Trend filtresi: EMA50 yonune ters zayif isaretleri ele.
+    const slope50=e50[i]-e50[Math.max(0,i-5)];
+    if(v>0&&slope50<0&&v<2.5)v=0;if(v<0&&slope50>0&&v>-2.5)v=0;
+    const dir=v>=2?1:v<=-2?-1:0;
+    if(!dir||(dir===lastDir&&i-lastI<8))continue;
+    signals.push({i,x:nx(candles[i].x),y:ny(dir>0?candles[i].lo:candles[i].hi),dir,why});lastDir=dir;lastI=i;
+  }
   const lines={ema20:poly(e20,10),ema50:poly(e50,30),bbU:poly(m20.map((m,i)=>m==null?null:m+2*sd[i]),19),bbL:poly(m20.map((m,i)=>m==null?null:m-2*sd[i]),19)};
   const comment=[trend+' ('+N+' mum).',
     res.length?'En yakın direnç '+res[0].touches+' temaslı, grafik yüksekliğinin %'+Math.round((lastY-res[0].y)/span*100)+' kadar yukarısında.':'Yukarıda belirgin direnç yok.',
@@ -248,7 +267,7 @@ function analyzeMask(mask,W,H){
     resistances:L(res),supports:L(sup),breakout,patterns,comment,
     trendlines:[tSup&&{type:'destek',...tSup},tRes&&{type:'direnc',...tRes}].filter(Boolean).map(t=>({type:t.type,x1:nx(t.x1),y1:ny(t.y1),x2:nx(t.x2),y2:ny(t.y2)})),
     chart_box:{x1:nx(X0),y1:ny(Y0),x2:nx(X1),y2:ny(Y1)},last:{x:nx(last.x),y:ny(lastY)},candles:N,
-    ind,score,factors:F.sort((a,b)=>Math.abs(b.v)-Math.abs(a.v)),rr:riskReward,fib,lines};
+    ind,score,factors:F.sort((a,b)=>Math.abs(b.v)-Math.abs(a.v)),rr:riskReward,fib,lines,signals:signals.slice(-12),lastCandle:{x:nx(last.x),hi:ny(last.hi),lo:ny(last.lo)}};
 }
 
 const api={analyzeBitmap,analyzeMask,classify};

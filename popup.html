@@ -1,97 +1,102 @@
 <!DOCTYPE html><html lang="tr"><head><meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:">
-<title>Grafik Okuyucu</title><style>
-:root{color-scheme:light dark;
-  --fg:#15181e;--mut:#6b7380;--card:rgba(255,255,255,.7);--card2:rgba(0,0,0,.045);--ln:rgba(0,0,0,.08);--bg:rgba(246,247,250,.94);--tup:#0a84d6;--tdn:#c96a00;
-  --acc:#4f6bff;--acc2:#7a4dff;--up:#12955f;--dn:#d93d42;--neu:#7b8494;--warn:#b7791f}
-@media(prefers-color-scheme:dark){:root{--fg:#eef1f6;--mut:#9aa3b2;--card:rgba(255,255,255,.06);--card2:rgba(255,255,255,.05);--ln:rgba(255,255,255,.09);--bg:rgba(28,30,36,.92);--tup:#2bb3ff;--tdn:#ff9f1a;--up:#22c58b;--dn:#ff5a5f;--warn:#f0b54a}}
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self' 'unsafe-inline' file:; font-src 'self' file:; script-src 'unsafe-inline'; img-src data:">
+<title>Grafik Okuyucu</title><link rel="stylesheet" href="theme.css"><style>
 *{box-sizing:border-box}
 html,body{margin:0;height:100%;background:transparent}
-body{color:var(--fg);font:13px/1.45 -apple-system,BlinkMacSystemFont,"SF Pro Text","Inter",sans-serif;-webkit-user-select:none;user-select:none}
-.win{height:100%;display:flex;flex-direction:column;background:var(--bg);border-radius:12px;overflow:hidden}
-.h{display:flex;align-items:center;gap:10px;padding:14px 16px 10px;-webkit-app-region:drag}
-.logo{width:28px;height:28px;border-radius:8px;display:grid;place-items:center;background:linear-gradient(135deg,var(--acc),var(--acc2));box-shadow:0 4px 12px rgba(79,107,255,.35);flex:none}
-.h b{font-size:14px;letter-spacing:-.01em}.h .sub{font-size:11px;color:var(--mut);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:190px}
-.livepill{margin-left:auto;display:none;align-items:center;gap:6px;font:700 10.5px -apple-system,sans-serif;color:var(--up);padding:3px 8px;border-radius:99px;background:rgba(20,160,107,.12)}
+body{color:var(--fg);font:400 13px/1.45 var(--font);-webkit-user-select:none;user-select:none;-webkit-font-smoothing:antialiased}
+.win{height:100%;display:flex;flex-direction:column;background:var(--bg);border-radius:10px;overflow:hidden;border:1px solid var(--line)}
+/* baslik */
+.h{display:flex;align-items:center;gap:var(--s2);padding:var(--s3) var(--s4);-webkit-app-region:drag}
+.logo{width:22px;height:22px;border-radius:var(--r1);display:grid;place-items:center;background:var(--acc);color:var(--acc-ink);flex:none}
+.logo svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.h b{font-weight:600;font-size:13px;letter-spacing:-.005em}.h .sub{font:400 11px var(--mono);color:var(--fg-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px}
+.livepill{margin-left:auto;display:none;align-items:center;gap:6px;font:500 10px var(--mono);letter-spacing:.06em;color:var(--up);padding:2px 6px;border:1px solid var(--up);border-radius:var(--r1)}
 .livepill.on{display:flex}
-.tabs{display:flex;gap:2px;margin:0 16px;padding:3px;border-radius:10px;background:var(--card2);border:1px solid var(--ln)}
-.tabs button{flex:1;border:0;background:transparent;color:var(--mut);font:600 12px inherit;padding:6px 0;border-radius:7px;cursor:pointer}
-.tabs button.on{background:var(--card);color:var(--fg);box-shadow:0 1px 3px rgba(0,0,0,.12)}
-.body{flex:1;overflow-y:auto;padding:12px 16px 14px;min-height:0}
+/* sekmeler: alt cizgili, kutusuz */
+.tabs{display:flex;gap:var(--s4);padding:0 var(--s4);border-bottom:1px solid var(--line)}
+.tabs button{border:0;background:none;color:var(--fg-3);font:500 12px var(--font);padding:var(--s2) 0;margin-bottom:-1px;border-bottom:2px solid transparent;cursor:pointer;transition:color .15s}
+.tabs button:hover{color:var(--fg-2)}.tabs button.on{color:var(--fg);border-bottom-color:var(--acc)}
+.body{flex:1;overflow-y:auto;padding:var(--s3) var(--s4) var(--s4);min-height:0}
 .body::-webkit-scrollbar{width:0}
-.pane{display:none}.pane.on{display:block;animation:in .18s ease}
-@keyframes in{from{opacity:0;transform:translateY(4px)}}
-.seg{display:flex;gap:6px;margin-bottom:10px}
-.seg button{flex:1;display:flex;flex-direction:column;align-items:flex-start;gap:1px;padding:8px 10px;border-radius:10px;border:1px solid var(--ln);background:var(--card);color:var(--fg);cursor:pointer;text-align:left;font:inherit}
-.seg button b{font-size:12.5px}.seg button span{font-size:10.5px;color:var(--mut)}
-.seg button.on{border-color:var(--acc);box-shadow:0 0 0 3px rgba(79,107,255,.15)}
-.act{display:flex;gap:8px}
-#go{flex:1;display:flex;align-items:center;justify-content:center;gap:8px;padding:11px;border:0;border-radius:11px;font:600 14px inherit;color:#fff;background:linear-gradient(135deg,var(--acc),var(--acc2));cursor:pointer;box-shadow:0 6px 18px rgba(79,107,255,.3);transition:transform .1s,opacity .2s}
-#go:active{transform:scale(.98)}#go[disabled]{opacity:.75;cursor:default}
-.ib{width:42px;display:grid;place-items:center;border-radius:11px;border:1px solid var(--ln);background:var(--card);color:var(--fg);cursor:pointer}
-.ib:hover{border-color:var(--acc)}
-.spin{width:14px;height:14px;border:2px solid rgba(255,255,255,.35);border-top-color:#fff;border-radius:50%;animation:sp .7s linear infinite;display:none}
+.pane{display:none}.pane.on{display:block}
+/* motor secimi: bitisik segment */
+.seg{display:flex;margin-bottom:var(--s2);border:1px solid var(--line);border-radius:var(--r2);overflow:hidden}
+.seg button{flex:1;display:flex;flex-direction:column;align-items:flex-start;gap:0;padding:var(--s2) var(--s3);border:0;background:var(--surface);color:var(--fg-2);cursor:pointer;text-align:left;font:inherit;transition:background .15s,color .15s}
+.seg button+button{border-left:1px solid var(--line)}
+.seg button b{font-weight:600;font-size:12px;color:var(--fg)}.seg button span{font-size:11px;color:var(--fg-3)}
+.seg button.on{background:var(--acc-soft);box-shadow:inset 0 -2px 0 var(--acc)}
+.act{display:flex;gap:var(--s2)}
+#go{flex:1;display:flex;align-items:center;justify-content:center;gap:var(--s2);height:32px;border:0;border-radius:var(--r2);font:600 13px var(--font);color:var(--acc-ink);background:var(--acc);cursor:pointer;transition:filter .15s}
+#go:hover{filter:brightness(1.05)}#go[disabled]{opacity:.7;cursor:default}
+.ib{width:32px;height:32px;display:grid;place-items:center;border-radius:var(--r2);border:1px solid var(--line);background:var(--surface);color:var(--fg-2);cursor:pointer;transition:border-color .15s,color .15s}
+.ib:hover{border-color:var(--line-2);color:var(--fg)}
+.spin{width:12px;height:12px;border:1.5px solid currentColor;border-right-color:transparent;border-radius:50%;animation:sp .7s linear infinite;display:none}
 #go[disabled] .spin{display:block}@keyframes sp{to{transform:rotate(360deg)}}
-.c{background:var(--card);border:1px solid var(--ln);border-radius:12px;padding:12px;margin-top:10px}
-.row{display:flex;gap:10px;align-items:center}.f1{flex:1;min-width:0}
-.t{font-size:11px;font-weight:600;color:var(--mut);margin-bottom:6px}
-.m{color:var(--mut);font-size:11.5px}
-.sym{font-size:17px;font-weight:700;letter-spacing:-.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.pill{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:99px;font-weight:700;font-size:12px;color:#fff;flex:none}
-.etag{font-size:10px;font-weight:700;padding:2px 6px;border-radius:6px;background:var(--card2);color:var(--mut);margin-left:6px;vertical-align:2px}
-.bar{height:5px;border-radius:9px;background:var(--card2);margin-top:8px;overflow:hidden}.bar i{display:block;height:100%;border-radius:9px;transition:width .6s ease}
-.lv{display:flex;justify-content:space-between;align-items:center;padding:5px 8px;border-radius:8px;margin-top:4px;font-weight:600;font-variant-numeric:tabular-nums}
-.lv.r{color:var(--dn);background:rgba(229,72,77,.09)}.lv.s{color:var(--up);background:rgba(20,160,107,.1)}
-.lv small{font-weight:500;color:var(--mut);font-size:10.5px}
-.chips{display:flex;flex-wrap:wrap;gap:5px}.chip{font-size:11.5px;padding:3px 8px;border-radius:7px;background:var(--card2);border:1px solid var(--ln)}
-.info{margin-top:10px;font-size:11.5px;color:var(--mut);display:flex;gap:6px;align-items:flex-start}
-.alert{display:none;margin-top:10px;padding:10px 12px;border-radius:12px;font-size:12.5px;color:var(--dn);background:rgba(229,72,77,.09);border:1px solid rgba(229,72,77,.25)}
-.alert button{margin-top:8px}
+/* kartlar: cizgi ile ayrim, golge yok */
+.c{background:var(--surface);border:1px solid var(--line);border-radius:var(--r2);padding:var(--s3);margin-top:var(--s2)}
+.row{display:flex;gap:var(--s2);align-items:center}.f1{flex:1;min-width:0}
+.t{font:500 10.5px var(--font);letter-spacing:.06em;text-transform:uppercase;color:var(--fg-3);margin-bottom:var(--s2)}
+.m{color:var(--fg-3);font-size:11.5px}
+.sym{font:600 16px var(--mono);letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pill{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:var(--r1);font:600 11px var(--mono);letter-spacing:.02em;color:var(--bg);flex:none}
+.etag{font:500 9.5px var(--mono);letter-spacing:.06em;padding:1px 5px;border-radius:3px;border:1px solid var(--line-2);color:var(--fg-3);margin-left:6px;vertical-align:2px}
+.bar{height:3px;border-radius:2px;background:var(--sunk);margin-top:var(--s2);overflow:hidden}.bar i{display:block;height:100%;transition:width .4s ease}
+.lv{display:flex;justify-content:space-between;align-items:center;padding:4px var(--s2);border-radius:var(--r1);margin-top:4px;font:500 12px var(--mono);font-variant-numeric:tabular-nums}
+.lv.r{color:var(--dn);background:var(--dn-soft)}.lv.s{color:var(--up);background:var(--up-soft)}
+.lv small{font:400 10px var(--mono);color:var(--fg-3)}
+.chips{display:flex;flex-wrap:wrap;gap:4px}.chip{font-size:11px;padding:2px 8px;border-radius:var(--r1);border:1px solid var(--line);color:var(--fg-2)}
+.info{margin-top:var(--s2);font-size:11.5px;color:var(--fg-3);display:flex;gap:var(--s2);align-items:flex-start}
+.info .ico{width:14px;height:14px;margin-top:1px}
+.alert{display:none;margin-top:var(--s2);padding:var(--s2) var(--s3);border-radius:var(--r2);font-size:12px;color:var(--dn);background:var(--dn-soft);border:1px solid var(--dn)}
+.alert button{margin-top:var(--s2)}
 .warn{color:var(--warn);font-size:11.5px;margin-top:6px}
-.empty{text-align:center;padding:22px 10px 8px;color:var(--mut)}
-.empty .ic{font-size:26px;margin-bottom:6px;opacity:.7}
-.foot{display:flex;align-items:center;gap:10px;padding:10px 16px;border-top:1px solid var(--ln);font-size:12px;color:var(--mut)}
-.sw{position:relative;width:32px;height:19px;flex:none}.sw input{display:none}
-.sw span{position:absolute;inset:0;border-radius:99px;background:var(--ln);transition:.2s;cursor:pointer}
-.sw span:after{content:"";position:absolute;width:15px;height:15px;left:2px;top:2px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.3);transition:.2s}
-.sw input:checked+span{background:var(--up)}.sw input:disabled+span{opacity:.4;cursor:default}.sw input:checked+span:after{transform:translateX(13px)}
-.dot{width:7px;height:7px;border-radius:50%;background:var(--neu);flex:none}.dot.live{background:var(--up);box-shadow:0 0 0 3px rgba(20,160,107,.2);animation:pl 1.6s infinite}
-@keyframes pl{50%{box-shadow:0 0 0 6px rgba(20,160,107,0)}}
-.btn{border:1px solid var(--ln);background:var(--card);color:var(--fg);font:600 12px inherit;padding:7px 12px;border-radius:9px;cursor:pointer}
-.btn.pri{background:var(--acc);border-color:transparent;color:#fff}.btn.dn{color:var(--dn)}
-input[type=password],select{width:100%;padding:8px 10px;border-radius:9px;border:1px solid var(--ln);background:var(--card);color:var(--fg);font:13px inherit;outline:none}
-input[type=password]:focus,select:focus{border-color:var(--acc);box-shadow:0 0 0 3px rgba(79,107,255,.18)}
-.opt{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:9px;border:1px solid var(--ln);margin-top:6px;cursor:pointer;background:var(--card)}
-.opt.on{border-color:var(--acc);box-shadow:0 0 0 3px rgba(79,107,255,.14)}
-.opt .rd{width:14px;height:14px;border-radius:50%;border:2px solid var(--ln);flex:none}.opt.on .rd{border:4px solid var(--acc)}
-.tg{display:flex;align-items:center;gap:10px;padding:6px 0}
+.empty{text-align:center;padding:var(--s6) var(--s3) var(--s2);color:var(--fg-3);font-size:12px;line-height:1.6}
+.empty .ic{display:grid;place-items:center;margin:0 auto var(--s2);width:32px;height:32px;border:1px solid var(--line);border-radius:var(--r2);color:var(--fg-3)}
+.empty b{color:var(--fg-2);font-weight:500}
+kbd,.kb kbd{font:500 10.5px var(--mono);border:1px solid var(--line);border-bottom-width:2px;border-radius:3px;padding:0 4px;color:var(--fg-2);background:var(--surface)}
+.foot{display:flex;align-items:center;gap:var(--s2);padding:var(--s2) var(--s4);border-top:1px solid var(--line);font-size:11.5px;color:var(--fg-3)}
+.sw{position:relative;width:28px;height:16px;flex:none}.sw input{display:none}
+.sw span{position:absolute;inset:0;border-radius:8px;background:var(--line-2);transition:background .15s;cursor:pointer}
+.sw span:after{content:"";position:absolute;width:12px;height:12px;left:2px;top:2px;border-radius:50%;background:var(--surface);transition:transform .15s}
+.sw input:checked+span{background:var(--up)}.sw input:checked+span:after{transform:translateX(12px)}.sw input:disabled+span{opacity:.4;cursor:default}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--fg-3);flex:none}.dot.live{background:var(--up);animation:pl 1.6s infinite}
+@keyframes pl{50%{opacity:.35}}
+.btn{border:1px solid var(--line);background:var(--surface);color:var(--fg);font:500 12px var(--font);height:28px;padding:0 var(--s3);border-radius:var(--r2);cursor:pointer;transition:border-color .15s}
+.btn:hover{border-color:var(--line-2)}
+.btn.pri{background:var(--acc);border-color:transparent;color:var(--acc-ink);font-weight:600}.btn.dn{color:var(--dn)}
+input[type=password],select,.inp{width:100%;height:30px;padding:0 var(--s2);border-radius:var(--r2);border:1px solid var(--line);background:var(--sunk);color:var(--fg);font:400 12.5px var(--font);outline:none;transition:border-color .15s}
+input[type=password]:focus,select:focus,.inp:focus{border-color:var(--acc)}
+#dsym,#key,#tghash,#tgid,#tgphone,#tgbot,#tgcmd{font-family:var(--mono)}
+.opt{display:flex;align-items:center;gap:var(--s2);padding:var(--s2);border-radius:var(--r2);border:1px solid var(--line);margin-top:4px;cursor:pointer;background:var(--surface)}
+.opt.on{border-color:var(--acc);background:var(--acc-soft)}
+.opt .rd{width:12px;height:12px;border-radius:50%;border:1.5px solid var(--line-2);flex:none}.opt.on .rd{border:4px solid var(--acc)}
+.tg{display:flex;align-items:center;gap:var(--s2);padding:6px 0}
 .ok{color:var(--up)}
-.kb{display:grid;grid-template-columns:1fr auto;gap:5px 10px;font-size:12px}
-.kb kbd{font:600 11px -apple-system,sans-serif;border:1px solid var(--ln);border-radius:6px;padding:1px 6px;background:var(--card2);color:var(--mut)}
-.hi{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:10px;cursor:pointer;margin-top:4px}
-.hi:hover{background:var(--card2)}
-.hi .bd{width:8px;height:8px;border-radius:50%;flex:none}
-a{color:var(--acc);cursor:pointer;text-decoration:none}
-.gauge{position:relative;height:8px;border-radius:9px;background:linear-gradient(90deg,var(--dn),#8a8f9a 50%,var(--up));margin:10px 0 4px;opacity:.85}
-.gauge i{position:absolute;top:-4px;width:4px;height:16px;border-radius:3px;background:var(--fg);box-shadow:0 0 0 2px var(--bg);transform:translateX(-2px);transition:left .5s ease}
-.gl{display:flex;justify-content:space-between;font-size:10px;color:var(--mut)}
-.fx{display:flex;justify-content:space-between;gap:8px;font-size:12px;padding:3px 0;border-top:1px dashed var(--ln)}.fx:first-of-type{border-top:0}
-.fx b{font-variant-numeric:tabular-nums}.pos{color:var(--up)}.neg{color:var(--dn)}
-.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-.kv{background:var(--card2);border-radius:9px;padding:7px 9px}.kv .m{font-size:10.5px}.kv b{display:block;font-size:13px;margin-top:1px}
-.spark{width:100%;height:34px;display:block;margin-top:4px}
-.toast{position:fixed;left:50%;bottom:58px;transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:6px 12px;border-radius:9px;font-size:12px;font-weight:600;opacity:0;transition:opacity .25s;pointer-events:none}
+.kb{display:grid;grid-template-columns:1fr auto;gap:6px var(--s3);font-size:12px;color:var(--fg-2)}
+.hi{display:flex;align-items:center;gap:var(--s2);padding:var(--s2);border-radius:var(--r1);cursor:pointer;border-bottom:1px solid var(--line)}
+.hi:hover{background:var(--surface)}
+.hi .bd{width:6px;height:6px;border-radius:50%;flex:none}
+a{color:var(--acc);cursor:pointer;text-decoration:none}a:hover{text-decoration:underline}
+.gauge{position:relative;height:4px;border-radius:2px;background:linear-gradient(90deg,var(--dn),var(--line-2) 50%,var(--up));margin:var(--s3) 0 4px}
+.gauge i{position:absolute;top:-4px;width:2px;height:12px;background:var(--fg);transform:translateX(-1px);transition:left .4s ease}
+.gl{display:flex;justify-content:space-between;font:400 10px var(--mono);color:var(--fg-3)}
+.fx{display:flex;justify-content:space-between;gap:var(--s2);font-size:12px;padding:4px 0;border-top:1px solid var(--line);color:var(--fg-2)}.fx:first-of-type{border-top:0}
+.fx b{font:500 12px var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}.fx>span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}.pos{color:var(--up)}.neg{color:var(--dn)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--line);border:1px solid var(--line);border-radius:var(--r1);overflow:hidden}
+.kv{background:var(--surface);padding:6px var(--s2)}.kv .m{font-size:10.5px}.kv b{display:block;font:500 12.5px var(--mono);margin-top:1px}
+.spark{width:100%;height:32px;display:block;margin-top:4px;color:var(--fg-3)}
+.toast{position:fixed;left:50%;bottom:52px;transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:6px var(--s3);border-radius:var(--r2);font-size:12px;font-weight:500;opacity:0;transition:opacity .15s;pointer-events:none}
 .toast.on{opacity:1}
-.dt{width:100%;border-collapse:collapse;font-size:11.5px;font-variant-numeric:tabular-nums}
-.dt td{padding:3px 4px;position:relative}.dt td.b{color:var(--up);font-weight:700}.dt td.a{color:var(--dn);font-weight:700}
-.dt .bar{position:absolute;top:2px;bottom:2px;opacity:.16;border-radius:3px}
-.msg{white-space:pre-wrap;font:11.5px/1.45 ui-monospace,Menlo,monospace;background:var(--card2);border-radius:9px;padding:8px;margin-top:6px;max-height:220px;overflow:auto;-webkit-user-select:text;user-select:text}
-.msg img{max-width:100%;border-radius:6px;margin-top:6px}
-.btns{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}
-.inp{width:100%;padding:8px 10px;border-radius:9px;border:1px solid var(--ln);background:var(--card);color:var(--fg);font:13px inherit;outline:none}
-.inp:focus{border-color:var(--acc);box-shadow:0 0 0 3px rgba(79,107,255,.18)}
-#ask{position:fixed;inset:0;background:rgba(0,0,0,.35);display:none;align-items:center;justify-content:center;z-index:9}
-#ask .c{width:310px;margin:0;box-shadow:0 20px 50px rgba(0,0,0,.4);background:var(--bg)}
+.dt{width:100%;border-collapse:collapse;font:400 11.5px var(--mono);font-variant-numeric:tabular-nums}
+.dt td{padding:3px 4px;position:relative;border-bottom:1px solid var(--line)}.dt tr:first-child td{font:500 10px var(--font);letter-spacing:.05em;text-transform:uppercase}
+.dt td.b{color:var(--up);font-weight:500}.dt td.a{color:var(--dn);font-weight:500}
+.dt .bar{position:absolute;bottom:1px;top:auto;margin:0;height:2px;border-radius:1px;opacity:.7}
+.msg{white-space:pre-wrap;font:400 11.5px/1.5 var(--mono);background:var(--sunk);border:1px solid var(--line);border-radius:var(--r1);padding:var(--s2);margin-top:6px;max-height:220px;overflow:auto;-webkit-user-select:text;user-select:text}
+.msg img{max-width:100%;border-radius:var(--r1);margin-top:6px}
+.btns{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+#ask{position:fixed;inset:0;background:oklch(0% 0 0 / .4);display:none;align-items:center;justify-content:center;z-index:9}
+#ask .c{width:300px;margin:0;background:var(--bg)}
+.sig{border-left:2px solid}
 </style></head><body><div class="win" id="win">
 <div class="h">
   <div class="logo"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12.5 6 8l3 2.5L14 4"/><path d="M10.5 4H14v3.5"/></svg></div>
@@ -102,8 +107,8 @@ a{color:var(--acc);cursor:pointer;text-decoration:none}
 <div class="body" id="body">
   <section class="pane on" id="an">
     <div class="seg" id="seg">
-      <button data-e="yerel"><b>⚡ Hızlı</b><span>Ücretsiz · çevrimdışı</span></button>
-      <button data-e="claude"><b>✦ Claude AI</b><span id="cl-sub">Fiyat ve yorum</span></button>
+      <button data-e="yerel"><b>Hızlı</b><span>Ücretsiz · çevrimdışı</span></button>
+      <button data-e="claude"><b>Claude AI</b><span id="cl-sub">Fiyat ve yorum</span></button>
     </div>
     <div class="act">
       <button id="go"><span class="spin"></span><span id="gol">Ekranı Analiz Et</span></button>
@@ -112,18 +117,19 @@ a{color:var(--acc);cursor:pointer;text-decoration:none}
       <button class="ib" id="hideb" title="Analiz çizgilerini gizle"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l18 18M10.6 6.1A9.7 9.7 0 0112 6c5 0 9 6 9 6a16 16 0 01-2.6 3.2M6.1 7.6C4 9.2 3 12 3 12s4 6 9 6a8.6 8.6 0 004.3-1.2"/></svg></button>
     </div>
     <div class="alert" id="err"><div id="errm"></div><button class="btn" id="errb" style="display:none"></button></div>
-    <div id="out"><div class="empty"><div class="ic">📈</div>Grafiğini ekranda aç ve <b>⌘⇧A</b>'ya bas.<br>Destek, direnç ve trend çizgileri ekranına çizilir.</div></div>
+    <div id="out"><div class="empty"><div class="ic"><svg class="ico" viewBox="0 0 24 24"><path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/></svg></div>Grafiğini ekranda aç ve <b>⌘⇧A</b>'ya bas.<br>Destek, direnç ve trend çizgileri ekranına çizilir.</div></div>
   </section>
   <section class="pane" id="dp">
     <div class="row"><input class="inp f1" id="dsym" placeholder="Hisse kodu (ör. PRZMA)" spellcheck="false" style="text-transform:uppercase"><button class="btn pri" id="dgo">Getir</button></div>
     <div class="seg" style="margin:8px 0 0" id="dsrc">
-      <button data-s="telegram"><b>✈︎ Telegram botu</b><span id="dsrc-tg">Bağlı değil</span></button>
-      <button data-s="ekran"><b>🖥 Ekrandan</b><span>Terminali Claude okur</span></button>
+      <button data-s="telegram"><b>Telegram botu</b><span id="dsrc-tg">Bağlı değil</span></button>
+      <button data-s="ekran"><b>Ekrandan</b><span>Terminali Claude okur</span></button>
     </div>
-    <div class="row" style="margin-top:8px"><span class="m f1">Otomatik yenile</span><select id="dauto" style="width:120px"><option value="0">Kapalı</option><option value="15">15 sn</option><option value="30">30 sn</option><option value="60">1 dk</option><option value="120">2 dk</option></select></div>
+    <div class="row" style="margin-top:8px"><span class="m f1">Otomatik yenile</span><select id="dauto" style="width:120px"><option value="0">Kapalı</option><option value="20">20 sn</option><option value="30">30 sn</option><option value="60">1 dk</option><option value="120">2 dk</option></select></div>
+    <div class="m" id="dsafe" style="margin-top:2px"></div>
     <label class="tg"><span class="f1 m">Grafikte duvar etiketleri ve baskı kartı</span><span class="sw"><input type="checkbox" id="dov"><span></span></span></label>
     <div class="alert" id="derr"></div>
-    <div id="dout"><div class="empty"><div class="ic">📊</div>Hisse kodunu yazıp <b>Getir</b>'e bas.<br>Telegram botundan derinlik, aracı kurum ve işlemler gelir.</div></div>
+    <div id="dout"><div class="empty"><div class="ic"><svg class="ico" viewBox="0 0 24 24"><path d="M5 20V10M12 20V4M19 20v-7"/></svg></div>Hisse kodunu yazıp <b>Getir</b>'e bas.<br>Telegram botundan derinlik, aracı kurum ve işlemler gelir.</div></div>
   </section>
   <section class="pane" id="hs"><div id="hl"></div></section>
   <section class="pane" id="st">
@@ -149,6 +155,7 @@ a{color:var(--acc);cursor:pointer;text-decoration:none}
       <label class="tg"><span class="f1"><span style="color:#d4a90f">━</span> EMA 20 / <span style="color:#9b5cf0">━</span> EMA 50</span><span class="sw"><input type="checkbox" data-ind="ema"><span></span></span></label>
       <label class="tg"><span class="f1">Bollinger bantları (20, 2)</span><span class="sw"><input type="checkbox" data-ind="bb"><span></span></span></label>
       <label class="tg"><span class="f1">Otomatik Fibonacci</span><span class="sw"><input type="checkbox" data-ind="fib"><span></span></span></label>
+      <label class="tg"><span class="f1"><b style="color:var(--up)">AL</b> / <b style="color:var(--dn)">SAT</b> işaretleri</span><span class="sw"><input type="checkbox" id="sigs"><span></span></span></label>
     </div>
     <div class="c"><div class="t">Alarmlar</div><div class="m" id="alarminfo"></div></div>
     <div class="c"><div class="t">Claude API anahtarı (isteğe bağlı)</div>
@@ -164,7 +171,7 @@ a{color:var(--acc);cursor:pointer;text-decoration:none}
       <span>Çizimde araçlar</span><kbd>V T R H B F M A N</kbd><span>Geri al / sil</span><kbd>⌘Z · ⌫</kbd></div></div>
     <div class="c"><div class="t">Ekran kaydı izni</div><div class="row"><div class="f1" id="perm"></div><button class="btn" id="permb">Ayarları Aç</button></div></div>
     <label class="tg c" style="margin-top:10px;padding:8px 12px"><span class="f1">Oturum açılınca başlat</span><span class="sw"><input type="checkbox" id="login"><span></span></span></label>
-    <div class="row" style="margin-top:12px;justify-content:space-between"><span class="m">Sürüm 1.4</span><button class="btn" id="quit">Çıkış</button></div>
+    <div class="row" style="margin-top:12px;justify-content:space-between"><span class="m">Sürüm 1.5</span><button class="btn" id="quit">Çıkış</button></div>
   </section>
 </div>
 <div class="toast" id="toast"></div>
@@ -174,6 +181,9 @@ a{color:var(--acc);cursor:pointer;text-decoration:none}
 </div>
 <script>
 const $=i=>document.getElementById(i);
+const ICONS={info:'<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>',search:'<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/>',
+  clock:'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',bank:'<path d="M4 10h16M6 10v8M10 10v8M14 10v8M18 10v8M3 20h18M12 3l9 5H3z"/>'};
+const icon=n=>{const t=document.createElement('template');t.innerHTML='<svg class="ico" viewBox="0 0 24 24">'+ICONS[n]+'</svg>';return t.content.firstChild};
 const el=(tag,props={},...kids)=>{const e=document.createElement(tag);for(const k in props){if(k==='style')e.style.cssText=props[k];else if(k.startsWith('on'))e[k]=props[k];else e.setAttribute(k,props[k])}
   for(const k of kids)if(k!=null&&k!==false)e.append(k instanceof Node?k:String(k));return e};
 const BIAS={yukselis:['Yükseliş','var(--up)','▲'],dusus:['Düşüş','var(--dn)','▼'],notr:['Nötr','var(--neu)','●']};
@@ -196,7 +206,7 @@ function idle(){$('go').disabled=false;$('gol').textContent='Ekranı Analiz Et'}
 const perCall=()=>C.usage&&C.usage.count>2?C.usage.cost/C.usage.count:EST[C.model]||0.002;
 function ui(){
   document.querySelectorAll('#seg button').forEach(b=>b.classList.toggle('on',b.dataset.e===C.engine));
-  $('cl-sub').textContent=C.hasKey?'Fiyat ve yorum · ~'+usd(perCall())+'/analiz':'🔒 API anahtarı gerekli';
+  $('cl-sub').textContent=C.hasKey?'Fiyat ve yorum · ~'+usd(perCall())+'/analiz':'API anahtarı gerekli';
   $('ld').classList.toggle('live',C.live);$('lp').classList.toggle('on',C.live);$('live').checked=C.live;
   const liveAi=C.liveAi&&C.hasKey;
   $('lt').textContent=C.live?'Canlı · her '+C.interval+' sn · '+(liveAi?'Claude':'Hızlı (ücretsiz)'):'Canlı mod kapalı';
@@ -207,7 +217,7 @@ function ui(){
 
 function render(a,anim=true){
   shown=a;const out=$('out');out.replaceChildren();
-  if(!a.chart_found){out.append(el('div',{class:'c empty'},el('div',{class:'ic'},'🔍'),a.engine==='yerel'?'Ekranda mum grafiği bulunamadı. Çizgi grafikler için Claude analizini dene.':'Ekranda grafik bulunamadı.'));return}
+  if(!a.chart_found){out.append(el('div',{class:'c empty'},el('div',{class:'ic'},icon('search')),a.engine==='yerel'?'Ekranda mum grafiği bulunamadı. Çizgi grafikler için Claude analizini dene.':'Ekranda grafik bulunamadı.'));return}
   const [bl,col,ar]=BIAS[a.bias]||BIAS.notr,local=a.engine==='yerel';
   out.append(el('div',{class:'c'},
     el('div',{class:'row'},
@@ -235,13 +245,13 @@ function render(a,anim=true){
         kv('EMA 20/50',I.emaTrend==='yukari'?'▲ Yukarı':'▼ Aşağı',I.emaTrend==='yukari'?'pos':'neg'),
         kv('Bollinger',I.bb?'%'+Math.max(0,Math.min(100,I.bb.pos))+' konumda':'—'),
         kv('Risk / Ödül',a.rr!=null?'1 : '+a.rr.toLocaleString('tr-TR'):'—',a.rr>=2?'pos':a.rr!=null&&a.rr<1?'neg':'')),
-      I.candle||I.divergence?el('div',{class:'chips',style:'margin-top:8px'},...[I.candle&&'🕯 '+I.candle,I.divergence&&'↯ '+I.divergence].filter(Boolean).map(t=>el('span',{class:'chip'},t))):null))}
+      I.candle||I.divergence?el('div',{class:'chips',style:'margin-top:8px'},...[I.candle&&'Mum: '+I.candle,I.divergence].filter(Boolean).map(t=>el('span',{class:'chip'},t))):null))}
   const tl=a.trendlines||[];
   if((a.patterns&&a.patterns.length)||tl.length)out.append(el('div',{class:'c'},el('div',{class:'t'},'Formasyon ve trend çizgileri'),el('div',{class:'chips'},
     ...(a.patterns||[]).map(p=>el('span',{class:'chip'},p)),...tl.map(t=>el('span',{class:'chip',style:'color:'+(t.type==='destek'?'var(--tup)':'var(--tdn)')},t.type==='destek'?'↗ Destek trendi':'↘ Direnç trendi')))));
   if(a.breakout)out.append(el('div',{class:'c'},el('div',{class:'t'},'Kırılım'),a.breakout));
   out.append(el('div',{class:'c'},el('div',{class:'t'},'Yorum'),el('div',{style:'line-height:1.55'},a.comment||'')));
-  if(local)out.append(el('div',{class:'info'},'ℹ️',el('span',{},'Hızlı analiz mumların konumunu okur; fiyat yazmaz. Fiyatlı seviyeler ve yorum için ',el('a',{onclick:()=>pick('claude')},'Claude AI'),' seç.')));
+  if(local)out.append(el('div',{class:'info'},icon('info'),el('span',{},'Hızlı analiz mumların konumunu okur; fiyat yazmaz. Fiyatlı seviyeler ve yorum için ',el('a',{onclick:()=>pick('claude')},'Claude AI'),' seç.')));
   else out.append(el('div',{class:'m',style:'text-align:center;margin-top:10px'},(a.model||'').replace('claude-','').replace(/-(\d)-(\d)$/,' $1.$2')+(a.cost?' · '+usd(a.cost):'')+' · '+hm(a.at)));
   fit();
 }
@@ -249,7 +259,7 @@ function render(a,anim=true){
 function history(){
   const hl=$('hl');hl.replaceChildren();
   const h=C.history||[];
-  if(!h.length){hl.append(el('div',{class:'empty'},el('div',{class:'ic'},'🕘'),'Henüz analiz yok.'));return}
+  if(!h.length){hl.append(el('div',{class:'empty'},el('div',{class:'ic'},icon('clock')),'Henüz analiz yok.'));return}
   h.forEach(a=>{const [bl,col]=BIAS[a.bias]||BIAS.notr;
     hl.append(el('div',{class:'hi',onclick:()=>{render(a);tab('an')}},el('span',{class:'bd',style:'background:'+col}),
       el('div',{class:'f1'},el('b',{},a.symbol||'Grafik'),' ',el('span',{class:'m'},(a.timeframe||'')+(a.engine==='yerel'?' · yerel':''))),
@@ -265,7 +275,7 @@ function settings(){
   $('iv').replaceChildren(...C.intervals.map(s=>{const o=el('option',{value:s},s<60?s+' saniye':s/60+' dakika');if(s===C.interval)o.selected=true;return o}));
   $('alerts').checked=C.alerts;$('pin').checked=C.pin;$('login').checked=!!C.login;
   document.querySelectorAll('[data-ind]').forEach(i=>i.checked=!!(C.ind||{})[i.dataset.ind]);
-  $('alarminfo').textContent=(C.alarms?C.alarms+' alarm çizgisi kurulu. ':'Kurulu alarm yok. ')+'Çizim modunda A tuşu ya da 🔔 aracıyla yatay alarm çizgisi koy; fiyat çizgiyi geçince bildirim gelir (canlı mod otomatik açılır).';
+  $('alarminfo').textContent=(C.alarms?C.alarms+' alarm çizgisi kurulu. ':'Kurulu alarm yok. ')+'Çizim modunda A tuşu ya da zil aracıyla yatay alarm çizgisi koy; fiyat çizgiyi geçince bildirim gelir (canlı mod otomatik açılır).';
   const u=C.usage||{cost:0,count:0};
   $('usage').replaceChildren(el('b',{},usd(u.cost||0)),el('span',{class:'m'},' bu ay · '+(u.count||0)+' Claude analizi'),el('div',{class:'m'},'Hızlı analizler ücretsizdir.'));
   $('perm').replaceChildren(C.perm?el('span',{class:'ok'},'✓ İzin verildi'):el('span',{style:'color:var(--dn)'},'İzin verilmedi'));
@@ -315,16 +325,24 @@ function depthUi(){
   const t=C.tg||{};
   document.querySelectorAll('#dsrc button').forEach(b=>b.classList.toggle('on',b.dataset.s===C.depthSource));
   $('dsrc-tg').textContent=t.connected?(t.bot||'Bot yazılmadı'):'Bağlı değil';
-  $('dauto').value=String(C.depthAuto||0);$('dov').checked=C.depthOverlay!==false;
+  $('dauto').value=String(C.depthAuto||0);$('dov').checked=C.depthOverlay!==false;$('sigs').checked=C.signals!==false;
+  safeText(C.safe);
   if(!$('dsym').value&&C.symbol)$('dsym').value=C.symbol;
   $('tgst').replaceChildren(t.connected?el('span',{class:'ok'},'✓ Bağlı: '+((t.user&&(t.user.username?'@'+t.user.username:t.user.name))||'')):'Bağlı değil. api_id ve api_hash ile bir kez giriş yap.');
   $('tgform').style.display=t.connected?'none':'';$('tgout').style.display=t.connected?'':'none';$('tgconn').textContent=t.connected?'Kaydet':'Bağlan';
   if(document.activeElement!==$('tgbot'))$('tgbot').value=t.bot||'';if(document.activeElement!==$('tgcmd'))$('tgcmd').value=t.cmd||'{KOD}';
   if(!$('tgid').value&&t.apiId)$('tgid').value=t.apiId;$('tghash').placeholder=t.hasHash?'api_hash (kayıtlı)':'api_hash';
 }
+function safeText(sf){if(!sf)return;$('dsafe').textContent='Güvenli mod · bu saat '+sf.hour+'/'+sf.hourCap+' istek · bugün '+sf.day+'/'+sf.dayCap+(sf.market?' · seans açık':' · seans kapalı (otomatik durur)')+(sf.flood?' · Telegram beklemesi '+sf.flood+' sn':'')}
+function sigCard(sg){if(!sg)return null;const up=sg.dir>0;
+  return el('div',{class:'c',style:'border-color:'+(up?'var(--up)':'var(--dn)')},el('div',{class:'row'},el('span',{class:'pill',style:'background:'+(up?'var(--up)':'var(--dn)')},up?'▲ AL':'▼ SAT'),
+    el('b',{class:'f1'},up?'Alım yönlü sinyal':'Satım yönlü sinyal'),el('span',{class:'m num'},'güç '+Math.round(sg.strength)+'/3')),
+    el('div',{class:'m',style:'margin-top:6px'},sg.why.join(' · ')),el('div',{class:'m',style:'margin-top:4px;font-size:10.5px'},'Teknik sinyaldir, yatırım tavsiyesi değildir.'))}
 function renderDepth(d){
-  const o=$('dout');o.replaceChildren();
+  const o=$('dout');o.replaceChildren();safeText(d.safe);
   const pr=d.pressure,tr=d.trend||{};
+  const sc=sigCard(d.signal);if(sc)o.append(sc);
+  if(d.flow&&d.flow.top)o.append(el('div',{class:'info',style:'margin-top:8px'},icon('bank'),el('span',{},'Kurum akışı: net '+(d.flow.net>0?'+':'')+kf(d.flow.net)+' lot'+(d.flow.change?' · son ölçümlerden beri '+(d.flow.change>0?'+':'')+kf(d.flow.change):'')+' · en çok alan '+d.flow.top.name)));
   o.append(el('div',{class:'c'},el('div',{class:'row'},el('div',{class:'f1'},el('div',{class:'sym'},d.symbol||''),el('div',{class:'m'},[d.last!=null?'₺'+fmt(d.last):null,d.change!=null?(d.change>0?'+':'')+fmt(d.change)+'%':null,d.ceiling?'Tavan '+fmt(d.ceiling):null,d.floor?'Taban '+fmt(d.floor):null].filter(Boolean).join(' · '))),
     pr?el('b',{class:pr.score>=10?'pos':pr.score<=-10?'neg':''},(pr.score>0?'+':'')+pr.score):null),
     pr?el('div',{class:'gauge'},el('i',{style:'left:'+((pr.score+100)/2)+'%'})):null,
@@ -343,9 +361,9 @@ function renderDepth(d){
   if((d.messages||[]).length){const box=el('div',{class:'c'},el('div',{class:'t'},'Botun mesajı'));
     for(const m of d.messages){const mm=el('div',{class:'msg'},m.text||'');if(m.photo)mm.append(el('img',{src:m.photo}));box.append(mm);
       if(m.buttons&&m.buttons.length)box.append(el('div',{class:'btns'},...m.buttons.flatMap((r,i)=>r.map((b,j)=>el('button',{class:'btn',onclick:async()=>{
-        if(b.type==='url'&&b.url)return api.openUrl(b.url);const r2=await api.tgClick({msgId:m.id,i,j});if(!r2.ok)toast(r2.msg);else if(r2.messages)renderDepth({...d,messages:r2.messages})}},(b.type==='webapp'?'🖥 ':b.type==='url'?'🔗 ':'')+b.text)))))}
+        if(b.type==='url'&&b.url)return api.openUrl(b.url);const r2=await api.tgClick({msgId:m.id,i,j});if(!r2.ok)toast(r2.msg);else if(r2.messages)renderDepth({...d,messages:r2.messages})}},b.text+(b.type==='webapp'||b.type==='url'?' ↗':''))))))}
     o.append(box)}
-  if(d.source==='telegram'&&!d.bids.length&&!d.buyers.length&&!d.trades.length)o.prepend(el('div',{class:'info'},'ℹ️',el('span',{},'Botun mesajından tablo çıkarılamadı. Mesajın ekran görüntüsünü paylaşırsan ayrıştırıcıyı bu bota göre uyarlarım. Terminal butonu varsa ona basarak uygulama içinde açabilirsin.')));
+  if(d.source==='telegram'&&!d.bids.length&&!d.buyers.length&&!d.trades.length)o.prepend(el('div',{class:'info'},icon('info'),el('span',{},'Botun mesajından tablo çıkarılamadı. Mesajın ekran görüntüsünü paylaşırsan ayrıştırıcıyı bu bota göre uyarlarım. Terminal butonu varsa ona basarak uygulama içinde açabilirsin.')));
   fit();
 }
 document.querySelectorAll('#dsrc button').forEach(b=>b.onclick=async()=>{C=await api.depthSet({source:b.dataset.s});depthUi()});
@@ -368,6 +386,8 @@ $('askok').onclick=()=>{api.tgAnswer($('askv').value.trim());$('ask').style.disp
 $('askv').onkeydown=e=>{if(e.key==='Enter')$('askok').click()};
 $('askno').onclick=()=>{api.tgAnswer(null);$('ask').style.display='none'};
 api.on('depthBusy',o=>{$('dgo').disabled=true;$('dgo').textContent='…';$('derr').style.display='none';$('sub').textContent=o.symbol+' derinliği alınıyor…'});
+api.on('depthWait',w=>{$('dgo').disabled=false;$('dgo').textContent='Getir';safeText(w.safe);$('sub').textContent='⏸ '+w.msg});
+$('sigs').onchange=async e=>{C=await api.depthSet({signals:e.target.checked})};
 api.on('depthErr',e=>{$('dgo').disabled=false;$('dgo').textContent='Getir';$('derr').textContent=e.msg;$('derr').style.display='block';tab('dp');fit()});
 api.on('depth',d=>{$('dgo').disabled=false;$('dgo').textContent='Getir';$('sub').textContent=d.symbol+' derinlik · '+hm(d.at);if(d.usage)C.usage=d.usage;$('dsym').value=d.symbol;renderDepth(d)});
 api.on('state',c=>{C=c;ui()});

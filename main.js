@@ -40,7 +40,7 @@ const engineName=()=>cfg().engine==='claude'&&getKey()?'claude':'yerel';
 const liveEngine=()=>cfg().liveAi&&getKey()?'claude':'yerel';
 const month=()=>new Date().toISOString().slice(0,7);
 const IND_DEFAULT={ema:true,bb:false,fib:false};
-const ind=()=>({...IND_DEFAULT,...(cfg().ind||{})});
+const ind=()=>({...IND_DEFAULT,...(cfg().ind||{}),signals:cfg().signals!==false});
 function addCost(c){
   const u=cfg().usage||{};const m=u.month===month()?u:{month:month(),cost:0,count:0};
   save({usage:{month:m.month,cost:m.cost+c,count:m.count+1,total:(u.total||0)+c}});
@@ -106,7 +106,7 @@ function syncOverlay(){
 }
 function drawOverlay(a,d,anim){
   placeOverlay(d);lastResult=a;
-  sendOv('draw',{...a,anim,show:ind()});syncOverlay();
+  sendOv('draw',{...a,anim,show:ind(),live:liveSignal()});syncOverlay();
   if(lastDepth&&a.engine==='claude')pushDepthOverlay();
   clearTimeout(fadeTimer);
   if(!cfg().live&&!cfg().pin)fadeTimer=setTimeout(clearAnalysis,30000);
@@ -170,7 +170,7 @@ function checkAlarms(d,py,y){
     if(l.t!=='alarm'||l.fired)continue;const ly=l.a[1];
     if((py>ly&&y<=ly)||(py<ly&&y>=ly)){
       l.fired=Date.now();hit=true;
-      if(Notification.isSupported())new Notification({title:'🔔 '+sym+' alarmı',body:(y<py?'▲ Fiyat alarm çizgisini yukarı geçti':'▼ Fiyat alarm çizgisini aşağı geçti')+(cal?' ('+fmtP(cal(ly))+')':''),sound:'Glass'}).show();
+      if(Notification.isSupported())new Notification({title:sym+' · alarm',body:(y<py?'▲ Fiyat alarm çizgisini yukarı geçti':'▼ Fiyat alarm çizgisini aşağı geçti')+(cal?' ('+fmtP(cal(ly))+')':''),sound:'Glass'}).show();
     }
   }
   if(hit){save({drawings:{...all,[d.id]:list}});if(d.id===ovDisplay)sendOv('drawings',list)}
@@ -186,7 +186,7 @@ function merge(a,local){
   const R=(a.resistances||[])[0],S=(a.supports||[])[0];
   if(typeof a.last_price==='number'&&R&&S&&R.price!=null&&S.price!=null&&R.price>a.last_price&&S.price<a.last_price)
     rr=+((R.price-a.last_price)/(a.last_price-S.price)).toFixed(2);
-  return{...a,last:local.last,candles:local.candles,ind:local.ind,lines:local.lines,fib:local.fib,rr,
+  return{...a,last:local.last,candles:local.candles,ind:local.ind,lines:local.lines,fib:local.fib,rr,signals:local.signals,lastCandle:local.lastCandle,
     factors:f,score:Math.max(-100,Math.min(100,f.reduce((s,x)=>s+x.v,0)))};
 }
 
@@ -226,7 +226,7 @@ async function analyze(opts={}){
     if(local.chart_found){if(lastLocal&&lastLocal.d===d.id)checkAlarms(d,lastLocal.y,local.last.y);lastLocal={d:d.id,y:local.last.y}}
     // Canli yerel takipte son 60 sn icindeki Claude sonucunu (fiyatli seviyeler) koru, yalnizca son fiyat noktasini guncelle.
     if(opts.silent&&eng==='yerel'&&prev&&prev.engine==='claude'&&Date.now()-prev.at<60000&&local.chart_found&&change<0.25){
-      const keep={...prev,last:local.last,lines:local.lines,ind:local.ind};drawOverlay(keep,d,false);checkAlerts(prev,keep);return}
+      const keep={...prev,last:local.last,lines:local.lines,ind:local.ind,signals:local.signals,lastCandle:local.lastCandle};drawOverlay(keep,d,false);checkAlerts(prev,keep);return}
     a.at=Date.now();
     a.confidence=Math.max(0,Math.min(100,Math.round(a.confidence||0)));
     const entry={...a,model:eng==='claude'?model():null};
@@ -251,7 +251,27 @@ const enc=v=>v?(safeStorage.isEncryptionAvailable()?'e:'+safeStorage.encryptStri
 const dec=v=>!v?null:v.startsWith('e:')?(()=>{try{return safeStorage.decryptString(Buffer.from(v.slice(2),'base64'))}catch(e){return null}})():v.slice(2);
 const tgCfg=()=>cfg().tg||{};
 let tgUser=null,tgAskResolve=null,depthTimer=null,depthBusy=false,lastDepth=null;
-const depthHist={};
+const depthHist={},flowHist={};
+
+// --- guvenli istek planlayici ------------------------------------------------
+// Telegram hesabinin kisitlanmamasi icin: en az 20 sn + rastgele bekleme, seans saatleri,
+// saatlik/gunluk sinir ve Telegram "bekle" derse otomatik duraklama.
+const SAFE={minSec:20,hourCap:100,dayCap:700};
+const sent=[];let floodUntil=0;
+function istanbulNow(){const p=Object.fromEntries(new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Istanbul',weekday:'short',hour:'2-digit',minute:'2-digit',hour12:false}).formatToParts(new Date()).map(x=>[x.type,x.value]));
+  return {day:p.weekday,min:(+p.hour)*60+(+p.minute)}}
+function marketOpen(){const t=istanbulNow();return !['Sat','Sun'].includes(t.day)&&t.min>=9*60+55&&t.min<=18*60+15}
+function canSend(auto){
+  const now=Date.now();while(sent.length&&now-sent[0]>86400000)sent.shift();
+  if(now<floodUntil)return 'Telegram bekletiyor, '+Math.ceil((floodUntil-now)/1000)+' sn sonra devam edilecek';
+  if(auto&&!marketOpen())return 'Seans dışı: otomatik yenileme duraklatıldı';
+  const lastHour=sent.filter(t=>now-t<3600000).length;
+  if(auto&&lastHour>=SAFE.hourCap)return 'Saatlik güvenli sınıra ulaşıldı ('+SAFE.hourCap+')';
+  if(sent.length>=SAFE.dayCap)return 'Günlük güvenli sınıra ulaşıldı ('+SAFE.dayCap+')';
+  if(sent.length&&now-sent[sent.length-1]<(auto?SAFE.minSec:5)*1000)return 'Çok sık istek: biraz bekle';
+  return null;
+}
+const safeInfo=()=>{const now=Date.now();return {hour:sent.filter(t=>now-t<3600000).length,day:sent.length,hourCap:SAFE.hourCap,dayCap:SAFE.dayCap,market:marketOpen(),flood:Math.max(0,Math.ceil((floodUntil-now)/1000))}};
 
 function tgAsk(step,hint){
   send('tgAsk',{step,hint:hint||null});showPop();
@@ -285,7 +305,11 @@ async function fetchDepth(opts={}){
     if(source==='telegram'){
       if(!tgUser)throw new Error('Telegram bağlı değil. Ayarlar › Telegram derinlik botu bölümünden bağlan.');
       if(!tgCfg().bot)throw new Error('Botun kullanıcı adını Ayarlar\'a yaz (ör. @derinlikbot).');
-      messages=await tg.query(tgCfg().bot,(tgCfg().cmd||'{KOD}').replace(/\{KOD\}/g,symbol));
+      const why=canSend(!!opts.auto);
+      if(why){send('depthWait',{msg:why,safe:safeInfo()});return}
+      sent.push(Date.now());
+      try{messages=await tg.query(tgCfg().bot,(tgCfg().cmd||'{KOD}').replace(/\{KOD\}/g,symbol))}
+      catch(err){const w=tg.floodSeconds(err);if(w){floodUntil=Date.now()+(w+15)*1000;send('depthWait',{msg:'Telegram '+w+' sn beklememizi istedi; otomatik duraklatıldı.',safe:safeInfo()});return}throw err}
       d=depthLib.parseText(messages.map(m=>m.text).join('\n'),{symbol});
       // Bot veriyi resim olarak gonderdiyse ve anahtar varsa Claude ile oku.
       const photo=messages.find(m=>m.photo);
@@ -300,7 +324,13 @@ async function fetchDepth(opts={}){
     }
     const pr=depthLib.pressure(d);
     if(pr){const h=depthHist[symbol]=(depthHist[symbol]||[]);h.push({t:Date.now(),p:pr.score});if(h.length>120)h.shift()}
-    lastDepth={...d,symbol,at:Date.now(),source,walls:depthLib.walls(d),pressure:pr,trend:depthLib.trend(depthHist[symbol]||[]),history:(depthHist[symbol]||[]).slice(-40)};
+    // Kurum akisi: alicilarin net toplami - saticilarin; artiyorsa kurumlar topluyor.
+    const flow=(d.buyers||[]).reduce((s,x)=>s+(x.net||0),0)-(d.sellers||[]).reduce((s,x)=>s+(x.net||0),0);
+    if(d.buyers.length||d.sellers.length){const f=flowHist[symbol]=(flowHist[symbol]||[]);f.push({t:Date.now(),v:flow});if(f.length>120)f.shift()}
+    const fh=flowHist[symbol]||[],fd=fh.length>1?fh[fh.length-1].v-fh[0].v:0;
+    lastDepth={...d,symbol,at:Date.now(),source,walls:depthLib.walls(d),pressure:pr,trend:depthLib.trend(depthHist[symbol]||[]),history:(depthHist[symbol]||[]).slice(-40),
+      flow:{net:flow,change:fd,top:(d.buyers[0]||null)},safe:safeInfo()};
+    lastDepth.signal=liveSignal();
     send('depth',{...lastDepth,messages:messages.map(m=>({...m,photo:m.photo?m.photo.slice(0,200000):null})),usage:state().usage});
     pushDepthOverlay();
   }catch(e){send('depthErr',{msg:ai.errorText(e)})}
@@ -313,9 +343,23 @@ function pushDepthOverlay(){
   sendOv('depth',{...lastDepth,cal,box:lastResult&&lastResult.chart_box||null});
   if(!ov.isVisible())ov.showInactive();
 }
+// Son mum icin canli AL/SAT: grafik skoru + derinlik baskisi + kurum akisi.
+function liveSignal(){
+  const a=lastResult,d=lastDepth;if(!a||!a.chart_found)return null;
+  const why=[];let v=0;
+  if(typeof a.score==='number'){v+=a.score/50;if(Math.abs(a.score)>=20)why.push('Teknik skor '+(a.score>0?'+':'')+a.score)}
+  if(d&&d.pressure){v+=d.pressure.score/40;if(Math.abs(d.pressure.score)>=15)why.push((d.pressure.score>0?'Alış':'Satış')+' baskısı '+(d.pressure.score>0?'+':'')+d.pressure.score)}
+  if(d&&d.trend&&d.trend.dir){v+=d.trend.dir*0.5;why.push(d.trend.text)}
+  if(d&&d.flow&&d.flow.top&&d.flow.net){v+=Math.sign(d.flow.net)*0.5;why.push((d.flow.net>0?d.flow.top.name.split(' ')[0]+' topluyor':'Kurumlar satıyor'))}
+  const dir=v>=1.6?1:v<=-1.6?-1:0;
+  return dir?{dir,strength:Math.min(3,Math.abs(v)),why:why.slice(0,3)}:null;
+}
 function setDepthAuto(sec){
-  save({depthAuto:sec});clearInterval(depthTimer);depthTimer=null;
-  if(sec>0)depthTimer=setInterval(()=>fetchDepth(),sec*1000);
+  save({depthAuto:sec});clearTimeout(depthTimer);depthTimer=null;
+  if(sec<=0)return;
+  // Sabit aralik yerine rastgele sapmali zamanlayici (her istek %0-35 gecikmeli).
+  const loop=()=>{depthTimer=setTimeout(async()=>{await fetchDepth({auto:true});if(cfg().depthAuto>0)loop()},Math.max(SAFE.minSec,sec)*1000*(1+Math.random()*0.35))};
+  loop();
 }
 
 function state(){
@@ -324,7 +368,7 @@ function state(){
     history:cfg().history||[],perm:screenAllowed(),secure:safeStorage.isEncryptionAvailable(),alerts:!!cfg().alerts,pin:!!cfg().pin,ind:ind(),
     login:process.platform==='darwin'&&app.getLoginItemSettings().openAtLogin,alarms:Object.values(cfg().drawings||{}).flat().filter(x=>x.t==='alarm'&&!x.fired).length,
     usage:u.month===month()?u:{cost:0,count:0,total:u.total||0},
-    tg:tgState(),depthSource:cfg().depthSource||'telegram',depthAuto:cfg().depthAuto||0,depthOverlay:cfg().depthOverlay!==false,symbol:currentSymbol()};
+    signals:cfg().signals!==false,safe:safeInfo(),tg:tgState(),depthSource:cfg().depthSource||'telegram',depthAuto:cfg().depthAuto||0,depthOverlay:cfg().depthOverlay!==false,symbol:currentSymbol()};
 }
 
 app.whenReady().then(()=>{
@@ -374,7 +418,8 @@ app.whenReady().then(()=>{
   ipcMain.handle('depth',(e,o)=>fetchDepth(o||{}));
   ipcMain.handle('depthSet',(e,o)=>{
     if(o.source==='telegram'||o.source==='ekran')save({depthSource:o.source});
-    if([0,15,30,60,120].includes(o.auto))setDepthAuto(o.auto);
+    if([0,20,30,60,120].includes(o.auto))setDepthAuto(o.auto);
+    if(typeof o.signals==='boolean'){save({signals:o.signals});if(lastResult)sendOv('draw',{...lastResult,anim:false,show:ind()})}
     if(typeof o.overlay==='boolean'){save({depthOverlay:o.overlay});pushDepthOverlay()}
     return state()});
   ipcMain.handle('tgClick',async(e,{msgId,i,j})=>{
