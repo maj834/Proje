@@ -59,7 +59,7 @@ Fiyat ekseni okunmadan, mumların ekrandaki konumundan hesaplanır; EMA, Bolling
 Kullandığın Telegram derinlik botunu uygulamaya bağlayabilirsin:
 
 1. [my.telegram.org](https://my.telegram.org) › **API development tools** bölümünden `api_id` ve `api_hash` al.
-2. Ayarlar › **Telegram derinlik botu** kartına bunları, botun kullanıcı adını ve komutu yaz (`{KOD}` hisse koduyla değişir; BOPT için bot `@b0pt_bot`, derinlik komutu `/derinlik {KOD}`, AKD komutu `/akd {KOD}`), **Bağlan**'a bas. Telegram'a gelen kodu gir.
+2. Ayarlar › **Telegram derinlik botu** kartına bunları, botun kullanıcı adını ve komutu yaz (`{KOD}` hisse koduyla değişir; BOPT için bot `@b0pt_bot`, derinlik komutu `/derinlik {KOD}`, AKD komutu `/akd {KOD}`, işlem komutu `/islem {KOD}`), **Bağlan**'a bas. Telegram'a gelen kodu gir.
 3. **Derinlik** sekmesinde hisse kodunu yazıp **Getir**'e bas ya da otomatik yenilemeyi aç.
 
 Uygulama bota senin hesabınla mesaj atar, cevabı ayrıştırır ve:
@@ -69,6 +69,7 @@ Uygulama bota senin hesabınla mesaj atar, cevabı ayrıştırır ve:
 - **Al/sat baskısını** (-100…+100) derinlik dengesi, alış/satış oranı, kurum net akışı ve işlemlerden hesaplar; her yenilemede kaydedip **trendini** gösterir ("Alış baskısı artıyor")
 - Bot tabloyu **resim** olarak gönderirse (BOPT) resmi Mac'te ücretsiz ve internetsiz okur (yerel yazı tanıma, ~1 sn): alış/satış kademeleri, tavan/taban, hacim, ağırlıklı ortalama. Okunamazsa Grok/Claude yedek olarak devreye girer
 - Kurum dağılımı derinlik mesajında yoksa **AKD komutunu** da sorar (hisse başına en fazla 2 dakikada bir, derinlikten birkaç saniye sonra) ve net alıcı/satıcı kurumları, lotlarını, maliyetlerini ve oranlarını resimden okur
+- **Gerçekleşen işlemleri** de sorar (hisse başına en fazla dakikada bir): saat, fiyat, adet, hacim, alan ve satan kurum; satır rengi aktif alış (yeşil) ya da aktif satışı (kırmızı) gösterir ve al/sat baskısına katılır
 - Botun menüsündeki **Canlı Veri** web uygulamasını Derinlik sekmesindeki butonla uygulama içinde açar
 
 Telegram yoksa **Ekrandan** kaynağı, açık olan derinlik terminalini Grok ya da Claude ile okur. Oturum ve `api_hash` Anahtar Zinciri ile şifreli saklanır.

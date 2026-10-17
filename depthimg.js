@@ -118,10 +118,13 @@ async function tesseract(){
   })();
   try{return await workerP}catch(e){workerP=null;throw e}
 }
-// Varsayilan OCR: mode 'num' tek satir rakam, 'text' blok metin
+// Varsayilan OCR: 'num' tek satir rakam, 'trade' saat + rakam, 'line' tek satir metin, 'text' blok metin
 async function defaultOcr(buf,mode){
   const w=await tesseract();
-  await w.setParameters(mode==='num'?{tessedit_pageseg_mode:'7',tessedit_char_whitelist:'0123456789.,'}:{tessedit_pageseg_mode:'6',tessedit_char_whitelist:''});
+  await w.setParameters(mode==='num'?{tessedit_pageseg_mode:'7',tessedit_char_whitelist:'0123456789.,'}
+    :mode==='trade'?{tessedit_pageseg_mode:'7',tessedit_char_whitelist:'0123456789.,: '}
+    :mode==='line'?{tessedit_pageseg_mode:'7',tessedit_char_whitelist:''}
+    :{tessedit_pageseg_mode:'6',tessedit_char_whitelist:''});
   const {data}=await w.recognize(buf);
   return {text:data.text||'',conf:data.confidence||0};
 }
@@ -228,4 +231,38 @@ async function readAkd(img,{ocr=defaultOcr,ref=null}={}){
   return {buyers,sellers,buyTotal:tot(bt),sellTotal:tot(st),ocr:{ms:Date.now()-t0}};
 }
 
-module.exports={read,readAkd,parseAkd,segment,parseStats,priceOf,qtyOf,png,close};
+// --- Gerceklesen islemler resmi ------------------------------------------------------
+// Satir: Saat | Fiyat | Adet | Hacim | Alan | Satan; zemin yesil = alici istekli (aktif alis), kirmizi = aktif satis.
+const COLS={num:[0,0.465],buyer:[0.465,0.73],seller:[0.73,1]};
+function parseTradeNums(t,ref){
+  const s=String(t||'').replace(/[^\d.,:\s]/g,' '),tm=s.match(/(\d{2})[:.](\d{2})[:.](\d{2})/);if(!tm)return null;
+  const rest=s.slice(s.indexOf(tm[0])+tm[0].length).trim().split(/\s+/).filter(x=>/\d/.test(x));if(rest.length<2)return null;
+  const vol=qtyOf(rest[rest.length-1]);
+  // Fiyat 2 ondalikli; "16.1516.147" gibi yapisik okumada ilk 2 ondalikli kisim fiyattir
+  const pm=rest[0].match(/^(\d{1,5}[.,]\d{2})(\d[\d.,]*)?$/);let price=pm?+pm[1].replace(',','.'):priceOf(rest[0],ref);
+  if(ref&&price&&Math.abs(Math.log(price/ref))>Math.log(1.6))price=null;
+  let qty=rest.length>=3?qtyOf(rest[rest.length-2]):pm&&pm[2]?qtyOf(pm[2]):null;
+  // Hacim = fiyat x adet (TL): tutmuyorsa adedi hacimden hesapla
+  if(price&&vol&&(!qty||Math.abs(qty*price-vol)>Math.max(1,price*0.6)))qty=Math.round(vol/price);   // hacim TL'ye yuvarli: 1 lot fark fiyat kadar
+  if(!price||!qty)return null;
+  return {time:tm[1]+':'+tm[2]+':'+tm[3],price,qty,vol};
+}
+async function readTrades(img,{ocr=defaultOcr,ref=null}={}){
+  const {width:W,height:H,data:D}=img,Rr=img.bgra?2:0,Bb=img.bgra?0:2;
+  const s={W,H,px:(x,y)=>{const i=(y*W+x)*4;return [D[i+Rr],D[i+1],D[i+Bb]]}};
+  const t0=Date.now(),rows=bands(s,0,W-1,0,H-1),out=[];
+  const col=([a,b])=>[Math.round(a*W)+1,Math.min(W-1,Math.round(b*W)-2)];
+  for(const b of rows){
+    if(b[1]-b[0]>H*0.06)continue;                                      // baslik/logo gibi buyuk bloklar
+    const c=cell(s,...col(COLS.num),b[0],b[1]);if(!c)continue;
+    const n=parseTradeNums((await ocr(c.png,'trade')).text,ref||(out[0]&&out[0].price));if(!n)continue;
+    const name=async k=>{const x=cell(s,...col(COLS[k]),b[0],b[1]);return x?String((await ocr(x.png,'line')).text).replace(/[^A-Za-zÇĞİÖŞÜçğıöşü0-9 .&-]/g,'').replace(/\s+/g,' ').trim()||null:null};
+    // Satir zemini: yazi olmayan sol kenar piksellerinin ortalamasi
+    let r=0,g=0,k=0;for(let y=b[0];y<=b[1];y++)for(let x=1;x<Math.min(10,W);x++){const p=s.px(x,y);if(ink(p)<=INK){r+=p[0];g+=p[1];k++}}
+    r/=k||1;g/=k||1;
+    out.push({...n,buyer:await name('buyer'),seller:await name('seller'),side:g>r+20?'buy':r>g+20?'sell':null});
+  }
+  return out.length?{trades:out,ocr:{rows:out.length,ms:Date.now()-t0}}:null;
+}
+
+module.exports={read,readAkd,parseAkd,readTrades,parseTradeNums,segment,parseStats,priceOf,qtyOf,png,close};

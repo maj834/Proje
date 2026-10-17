@@ -66,7 +66,7 @@ kbd,.kb kbd{font:500 10.5px var(--mono);border:1px solid var(--line);border-bott
 .btn.pri{background:var(--acc);border-color:transparent;color:var(--acc-ink);font-weight:600}.btn.dn{color:var(--dn)}
 input[type=password],select,.inp{width:100%;height:30px;padding:0 var(--s2);border-radius:var(--r2);border:1px solid var(--line);background:var(--sunk);color:var(--fg);font:400 12.5px var(--font);outline:none;transition:border-color .15s}
 input[type=password]:focus,select:focus,.inp:focus{border-color:var(--acc)}
-#dsym,#key,#tghash,#tgid,#tgphone,#tgbot,#tgcmd,#tgakd{font-family:var(--mono)}
+#dsym,#key,#tghash,#tgid,#tgphone,#tgbot,#tgcmd,#tgakd,#tgtr{font-family:var(--mono)}
 .opt{display:flex;align-items:center;gap:var(--s2);padding:var(--s2);border-radius:var(--r2);border:1px solid var(--line);margin-top:4px;cursor:pointer;background:var(--surface)}
 .opt.on{border-color:var(--acc);background:var(--acc-soft)}
 .opt .rd{width:12px;height:12px;border-radius:50%;border:1.5px solid var(--line-2);flex:none}.opt.on .rd{border:4px solid var(--acc)}
@@ -167,7 +167,8 @@ textarea.inp{height:110px;padding:6px var(--s2);resize:vertical;font:400 11.5px/
         <div class="row"><input class="inp" id="tgid" placeholder="api_id" inputmode="numeric" style="width:110px"><input class="inp f1" id="tghash" type="password" placeholder="api_hash" autocomplete="off"></div>
         <div class="row" style="margin-top:6px"><input class="inp f1" id="tgphone" placeholder="Telefon (+90…)" inputmode="tel"></div>
       </div>
-      <div class="row" style="margin-top:6px"><input class="inp f1" id="tgbot" placeholder="Bot kullanıcı adı (ör. @b0pt_bot)" spellcheck="false"><input class="inp" id="tgcmd" placeholder="Derinlik komutu" title="Derinlik için bota gönderilecek mesaj; {KOD} hisse koduyla değişir" style="width:120px"><input class="inp" id="tgakd" placeholder="AKD komutu" title="Kurum dağılımı (AKD) için mesaj; boş bırakılırsa sorulmaz" style="width:100px"></div>
+      <div class="row" style="margin-top:6px"><input class="inp f1" id="tgbot" placeholder="Bot kullanıcı adı (ör. @b0pt_bot)" spellcheck="false"><input class="inp" id="tgcmd" placeholder="Derinlik komutu" title="Derinlik için bota gönderilecek mesaj; {KOD} hisse koduyla değişir" style="width:120px"></div>
+      <div class="row" style="margin-top:6px"><input class="inp f1" id="tgakd" placeholder="AKD komutu" title="Kurum dağılımı (AKD) için mesaj; boş bırakılırsa sorulmaz"><input class="inp f1" id="tgtr" placeholder="İşlem komutu" title="Gerçekleşen işlemler için mesaj; boş bırakılırsa sorulmaz"></div>
       <div class="row" style="margin-top:8px"><a class="f1 m" id="tghow">api_id nasıl alınır?</a><button class="btn dn" id="tgout">Çıkış</button><button class="btn pri" id="tgconn">Bağlan</button></div>
       <div class="m" id="tghowtxt" style="display:none;margin-top:8px;line-height:1.5">my.telegram.org › <b>API development tools</b> bölümünden uygulama oluştur; verilen api_id ve api_hash'i buraya yaz. Giriş kodu Telegram'a gelir. Oturum bu Mac'te Anahtar Zinciri ile şifreli saklanır ve yalnızca bota mesaj atmak için kullanılır.</div>
     </div>
@@ -413,7 +414,7 @@ function depthUi(){
   if(!$('dsym').value&&C.symbol)$('dsym').value=C.symbol;
   $('tgst').replaceChildren(t.connected?el('span',{class:'ok'},'✓ Bağlı: '+((t.user&&(t.user.username?'@'+t.user.username:t.user.name))||'')):'Bağlı değil. api_id ve api_hash ile bir kez giriş yap.');
   $('tgform').style.display=t.connected?'none':'';$('tgout').style.display=t.connected?'':'none';$('tgconn').textContent=t.connected?'Kaydet':'Bağlan';
-  if(document.activeElement!==$('tgbot'))$('tgbot').value=t.bot||'';if(document.activeElement!==$('tgcmd'))$('tgcmd').value=t.cmd||'{KOD}';if(document.activeElement!==$('tgakd'))$('tgakd').value=t.akdCmd??'/akd {KOD}';
+  if(document.activeElement!==$('tgbot'))$('tgbot').value=t.bot||'';if(document.activeElement!==$('tgcmd'))$('tgcmd').value=t.cmd||'{KOD}';if(document.activeElement!==$('tgakd'))$('tgakd').value=t.akdCmd??'/akd {KOD}';if(document.activeElement!==$('tgtr'))$('tgtr').value=t.tradeCmd??'/islem {KOD}';
   if(!$('tgid').value&&t.apiId)$('tgid').value=t.apiId;$('tghash').placeholder=t.hasHash?'api_hash (kayıtlı)':'api_hash';
 }
 function sbUi(){
@@ -470,9 +471,9 @@ $('dauto').onchange=async e=>{C=await api.depthSet({auto:+e.target.value})};
 $('dov').onchange=async e=>{C=await api.depthSet({overlay:e.target.checked})};
 $('tghow').onclick=()=>{const t=$('tghowtxt');t.style.display=t.style.display==='none'?'block':'none';fit()};
 $('tgconn').onclick=async()=>{
-  if(C.tg&&C.tg.connected){C.tg=await api.tgSet({bot:$('tgbot').value,cmd:$('tgcmd').value,akdCmd:$('tgakd').value});depthUi();return toast('Kaydedildi')}
+  if(C.tg&&C.tg.connected){C.tg=await api.tgSet({bot:$('tgbot').value,cmd:$('tgcmd').value,akdCmd:$('tgakd').value,tradeCmd:$('tgtr').value});depthUi();return toast('Kaydedildi')}
   $('tgconn').disabled=true;$('tgconn').textContent='Bağlanıyor…';
-  const r=await api.tgConnect({apiId:$('tgid').value.trim(),apiHash:$('tghash').value.trim(),phone:$('tgphone').value.trim(),bot:$('tgbot').value,cmd:$('tgcmd').value,akdCmd:$('tgakd').value});
+  const r=await api.tgConnect({apiId:$('tgid').value.trim(),apiHash:$('tghash').value.trim(),phone:$('tgphone').value.trim(),bot:$('tgbot').value,cmd:$('tgcmd').value,akdCmd:$('tgakd').value,tradeCmd:$('tgtr').value});
   $('tgconn').disabled=false;$('tghash').value='';
   if(r.ok){C.tg=r.tg;toast('Telegram bağlandı')}else toast(r.msg);depthUi()};
 $('tgout').onclick=async()=>{C.tg=await api.tgLogout();depthUi()};

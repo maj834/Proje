@@ -135,3 +135,29 @@ test('readAkd: gercek BOPT AKD resmi (EKIM)', { timeout: 120000 }, async (t) => 
     assert.equal(DI.segment(im), null, 'AKD resmi derinlik tablosu sanilmaz');
   } finally { await DI.close(); }
 });
+
+test('parseTradeNums: saat, fiyat, adet, hacim; yapisik ve eksik okuma', () => {
+  assert.deepEqual(DI.parseTradeNums('18:09:49 16.15 500 8.075', 16.15), { time: '18:09:49', price: 16.15, qty: 500, vol: 8075 });
+  assert.deepEqual(DI.parseTradeNums('18:08:59 16.1516.147 260.774', 16.15), { time: '18:08:59', price: 16.15, qty: 16147, vol: 260774 });
+  assert.equal(DI.parseTradeNums('18:08:59 16.15 16.141 260.774', 16.15).qty, 16147, 'adet hacim/fiyattan duzeltilir');
+  assert.equal(DI.parseTradeNums('Saat Fiyat Adet Hacim', 16.15), null);
+  assert.equal(DI.parseTradeNums('18:08:59 99.15 10 991', 16.15), null, 'fiyat cok uzak');
+});
+
+test('readTrades: gercek BOPT islem resmi (EKIM)', { timeout: 120000 }, async (t) => {
+  try { require.resolve('tesseract.js'); } catch (e) { t.skip('tesseract.js kurulu degil'); return; }
+  const im = decodePng(fs.readFileSync(path.join(__dirname, 'fixtures', 'bopt-islem.png')));
+  try {
+    const r = await DI.readTrades(im, { ref: 16.15 });
+    const T = r.trades;
+    assert.equal(T.length, 21);
+    assert.deepEqual(T.map(x => x.qty), [500, 300, 5273, 1046, 2530, 5, 1146, 6954, 500, 200, 199, 16147, 30, 20, 40, 40, 13, 40, 6128, 15, 50]);
+    assert.ok(T.every(x => x.price === 16.15));
+    assert.deepEqual(T.map(x => x.side), [...Array(2).fill('buy'), 'sell', 'sell', ...Array(12).fill('buy'), ...Array(5).fill(null)]);
+    assert.deepEqual(T.slice(0, 5).map(x => [x.time, x.buyer.toLowerCase(), x.seller.toLowerCase()]), [['18:09:49', 'marbas', 'is yatirim'], ['18:09:41', 'marbas', 'is yatirim'], ['18:09:39', 'ak yatirim', 'is yatirim'], ['18:09:37', 'ak yatirim', 'vakif'], ['18:09:31', 'ak yatirim', 'qnb invest']]);
+    assert.equal(T[20].seller.toLowerCase(), 'phillipcapital');
+    const d = { bids: [{ price: 16.15, qty: 1000 }], asks: [{ price: 16.16, qty: 1000 }], trades: T, buyers: [], sellers: [] };
+    assert.ok(D.pressure(d), 'islemler baskiya katilir');
+    assert.equal(await DI.readTrades(img, { ref: 12.13 }), null, 'derinlik resmi islem sanilmaz');
+  } finally { await DI.close(); }
+});

@@ -364,14 +364,18 @@ const SAFE={minSec:20,hourCap:100,dayCap:700};
 const sent=[];let floodUntil=0;
 // Seans: hafta sonu, resmi tatil ve arife (yarim gun) calendar.js'te.
 const marketOpen=()=>calendar.isOpen(new Date());
-// AKD (kurum dagilimi) yavas degisir: hisse basina en fazla 2 dakikada bir, derinlik isteginden birkac sn sonra sorulur.
-const AKD_EVERY=120,akdCache={};
+// Ek bot sorgulari: AKD (kurum dagilimi) ve gerceklesen islemler. Derinlik isteginden birkac sn sonra,
+// hisse basina AKD en fazla 2 dk'da, islemler 1 dk'da bir sorulur; ayni guvenli sinirlar sayilir.
+const EXTRA={
+  akd:{key:'akdCmd',def:'/akd {KOD}',every:120,has:r=>(r.buyers||[]).length+(r.sellers||[]).length>0,img:(im,ref)=>require('./depthimg').readAkd(im,{ref}),pick:r=>({buyers:r.buyers,sellers:r.sellers})},
+  trades:{key:'tradeCmd',def:'/islem {KOD}',every:60,has:r=>(r.trades||[]).length>0,img:(im,ref)=>require('./depthimg').readTrades(im,{ref}),pick:r=>({trades:r.trades})}};
+const extraCache={akd:{},trades:{}};
 async function photoData(messages,fn){const m=messages.find(x=>x.photo);if(!m)return null;
   try{const im=nativeImage.createFromDataURL(m.photo),sz=im.getSize();return await fn({width:sz.width,height:sz.height,data:im.toBitmap(),bgra:true})}catch(e){console.error('ocr',e);return null}}
-async function fetchAkd(symbol,ref,auto){
-  const cmd=tgCfg().akdCmd??'/akd {KOD}',c=akdCache[symbol];
+async function fetchExtra(kind,symbol,ref,auto){
+  const X=EXTRA[kind],cmd=tgCfg()[X.key]??X.def,c=extraCache[kind][symbol];
   if(!cmd||!cmd.includes('{KOD}'))return null;
-  if(c&&Date.now()-c.at<AKD_EVERY*1000)return c;
+  if(c&&Date.now()-c.at<X.every*1000)return c;
   const now=Date.now();
   if(now<floodUntil||sent.length>=SAFE.dayCap||(auto&&sent.filter(t=>now-t<3600000).length>=SAFE.hourCap))return c||null;
   await new Promise(r=>setTimeout(r,2500+Math.random()*2500));
@@ -379,9 +383,9 @@ async function fetchAkd(symbol,ref,auto){
   let msgs;try{msgs=await tg.query(tgCfg().bot,cmd.replace(/\{KOD\}/g,symbol))}
   catch(err){const w=tg.floodSeconds(err);if(w)floodUntil=Date.now()+(w+15)*1000;return c||null}
   let r=depthLib.parseText(msgs.map(m=>m.text).join('\n'),{symbol});
-  if(!r.buyers.length&&!r.sellers.length)r=await photoData(msgs,img=>require('./depthimg').readAkd(img,{ref}))||r;
-  if(!(r.buyers||[]).length&&!(r.sellers||[]).length)return c||null;
-  return akdCache[symbol]={at:Date.now(),buyers:r.buyers,sellers:r.sellers};
+  if(!X.has(r))r=await photoData(msgs,im=>X.img(im,ref))||r;
+  if(!X.has(r))return c||null;
+  return extraCache[kind][symbol]={at:Date.now(),...X.pick(r)};
 }
 function canSend(auto){
   const now=Date.now();while(sent.length&&now-sent[0]>86400000)sent.shift();
@@ -404,13 +408,13 @@ async function tgConnect(p){
   const apiId=String(p.apiId||c.apiId||'').trim(),apiHash=String(p.apiHash||dec(c.apiHash)||'').trim();
   if(!/^\d+$/.test(apiId)||!/^[0-9a-f]{32}$/i.test(apiHash))throw new Error('api_id sayı, api_hash 32 karakterlik bir kod olmalı (my.telegram.org).');
   const bot=String(p.bot||c.bot||'').trim().replace(/^@?/,'@');
-  save({tg:{...c,apiId,apiHash:enc(apiHash),bot:bot.length>1?bot:c.bot,cmd:p.cmd||c.cmd||'{KOD}',akdCmd:p.akdCmd!=null?String(p.akdCmd).slice(0,60):c.akdCmd}});
+  save({tg:{...c,apiId,apiHash:enc(apiHash),bot:bot.length>1?bot:c.bot,cmd:p.cmd||c.cmd||'{KOD}',akdCmd:p.akdCmd!=null?String(p.akdCmd).slice(0,60):c.akdCmd,tradeCmd:p.tradeCmd!=null?String(p.tradeCmd).slice(0,60):c.tradeCmd}});
   tgUser=await tg.connect({apiId,apiHash,session:dec(tgCfg().session),
     ask:(step,hint)=>step==='phone'&&p.phone?Promise.resolve(String(p.phone)):tgAsk(step,hint),
     onSession:ss=>save({tg:{...tgCfg(),session:enc(ss)}})});
   return tgState();
 }
-const tgState=()=>({connected:!!tgUser,user:tgUser,bot:tgCfg().bot||null,cmd:tgCfg().cmd||'{KOD}',akdCmd:tgCfg().akdCmd??'/akd {KOD}',apiId:tgCfg().apiId||'',hasHash:!!tgCfg().apiHash});
+const tgState=()=>({connected:!!tgUser,user:tgUser,bot:tgCfg().bot||null,cmd:tgCfg().cmd||'{KOD}',akdCmd:tgCfg().akdCmd??'/akd {KOD}',tradeCmd:tgCfg().tradeCmd??'/islem {KOD}',apiId:tgCfg().apiId||'',hasHash:!!tgCfg().apiHash});
 
 // Grafikteki sembol: son Claude analizinden, yoksa son derinlikten.
 const currentSymbol=()=>cfg().symbol||(lastAi&&lastAi.symbol)||(lastDepth&&lastDepth.symbol)||cfg().depthSymbol||'';
@@ -440,8 +444,10 @@ async function fetchDepth(opts={}){
         if(r&&depthLib.hasData(r))d=r;
         if(!depthLib.hasData(d)&&visionAI()){const r=await readDepthImage(photo.photo.split(',')[1]);if(r.found)d={...r,symbol:r.symbol||symbol}}
         if(!depthLib.hasData(d))throw new Error('Botun gönderdiği tablo resmi okunamadı.'+(visionAI()?'':' Yedek olarak Grok anahtarı ekleyebilirsin.'))}
-      // Kurum dagilimi derinlik mesajinda yoksa AKD komutuyla ayrica sor (onbellekli)
-      if(!d.buyers.length&&!d.sellers.length){const a=await fetchAkd(symbol,d.last||(d.bids[0]&&d.bids[0].price),!!opts.auto);if(a){d.buyers=a.buyers;d.sellers=a.sellers;d.akdAt=a.at}}
+      // Kurum dagilimi ve islemler derinlik mesajinda yoksa ayri komutlarla sor (onbellekli)
+      const ref=d.last||(d.bids[0]&&d.bids[0].price)||null;
+      if(!d.buyers.length&&!d.sellers.length){const a=await fetchExtra('akd',symbol,ref,!!opts.auto);if(a){d.buyers=a.buyers;d.sellers=a.sellers;d.akdAt=a.at}}
+      if(!d.trades.length){const a=await fetchExtra('trades',symbol,ref,!!opts.auto);if(a){d.trades=a.trades;d.tradesAt=a.at}}
     }else{
       if(!visionAI())throw new Error('Ekrandan derinlik okumak için Grok ya da Claude API anahtarı gerekli.');
       const disp=activeDisplay(),shot=await capture(disp);
@@ -652,7 +658,7 @@ app.whenReady().then(()=>{
   ipcMain.handle('tgConnect',async(e,p)=>{try{return {ok:true,tg:await tgConnect(p||{})}}catch(err){return {ok:false,msg:ai.errorText(err)}}});
   ipcMain.handle('tgAnswer',(e,v)=>{if(tgAskResolve){const r=tgAskResolve;tgAskResolve=null;v==null?r.rej(new Error('Giriş iptal edildi.')):r.res(String(v))}});
   ipcMain.handle('tgLogout',async()=>{await tg.logout();tgUser=null;save({tg:{...tgCfg(),session:undefined}});return tgState()});
-  ipcMain.handle('tgSet',(e,o)=>{const c=tgCfg();save({tg:{...c,bot:o.bot!=null?String(o.bot).trim().replace(/^@?/,'@'):c.bot,cmd:o.cmd!=null?String(o.cmd).slice(0,60):c.cmd,akdCmd:o.akdCmd!=null?String(o.akdCmd).slice(0,60):c.akdCmd}});return tgState()});
+  ipcMain.handle('tgSet',(e,o)=>{const c=tgCfg();save({tg:{...c,bot:o.bot!=null?String(o.bot).trim().replace(/^@?/,'@'):c.bot,cmd:o.cmd!=null?String(o.cmd).slice(0,60):c.cmd,akdCmd:o.akdCmd!=null?String(o.akdCmd).slice(0,60):c.akdCmd,tradeCmd:o.tradeCmd!=null?String(o.tradeCmd).slice(0,60):c.tradeCmd}});return tgState()});
   ipcMain.handle('depth',(e,o)=>fetchDepth(o||{}));
   ipcMain.handle('depthSet',(e,o)=>{
     if(o.source==='telegram'||o.source==='ekran')save({depthSource:o.source});
