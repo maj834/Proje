@@ -28,7 +28,7 @@ jobs:
       # Ses yardimcisi (Swift, arm64 + x64 tek dosya); calistigini dogrula
       - run: npm run ses
       - run: ./build/bin/ses-yardimcisi --version && lipo -info build/bin/ses-yardimcisi
-      - run: echo '{"cmd":"list"}' | timeout 5 ./build/bin/ses-yardimcisi | head -5 || true
+      - run: '{ echo ''{"cmd":"list"}''; sleep 3; } | ./build/bin/ses-yardimcisi | head -5 || true'
       # Secret tanimli degilse bos gelir -> imzasiz derleme. Tanimlanirsa electron-builder imzalar ve notarize eder.
       - name: electron-builder
         env:
@@ -41,5 +41,6 @@ jobs:
           for v in CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do [ -n "${!v}" ] || unset "$v"; done
           if [ -z "${CSC_LINK:-}" ]; then export CSC_IDENTITY_AUTO_DISCOVERY=false; fi
           npx electron-builder --mac --publish never
+      - run: ls -la dist/mac-arm64/*.app/Contents/Resources/bin/ && plutil -p dist/mac-arm64/*.app/Contents/Info.plist | grep -E 'NSAudioCapture|LSUIElement' || true
       - uses: actions/upload-artifact@v4
         with: {name: GrafikOkuyucu-dmg, path: dist/*.dmg}
