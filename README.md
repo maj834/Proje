@@ -59,7 +59,7 @@ Fiyat ekseni okunmadan, mumların ekrandaki konumundan hesaplanır; EMA, Bolling
 Kullandığın Telegram derinlik botunu uygulamaya bağlayabilirsin:
 
 1. [my.telegram.org](https://my.telegram.org) › **API development tools** bölümünden `api_id` ve `api_hash` al.
-2. Ayarlar › **Telegram derinlik botu** kartına bunları, botun kullanıcı adını ve komutu yaz (`{KOD}` hisse koduyla değişir; BOPT için bot `@b0pt_bot`, komut yalnızca `{KOD}`), **Bağlan**'a bas. Telegram'a gelen kodu gir.
+2. Ayarlar › **Telegram derinlik botu** kartına bunları, botun kullanıcı adını ve komutu yaz (`{KOD}` hisse koduyla değişir; BOPT için bot `@b0pt_bot`, komut `/derinlik {KOD}`), **Bağlan**'a bas. Telegram'a gelen kodu gir.
 3. **Derinlik** sekmesinde hisse kodunu yazıp **Getir**'e bas ya da otomatik yenilemeyi aç.
 
 Uygulama bota senin hesabınla mesaj atar, cevabı ayrıştırır ve:
