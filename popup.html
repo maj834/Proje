@@ -594,8 +594,8 @@ function renderBotNews(){
     const sym=id==='bnews'?(shown&&shown.symbol||$('msym').value):($('dsym').value||'');
     if(!BN||!BN.list.length||!sym||BN.symbol!==String(sym).toLocaleUpperCase('tr-TR').replace(/\.IS$/,'').replace(/[ŞÇĞÖÜİ]/g,c=>({Ş:'S',Ç:'C',Ğ:'G',Ö:'O',Ü:'U',İ:'I'})[c]))continue;
     box.append(el('div',{class:'c news'},el('div',{class:'t'},BN.symbol+' · bot haberleri'),
-      ...BN.list.slice(0,5).map(n=>{const up=n.score>0,dn=n.score<0;
-        const x=el('a',{href:'#'},el('span',{class:'sc '+(up?'pos':dn?'neg':'')},(n.kind==='petrol'?'Petrol ':'')+(up?'+':'')+(n.score??0)),n.summary||n.title,
+      ...BN.list.slice(0,8).map(n=>{const up=n.score>0,dn=n.score<0;
+        const x=el('a',{href:'#'},el('span',{class:'sc '+(up?'pos':dn?'neg':'')},(n.general?'Piyasa ':n.kind==='petrol'?'Petrol ':'')+(up?'+':'')+(n.score??0)),n.summary||n.title,
           n.effect?el('span',{class:'ef'},n.effect):null,
           el('small',{},[n.topic,n.source,dt(new Date(n.ts).getTime()),n.importance?'önem '+n.importance+'/5':null].filter(Boolean).join(' · ')));
         x.onclick=e=>{e.preventDefault();if(n.url)api.openExternal(n.url)};return x})))}

@@ -445,7 +445,12 @@ async function botNews(symbol){
   if(!watchAt[sym]||Date.now()-watchAt[sym]>3600000){watchAt[sym]=Date.now();sync.upsert('watchlist',[{symbol:sym,last_seen:new Date().toISOString()}],'user_id,symbol').catch(()=>{})}
   const c=newsCache[sym];if(c&&Date.now()-c.at<600000)return c.list;
   try{const since=new Date(Date.now()-3*86400000).toISOString();
-    const list=await sync.get('/rest/v1/news?select=ts,kind,symbols,title,summary,reason,effect,topic,source,url,score,importance&symbols=cs.%7B'+sym+'%7D&ts=gte.'+encodeURIComponent(since)+'&order=importance.desc.nullslast,ts.desc&limit=8')||[];
+    const sel='/rest/v1/news?select=ts,kind,symbols,title,summary,reason,effect,topic,source,url,score,importance&order=importance.desc.nullslast,ts.desc';
+    const own=await sync.get(sel+'&symbols=cs.%7B'+sym+'%7D&ts=gte.'+encodeURIComponent(since)+'&limit=6')||[];
+    // Genel BIST gundemi: son 24 saatin onemi 4-5 olanlari (hisseye ozel haber yoksa da piyasa resmi gorunsun)
+    const day=new Date(Date.now()-86400000).toISOString();
+    const gen=sym==='XU100'?[]:(await sync.get(sel+'&symbols=cs.%7BXU100%7D&importance=gte.4&kind=neq.rapor&ts=gte.'+encodeURIComponent(day)+'&limit=4')||[]);
+    const list=[...own,...gen.filter(g=>!own.some(o=>o.title===g.title)).map(g=>({...g,general:true}))];
     newsCache[sym]={at:Date.now(),list};return list}
   catch(e){return c?c.list:null}
 }

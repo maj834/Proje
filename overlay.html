@@ -316,7 +316,7 @@ function drawDepth(d){
   if(b0||s0){const r=e('div','row');r.append(e('span','up',b0?'▲ '+b0.name.slice(0,14)+' '+kfmt(b0.net):''),e('span','dn',s0?'▼ '+s0.name.slice(0,14)+' '+kfmt(s0.net):''));parts.push(r)}
   if((d.trades||[]).length){const t=d.trades.slice(0,3).map(x=>fmt(x.price)+' × '+kfmt(x.qty)+(x.buyer?' '+x.buyer+'→'+(x.seller||''):'')).join('\n');const tt=e('div','tt');tt.style.whiteSpace='pre';tt.textContent=t;parts.push(tt)}
   // Haber botundan bu hisse icin son 24 saatin en onemli haberi
-  const nw=BNO&&BNO.symbol===String(d.symbol||'').replace(/\W/g,'')?BNO.list.find(n=>(n.importance||Math.abs(n.score||0))>=3&&Date.now()-new Date(n.ts).getTime()<86400000):null;
+  const nw=BNO&&BNO.symbol===String(d.symbol||'').replace(/\W/g,'')?BNO.list.find(n=>!n.general&&(n.importance||Math.abs(n.score||0))>=3&&Date.now()-new Date(n.ts).getTime()<86400000):null;
   if(nw)parts.push(e('div','tt '+(nw.score>0?'up':nw.score<0?'dn':''),'Haber: '+(nw.summary||nw.title).slice(0,90)));
   card.replaceChildren(...parts);card.style.display='block';
 }
