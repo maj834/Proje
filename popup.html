@@ -106,7 +106,8 @@ input[type=color]::-webkit-color-swatch-wrapper{padding:2px}input[type=color]::-
 .dg{padding:6px 0;border-top:1px solid var(--line)}.dg:first-child{border-top:0}.dg .st{font:500 10.5px var(--mono);letter-spacing:.04em;text-transform:uppercase}
 .scr{display:flex;align-items:center;gap:var(--s2);padding:4px 0;font-size:12px;color:var(--fg-2)}.scr kbd{min-width:44px;text-align:center}
 textarea.inp{height:110px;padding:6px var(--s2);resize:vertical;font:400 11.5px/1.45 var(--mono);-webkit-user-select:text;user-select:text}
-.news a:hover{color:var(--acc);text-decoration:none}.news small{display:block;font:400 10.5px var(--mono);color:var(--fg-3);margin-top:2px}
+.news a:hover{color:var(--acc);text-decoration:none}.news .ef{display:block;font-size:11px;color:var(--fg-2);margin-top:2px}.news .sc{font:600 10.5px var(--mono);margin-right:6px}
+#bnews .c,#dbnews .c{margin-bottom:10px}.news small{display:block;font:400 10.5px var(--mono);color:var(--fg-3);margin-top:2px}
 </style></head><body><div class="win" id="win">
 <div class="h">
   <div class="logo"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12.5 6 8l3 2.5L14 4"/><path d="M10.5 4H14v3.5"/></svg></div>
@@ -131,7 +132,7 @@ textarea.inp{height:110px;padding:6px var(--s2);resize:vertical;font:400 11.5px/
       <button class="ib" id="hideb" title="Analiz çizgilerini gizle"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l18 18M10.6 6.1A9.7 9.7 0 0112 6c5 0 9 6 9 6a16 16 0 01-2.6 3.2M6.1 7.6C4 9.2 3 12 3 12s4 6 9 6a8.6 8.6 0 004.3-1.2"/></svg></button>
     </div>
     <div class="alert" id="err"><div id="errm"></div><button class="btn" id="errb" style="display:none"></button></div>
-    <div id="out"><div class="empty"><div class="ic"><svg class="ico" viewBox="0 0 24 24"><path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/></svg></div>Grafiğini ekranda aç ve <b id="sca">⌘⇧A</b> kısayoluna bas.<br>Destek, direnç ve trend çizgileri ekranına çizilir.</div></div>
+    <div id="bnews"></div><div id="out"><div class="empty"><div class="ic"><svg class="ico" viewBox="0 0 24 24"><path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/></svg></div>Grafiğini ekranda aç ve <b id="sca">⌘⇧A</b> kısayoluna bas.<br>Destek, direnç ve trend çizgileri ekranına çizilir.</div></div>
   </section>
   <section class="pane" id="dp">
     <div class="row"><input class="inp f1" id="dsym" placeholder="Hisse kodu (ör. PRZMA)" spellcheck="false" style="text-transform:uppercase"><button class="btn pri" id="dgo">Getir</button></div>
@@ -144,7 +145,7 @@ textarea.inp{height:110px;padding:6px var(--s2);resize:vertical;font:400 11.5px/
     <div class="m" id="dsafe" style="margin-top:2px"></div><div class="warn" id="dcal" style="display:none"></div>
     <label class="tg"><span class="f1 m">Grafikte duvar etiketleri ve baskı kartı</span><span class="sw"><input type="checkbox" id="dov"><span></span></span></label>
     <div class="alert" id="derr"></div>
-    <div id="dout"><div class="empty"><div class="ic"><svg class="ico" viewBox="0 0 24 24"><path d="M5 20V10M12 20V4M19 20v-7"/></svg></div>Hisse kodunu yazıp <b>Getir</b>'e bas.<br>Telegram botundan derinlik, aracı kurum ve işlemler gelir.</div></div>
+    <div id="dbnews"></div><div id="dout"><div class="empty"><div class="ic"><svg class="ico" viewBox="0 0 24 24"><path d="M5 20V10M12 20V4M19 20v-7"/></svg></div>Hisse kodunu yazıp <b>Getir</b>'e bas.<br>Telegram botundan derinlik, aracı kurum ve işlemler gelir.</div></div>
     <div class="c" id="ptest"><div class="row" id="ptog" style="cursor:pointer"><div class="t f1" style="margin:0">Bot mesajı test et</div><span class="m" id="ptogl">Aç</span></div>
       <div id="pbody" style="display:none;margin-top:8px">
         <textarea class="inp" id="ptxt" placeholder="Botun mesajını buraya yapıştır" spellcheck="false"></textarea>
@@ -586,6 +587,20 @@ api.on('err',e=>{idle();$('sub').textContent='Hata';$('errm').textContent=e.msg;
   if(e.perm){b.textContent='Ekran Kaydı Ayarlarını Aç';b.onclick=()=>api.openPerm()}
   if(e.settings){b.textContent='Ayarlara Git';b.onclick=()=>tab('st')}
   $('err').style.display='block';tab('an')});
+// Haber botunun hisse haberleri (Supabase): analiz ve derinlik sekmelerinde hissenin ustunde
+let BN=null;
+function renderBotNews(){
+  for(const id of ['bnews','dbnews']){const box=$(id);box.replaceChildren();
+    const sym=id==='bnews'?(shown&&shown.symbol||$('msym').value):($('dsym').value||'');
+    if(!BN||!BN.list.length||!sym||BN.symbol!==String(sym).toLocaleUpperCase('tr-TR').replace(/\.IS$/,'').replace(/[ŞÇĞÖÜİ]/g,c=>({Ş:'S',Ç:'C',Ğ:'G',Ö:'O',Ü:'U',İ:'I'})[c]))continue;
+    box.append(el('div',{class:'c news'},el('div',{class:'t'},BN.symbol+' · bot haberleri'),
+      ...BN.list.slice(0,5).map(n=>{const up=n.score>0,dn=n.score<0;
+        const x=el('a',{href:'#'},el('span',{class:'sc '+(up?'pos':dn?'neg':'')},(n.kind==='petrol'?'Petrol ':'')+(up?'+':'')+(n.score??0)),n.summary||n.title,
+          n.effect?el('span',{class:'ef'},n.effect):null,
+          el('small',{},[n.topic,n.source,dt(new Date(n.ts).getTime()),n.importance?'önem '+n.importance+'/5':null].filter(Boolean).join(' · ')));
+        x.onclick=e=>{e.preventDefault();if(n.url)api.openExternal(n.url)};return x})))}
+}
+api.on('botNews',d=>{BN=d;renderBotNews()});
 api.on('result',a=>{idle();$('err').style.display='none';
   $('sub').textContent=(a.silent?'Canlı · ':'Son analiz ')+hm(a.at);
   if(a.usage)C.usage=a.usage;

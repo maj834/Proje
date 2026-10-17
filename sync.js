@@ -90,6 +90,12 @@ async function flush(){
   return state();
 }
 
+// Okuma ve upsert (haber botu tablolari): kuyruk yok, cevap hemen doner. Oturum yoksa null.
+async function call(pathname,opt){if(!ready())return null;let token=await ensure();
+  try{return await api(pathname,{...opt,token})}catch(e){if(e.status!==401)throw e;cfg.exp=0;token=await ensure();return api(pathname,{...opt,token})}}
+const get=pathname=>call(pathname,{});
+const upsert=(table,rows,onConflict)=>call('/rest/v1/'+table+'?on_conflict='+encodeURIComponent(onConflict),{method:'POST',body:rows,params:{prefer:'resolution=merge-duplicates,return=minimal'}});
+
 const tokens=()=>({refresh:cfg.refresh,user:cfg.user});
 const state=()=>({configured:ready(),user:cfg.user,url:cfg.url,pending:queue.length,sent,error:lastErr,dropped,lastDrop});
-module.exports={init,tokens,signIn,signOut,restore,enqueue,flush,state,validUrl,isServiceRole,TABLES};
+module.exports={init,tokens,signIn,signOut,restore,enqueue,flush,state,get,upsert,validUrl,isServiceRole,TABLES};

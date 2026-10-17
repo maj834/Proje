@@ -66,6 +66,43 @@ begin
   end loop;
 end $$;
 
+-- Haber botu (maj834/haber): botun puanladığı hisse/petrol haberleri ve uygulamada bakılan hisseler.
+-- Bot aynı hesapla giriş yapar (GitHub Secrets: SUPABASE_EMAIL / SUPABASE_PASSWORD), yalnızca kendi satırlarını görür.
+create table if not exists public.news (
+  id bigint generated always as identity primary key,
+  user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  uid text not null,                                     -- haber kimliği (tekrar yazılmaz)
+  ts timestamptz not null default now(),                 -- yayın zamanı
+  created_at timestamptz not null default now(),
+  kind text not null default 'hisse',                    -- hisse | petrol
+  symbols text[] not null default '{}',                  -- ilgili BIST kodları
+  title text not null,
+  summary text, reason text, effect text, topic text, source text, url text,
+  score smallint,                                        -- -5..+5 (hisse için yön; petrol haberinde petrol yönü)
+  importance smallint,                                   -- 1..5
+  unique (user_id, uid)
+);
+create index if not exists news_symbols_gin on public.news using gin (symbols);
+create index if not exists news_user_ts on public.news (user_id, ts desc);
+
+create table if not exists public.watchlist (
+  user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  symbol text not null check (symbol ~ '^[A-Z0-9]{2,8}$'),
+  name text,
+  last_seen timestamptz not null default now(),
+  primary key (user_id, symbol)
+);
+
+alter table public.news enable row level security;
+alter table public.watchlist enable row level security;
+drop policy if exists "own rows" on public.news;
+drop policy if exists "own rows" on public.watchlist;
+create policy "own rows" on public.news for all to authenticated using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
+create policy "own rows" on public.watchlist for all to authenticated using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
+revoke all on public.news, public.watchlist from anon;
+grant select, insert, delete on public.news to authenticated;
+grant select, insert, update, delete on public.watchlist to authenticated;
+
 -- Örnek sorgular
 -- Hisse başına son 20 sinyal:
 --   select ts, symbol, case dir when 1 then 'AL' else 'SAT' end as yon, strength, why from signals order by ts desc limit 20;

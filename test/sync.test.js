@@ -38,6 +38,12 @@ function startServer() {
         (s.inserts[m[1]] = s.inserts[m[1]] || []).push(body);
         res.writeHead(201); return res.end();
       }
+      if (m && req.method === 'GET') {
+        const tok = (req.headers.authorization || '').replace(/^Bearer /, '');
+        if (s.fail401Once) { s.fail401Once = false; s.valid.delete(tok); }
+        if (!s.valid.has(tok)) return send(res, 401, { message: 'JWT expired' });
+        return send(res, 200, (s.rows && s.rows[m[1]]) || []);
+      }
       send(res, 404, { message: 'not found' });
     });
   });
@@ -222,4 +228,24 @@ test('signOut: kuyruk temizlenir, onToken(null), sonraki enqueue yok sayilir', a
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, 'sb-queue.json'), 'utf8')), []);
   S.enqueue('signals', { symbol: 'B' });
   assert.equal(S.state().pending, 0);
+});
+
+test('get ve upsert: haber okuma, takip listesi, 401 sonrasi yenileme', async (t) => {
+  const { S, srv } = await setup(t);
+  srv.rows = { news: [{ title: 'THYAO yeni ucak siparisi', score: 3 }] };
+  srv.fail401Once = true;
+  assert.deepEqual(await S.get('/rest/v1/news?select=title,score&symbols=cs.%7BTHYAO%7D'), [{ title: 'THYAO yeni ucak siparisi', score: 3 }]);
+  const g = srv.requests.filter(r => r.method === 'GET');
+  assert.equal(g.length, 2, '401 sonrasi bir kez tekrar');
+  assert.match(g[1].query, /symbols=cs\.%7BTHYAO%7D/);
+  await S.upsert('watchlist', [{ symbol: 'THYAO' }], 'user_id,symbol');
+  const p = srv.requests.filter(r => r.path === '/rest/v1/watchlist').pop();
+  assert.equal(p.method, 'POST'); assert.match(p.query, /on_conflict=user_id%2Csymbol/);
+  assert.equal(p.headers.prefer, 'resolution=merge-duplicates,return=minimal');
+  assert.deepEqual(srv.inserts.watchlist, [[{ symbol: 'THYAO' }]]);
+});
+
+test('get: oturum yoksa null', async (t) => {
+  const { S } = await setup(t, { signIn: false });
+  assert.equal(await S.get('/rest/v1/news'), null);
 });

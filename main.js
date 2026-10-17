@@ -295,6 +295,7 @@ async function analyze(opts={}){
       drawOverlay(a,d,!opts.silent);checkAlerts(prev,a);
     }else if(!opts.silent)clearAnalysis();
     send('result',{...entry,silent:!!opts.silent,usage:state().usage});
+    if(!opts.silent&&(a.symbol||mkt().symbol))pushNews(a.symbol||mkt().symbol);
   }catch(e){send('err',{msg:ai.errorText(e)})}
   finally{busy=false}
 }
@@ -435,6 +436,20 @@ async function tgConnect(p){
 const tgState=()=>({connected:!!tgUser,user:tgUser,bot:tgCfg().bot||null,cmd:tgCfg().cmd||'{KOD}',akdCmd:tgCfg().akdCmd??'/akd {KOD}',tradeCmd:tgCfg().tradeCmd??'/islem {KOD}',apiId:tgCfg().apiId||'',hasHash:!!tgCfg().apiHash});
 
 // Grafikteki sembol: son Claude analizinden, yoksa son derinlikten.
+// Haber botunun Supabase'e yazdigi hisse haberleri. Uygulamada bakilan hisse "watchlist"e yazilir (saatte en fazla bir kez);
+// bot bu listedeki hisselerin haberlerini cekip puanlar. Okuma 10 dk onbellekli, son 3 gun, onem sirasina gore.
+const newsCache={},watchAt={};
+const bistCode=s=>String(s||'').toLocaleUpperCase('tr-TR').replace(/\.IS$/,'').replace(/[ŞÇĞÖÜİ]/g,c=>({Ş:'S',Ç:'C',Ğ:'G',Ö:'O',Ü:'U',İ:'I'})[c]).replace(/[^A-Z0-9]/g,'');
+async function botNews(symbol){
+  const sym=bistCode(symbol);if(!sym||!/^[A-Z0-9]{2,8}$/.test(sym)||!sync.state().configured)return null;
+  if(!watchAt[sym]||Date.now()-watchAt[sym]>3600000){watchAt[sym]=Date.now();sync.upsert('watchlist',[{symbol:sym,last_seen:new Date().toISOString()}],'user_id,symbol').catch(()=>{})}
+  const c=newsCache[sym];if(c&&Date.now()-c.at<600000)return c.list;
+  try{const since=new Date(Date.now()-3*86400000).toISOString();
+    const list=await sync.get('/rest/v1/news?select=ts,kind,symbols,title,summary,reason,effect,topic,source,url,score,importance&symbols=cs.%7B'+sym+'%7D&ts=gte.'+encodeURIComponent(since)+'&order=importance.desc.nullslast,ts.desc&limit=8')||[];
+    newsCache[sym]={at:Date.now(),list};return list}
+  catch(e){return c?c.list:null}
+}
+function pushNews(symbol){botNews(symbol).then(list=>{if(!list)return;const sym=bistCode(symbol);send('botNews',{symbol:sym,list});sendOv('botNews',{symbol:sym,list})}).catch(()=>{})}
 const currentSymbol=()=>cfg().symbol||(lastAi&&lastAi.symbol)||(lastDepth&&lastDepth.symbol)||cfg().depthSymbol||'';
 
 async function fetchDepth(opts={}){
@@ -497,7 +512,7 @@ async function fetchDepth(opts={}){
     lastDepth.signal=liveSignal();lastDepth.live=liveView();
     recordDepth(lastDepth);recordSignal(lastDepth.signal,lastResult||{});
     send('depth',{...lastDepth,messages:messages.map(m=>({...m,photo:m.photo?m.photo.slice(0,200000):null})),usage:state().usage});
-    pushDepthOverlay();
+    pushDepthOverlay();if(!opts.auto||!newsCache[bistCode(symbol)]||Date.now()-newsCache[bistCode(symbol)].at>600000)pushNews(symbol);
   }catch(e){send('depthErr',{msg:ai.errorText(e)})}
   finally{depthBusy=false}
 }
