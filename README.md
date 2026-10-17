@@ -4,7 +4,7 @@ Ekrandaki fiyat grafiğini (TradingView, Matriks, broker ekranları, tarayıcı�
 
 ![Claude analizi ve çizimler](docs/ekran.png)
 
-Demo videosu: [docs/demo.mp4](docs/demo.mp4)
+Tanıtım videosu (seslendirmeli): [docs/demo.mp4](docs/demo.mp4)
 
 ## İki analiz motoru
 
@@ -27,12 +27,29 @@ Claude API aylık abonelik değil, **önceden ödemeli kredi** ile çalışır:
 
 Varsayılan model Haiku 5.5 ile $5 kabaca 4.000–5.000 analize yeter. Uygulama bu ayki harcamayı Ayarlar sekmesinde gösterir. claude.ai Pro aboneliği API kredisi içermez.
 
+## Analiz
+
+Her analizde (Hızlı ve Claude) şunlar hesaplanır:
+
+- **Destek / direnç** seviyeleri ve temas sayıları, **trend çizgileri**
+- **İndikatörler:** RSI (14), MACD (12, 26, 9), EMA 20/50, Bollinger (20, 2)
+- **Mum formasyonları:** yutan boğa/ayı, çekiç, kayan yıldız, sabah/akşam yıldızı, doji
+- **RSI uyumsuzluğu**, ikili tepe/dip, kırılım tespiti
+- **Otomatik Fibonacci** (son büyük salınım)
+- **Teknik görünüm skoru** (-100…+100) ve her faktörün katkısı
+- **Risk/ödül oranı** (en yakın direnç ve destek arası)
+
+Fiyat ekseni okunmadan, mumların ekrandaki konumundan hesaplanır; EMA, Bollinger, MACD ve RSI bu dönüşümden etkilenmez. Claude analizi fiyatları ekler ve skora kendi yorumunu katar.
+
 ## Özellikler
 
 - **⌘⇧A** analiz, **⌘⇧D** çizim modu, **⌘⇧L** canlı mod
 - Canlı mod: 2 sn – 1 dk aralıkla yeniden okur, ekran değişmediyse hiçbir şey yapmaz
 - Kırılım bildirimleri: son fiyat bir seviyeyi kırınca macOS bildirimi
-- Çizim araçları: trend, ışın, yatay çizgi, dikdörtgen, Fibonacci, ölçüm, not. Renk seçimi, geri alma, taşıma ve silme; çizimler ekran başına kaydedilir
+- **Alarm çizgisi** (çizim modunda A): fiyat çizgiyi geçince bildirim; canlı mod otomatik açılır
+- Grafikte EMA, Bollinger ve otomatik Fibonacci gösterimi (Ayarlar › Grafikte göster)
+- Analizi tek tıkla panoya kopyalama, oturum açılınca başlatma
+- Çizim araçları: trend, ışın, yatay çizgi, dikdörtgen, Fibonacci, ölçüm, alarm, not. Renk seçimi, geri alma, taşıma ve silme; çizimler ekran başına kaydedilir
 - Claude analizinden sonra Fibonacci, yatay çizgi ve ölçüm araçları fiyatla etiketlenir
 - Claude'a yalnızca grafik alanı gönderilir (daha az token, daha net okuma)
 - Fare imlecinin bulunduğu monitörü okur
