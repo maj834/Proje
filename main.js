@@ -10,16 +10,17 @@ const market=require('./market');
 const calendar=require('./calendar');
 const shareLib=require('./share');
 const APP_NAME='Grafik Okuyucu';
-let hubUi=null;
+let hubUi=null,lockUi=null;
 const modOn=id=>!hubUi||hubUi.enabled(id);
 const cleanerUi=require('./cleaner-main').registerCleaner({ipcMain,dialog,shell,app,BrowserWindow,path});
 const audioUi=require('./audio-main').registerAudio({ipcMain,app,BrowserWindow,path,cfg:()=>cfg(),save:o=>save(o),isOn:()=>modOn('ses')});
 // Merkez penceresi: ozellikleri ac/kapat. Kapatilan ozellik menude gorunmez ve arka planda calismaz.
 hubUi=require('./hub-main').registerHub({ipcMain,app,BrowserWindow,path,cfg:()=>cfg(),save:o=>save(o),name:APP_NAME,actions:{
-  open:id=>({borsa:()=>showPop(),ses:()=>audioUi.open(),paylas:()=>openShare(),temizlik:()=>cleanerUi.open()})[id]?.(),
+  open:id=>({borsa:()=>showPop(),ses:()=>audioUi.open(),paylas:()=>openShare(),temizlik:()=>cleanerUi.open(),kilit:()=>lockUi&&lockUi.open()})[id]?.(),
   toggle:(id,on)=>{
     if(id==='borsa'){if(on)registerShortcuts();else{globalShortcut.unregisterAll();if(cfg().live)setLive(false);setDepthAuto(0);clearAnalysis();pop.hide()}}
     if(id==='ses'&&!on)audioUi.stop();
+    if(id==='kilit'&&!on&&lockUi)lockUi.lock();
     if(id==='paylas'&&!on){if(shareSess){shareSess.stop('user');shareSess=null}if(shareWin)shareWin.close()}
     send('state',state());
   },
@@ -737,6 +738,8 @@ function state(){
 
 app.whenReady().then(()=>{
   migrateDrawings();mk();
+  // Dosya kilidi: ev ve veri klasorlerini okudugu icin uygulama hazir olunca kaydedilir
+  lockUi=require('./lock-main').registerLock({ipcMain,dialog,shell,app,BrowserWindow,path,systemPreferences,safeStorage});
   // Cozunurluk/olcek degisince imza degisir: katmanin durdugu ekranin cizimlerini yeni imzaya tasi.
   screen.on('display-metrics-changed',(e,d)=>{if(d.id!==ovDisplay||!ovKey||ovKey===dkey(d))return;const all=cfg().drawings||{},nk=dkey(d);
     if(all[ovKey]&&!(all[nk]||[]).length){const o={...all,[nk]:all[ovKey]};delete o[ovKey];save({drawings:o})}placeOverlay(d)});
@@ -754,6 +757,7 @@ app.whenReady().then(()=>{
     ...(modOn('ses')?[{label:'Ses…',click:()=>audioUi.open()}]:[]),
     ...(modOn('paylas')?[{label:'Telefonla Dosya Paylaş (QR)…',click:openShare}]:[]),
     ...(modOn('temizlik')?[{label:'Temizlik…',click:()=>cleanerUi.open()}]:[]),
+    ...(modOn('kilit')?[{label:'Dosya Kilidi…',click:()=>lockUi.open()}]:[]),
     {type:'separator'},{label:'Çıkış',role:'quit'}])));
   if(modOn('borsa'))registerShortcuts();
   // Dock simgesi: tiklaninca Merkez acilir. Oturum acilisinda baslatildiysa pencere gosterilmez.
