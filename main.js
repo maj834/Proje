@@ -5,6 +5,7 @@ const ai=require('./ai');
 const depthLib=require('./depth');
 const tg=require('./tg');
 const sync=require('./sync');
+const market=require('./market');
 
 const INTERVALS=[2,5,10,30,60];
 const HISTORY_MAX=30;
@@ -36,9 +37,11 @@ function setKey(k){
 }
 const model=()=>ai.MODELS.some(m=>m.id===cfg().model)?cfg().model:ai.MODELS[0].id;
 const interval=()=>INTERVALS.includes(cfg().interval)?cfg().interval:2;
-const engineName=()=>cfg().engine==='claude'&&getKey()?'claude':'yerel';
+const engineName=()=>cfg().engine==='piyasa'?'piyasa':cfg().engine==='claude'&&getKey()?'claude':'yerel';
+const mkt=()=>({symbol:cfg().symbol||'',tf:market.TF[cfg().tf]?cfg().tf:'1g',market:cfg().market==='US'?'US':'BIST'});
+const avKey=()=>dec(cfg().avKey)||null;
 // Canli mod, kullanici ayarlardan acikca izin vermedikce ucretsiz yerel motoru kullanir.
-const liveEngine=()=>cfg().liveAi&&getKey()?'claude':'yerel';
+const liveEngine=()=>cfg().liveAi&&getKey()?'claude':cfg().engine==='piyasa'&&cfg().symbol?'piyasa':'yerel';
 const month=()=>new Date().toISOString().slice(0,7);
 const IND_DEFAULT={ema:true,bb:false,fib:false};
 const ind=()=>({...IND_DEFAULT,...(cfg().ind||{}),signals:cfg().signals!==false});
@@ -169,6 +172,7 @@ function checkAlerts(prev,a){
 // Fiyat ekseni etiketleri (varsa) ve fiyatli seviyelerden y <-> fiyat dogrusal olcegi.
 function calibParams(a){
   if(!a)return null;
+  if(a.cal&&Number.isFinite(a.cal.k))return a.cal; // piyasa verisiyle eslestirilmis olcek
   const axis=(a.axis||[]).filter(t=>typeof t.price==='number'&&typeof t.y==='number');
   const pts=axis.length>=2?axis:[...(a.resistances||[]),...(a.supports||[])].filter(l=>typeof l.price==='number');
   if(pts.length<2)return null;
@@ -183,7 +187,7 @@ const fmtP=v=>v.toLocaleString('tr-TR',{maximumFractionDigits:Math.abs(v)<10?4:2
 // Alarm cizgileri: son fiyat cizgiyi gectiginde bir kez bildirim gonderir.
 function checkAlarms(d,py,y){
   const all=cfg().drawings||{},list=all[d.id]||[];let hit=false;
-  const cal=calibrate(lastResult&&lastResult.engine==='claude'?lastResult:null),sym=(lastAi&&lastAi.symbol)||'Grafik';
+  const cal=calibrate(lastResult),sym=(lastResult&&lastResult.symbol)||(lastAi&&lastAi.symbol)||'Grafik';
   for(const l of list){
     if(l.t!=='alarm'||l.fired)continue;const ly=l.a[1];
     if((py>ly&&y<=ly)||(py<ly&&y>=ly)){
@@ -239,6 +243,8 @@ async function analyze(opts={}){
       addCost(a.cost);
       a=merge(a,local);
       lastAi=a;
+    }else if(eng==='piyasa'){
+      a=await withMarket(local,opts);
     }
     lastSig=sig;
     const prev=lastResult;
@@ -250,12 +256,44 @@ async function analyze(opts={}){
     a.confidence=Math.max(0,Math.min(100,Math.round(a.confidence||0)));
     const entry={...a,model:eng==='claude'?model():null};
     if(a.chart_found){
-      if(!opts.silent||eng==='claude')save({history:[entry,...(cfg().history||[])].slice(0,HISTORY_MAX)});
+      if(!opts.silent||eng==='claude')save({history:[slim(entry),...(cfg().history||[]).map(slim)].slice(0,HISTORY_MAX)});
       drawOverlay(a,d,!opts.silent);checkAlerts(prev,a);
     }else if(!opts.silent)clearAnalysis();
     send('result',{...entry,silent:!!opts.silent,usage:state().usage});
   }catch(e){send('err',{msg:ai.errorText(e)})}
   finally{busy=false}
+}
+
+// Gecmise yalnizca gosterim icin gerekenler: cizgi/mum dizileri cfg.json'u sisirmesin.
+function slim(e){if(!e)return e;const {lines,rawCandles,allSignals,trendlines,fib,lastCandle,cal,market:m,...rest}=e;
+  return {...rest,signals:undefined,market:m?{quote:m.quote,backtest:m.backtest,tf:m.tf}:undefined}}
+
+// Ekran analizini piyasa verisiyle birlestir: fiyat olcegi, gercek veriden indikatorler, tarihli sinyaller, basari orani, haberler.
+async function withMarket(local,opts={}){
+  const m=mkt();
+  if(!m.symbol)throw new Error('Piyasa verisi için hisse kodunu yaz (Analiz sekmesinin üstünde).');
+  if(!opts.silent)send('busy',{text:m.symbol+' verisi alınıyor…'});
+  const r=await market.load(m.symbol,{tf:m.tf,market:m.market,avKey:avKey(),news:!opts.silent});
+  const rows=r.chart&&r.chart.rows||[];
+  const series=rows.length?engine.analyzeSeries(rows):null;
+  const cal=local.chart_found&&rows.length?engine.calibrateFromSeries(local.rawCandles,rows):null;
+  const P=y=>cal?+(cal.my+cal.k*(y-cal.mx)).toFixed(4):null;
+  const base=local.chart_found?local:{chart_found:!!series,engine:'piyasa',resistances:[],supports:[],trendlines:[],patterns:[],signals:[]};
+  const a={...base,engine:'piyasa',symbol:r.symbol,timeframe:m.tf,cal:cal?{mx:cal.mx,my:cal.my,k:cal.k}:null,
+    // Ekrandaki seviyeler fiyatla etiketlenir; olcek yoksa gercek veriden seviyeler gelir.
+    resistances:cal?base.resistances.map(l=>({...l,price:P(l.y)})):base.resistances,
+    supports:cal?base.supports.map(l=>({...l,price:P(l.y)})):base.supports,
+    last_price:(r.chart&&r.chart.quote.price)??(series&&series.last_price)??(r.quote&&r.quote.price)??null};
+  if(series&&series.chart_found){ // indikator ve skor gercek fiyattan: ekrandaki piksel tahmininden daha guvenilir
+    Object.assign(a,{ind:series.ind,score:series.score,factors:series.factors,rr:series.rr,bias:series.bias,trend:series.trend,confidence:series.confidence,comment:series.comment,
+      patterns:[...new Set([...(series.patterns||[]),...(base.patterns||[])])]});
+  }
+  a.market={tf:m.tf,yahoo:r.yahoo,quote:r.chart?r.chart.quote:r.quote||null,stale:!!(r.chart&&r.chart.stale),
+    levels:series?{R:series.resistances,S:series.supports}:null,signals:series?series.signals.slice(-6):[],backtest:series?series.backtest:null,
+    news:[...((r.news&&r.news.items)||[]),...((r.avNews&&r.avNews.items)||[])].slice(0,8),sentiment:r.avNews?r.avNews.sentiment:null,
+    calib:cal?{r2:+cal.r2.toFixed(4),n:cal.n,shift:cal.shift}:null,errors:r.errors,avLeft:r.avLeft};
+  if(!a.chart_found&&!series)throw new Error(r.errors.join(' · ')||'Veri alınamadı.');
+  return a;
 }
 
 function setLive(on){
@@ -310,7 +348,7 @@ async function tgConnect(p){
 const tgState=()=>({connected:!!tgUser,user:tgUser,bot:tgCfg().bot||null,cmd:tgCfg().cmd||'{KOD}',apiId:tgCfg().apiId||'',hasHash:!!tgCfg().apiHash});
 
 // Grafikteki sembol: son Claude analizinden, yoksa son derinlikten.
-const currentSymbol=()=>(lastAi&&lastAi.symbol)||(lastDepth&&lastDepth.symbol)||cfg().depthSymbol||'';
+const currentSymbol=()=>cfg().symbol||(lastAi&&lastAi.symbol)||(lastDepth&&lastDepth.symbol)||cfg().depthSymbol||'';
 
 async function fetchDepth(opts={}){
   if(depthBusy)return;depthBusy=true;
@@ -359,7 +397,7 @@ async function fetchDepth(opts={}){
 // Derinligi grafigin uzerine: fiyat olcegi varsa seviyelere, yoksa kose kartina.
 function pushDepthOverlay(){
   if(!lastDepth||!cfg().depthOverlay&&cfg().depthOverlay!==undefined)return sendOv('depth',null);
-  const cal=lastResult&&lastResult.engine==='claude'&&(!lastResult.symbol||!lastDepth.symbol||lastResult.symbol.replace(/\W/g,'').includes(lastDepth.symbol))?calibParams(lastResult):null;
+  const cal=lastResult&&lastResult.engine!=='yerel'&&(!lastResult.symbol||!lastDepth.symbol||lastResult.symbol.replace(/\W/g,'').includes(lastDepth.symbol))?calibParams(lastResult):null;
   sendOv('depth',{...lastDepth,cal,box:lastResult&&lastResult.chart_box||null});
   if(!ov.isVisible())ov.showInactive();
 }
@@ -385,7 +423,7 @@ function setDepthAuto(sec){
 
 function state(){
   const u=cfg().usage||{};
-  return{hasKey:!!getKey(),live:!!cfg().live,model:model(),models:ai.MODELS,interval:interval(),intervals:INTERVALS,engine:engineName(),liveAi:!!cfg().liveAi,
+  return{hasKey:!!getKey(),live:!!cfg().live,model:model(),models:ai.MODELS,interval:interval(),intervals:INTERVALS,engine:engineName(),mkt:mkt(),hasAv:!!avKey(),avLeft:market.avLeft(),tfs:Object.keys(market.TF),liveAi:!!cfg().liveAi,
     history:cfg().history||[],perm:screenAllowed(),secure:safeStorage.isEncryptionAvailable(),alerts:!!cfg().alerts,pin:!!cfg().pin,ind:ind(),
     login:process.platform==='darwin'&&app.getLoginItemSettings().openAtLogin,alarms:Object.values(cfg().drawings||{}).flat().filter(x=>x.t==='alarm'&&!x.fired).length,
     usage:u.month===month()?u:{cost:0,count:0,total:u.total||0},sb:{...sync.state(),on:!!cfg().sbOn},
@@ -406,14 +444,18 @@ app.whenReady().then(()=>{
   const sc=[['CommandOrControl+Shift+A',()=>analyze()],['CommandOrControl+Shift+D',()=>setDrawing(!drawing)],
     ['CommandOrControl+Shift+L',()=>{setLive(!cfg().live);send('state',state())}]];
   for(const [k,f] of sc)if(!globalShortcut.register(k,f))console.warn(k+' kısayolu başka bir uygulama tarafından kullanılıyor.');
-  ipcMain.handle('analyze',(e,eng)=>analyze({engine:eng==='claude'||eng==='yerel'?eng:undefined}));
+  ipcMain.handle('analyze',(e,eng)=>analyze({engine:['claude','yerel','piyasa'].includes(eng)?eng:undefined}));
   ipcMain.handle('key',(e,k)=>{setKey(typeof k==='string'?k.trim():'');trayTitle();return state()});
   ipcMain.handle('cfg',state);
   ipcMain.handle('live',(e,on)=>setLive(!!on));
   ipcMain.handle('set',(e,o)=>{
     if(ai.MODELS.some(x=>x.id===o.model))save({model:o.model});
     if(INTERVALS.includes(o.interval)){save({interval:o.interval});if(cfg().live)setLive(true)}
-    if(o.engine==='yerel'||o.engine==='claude'){save({engine:o.engine});lastSig=null;trayTitle()}
+    if(['yerel','claude','piyasa'].includes(o.engine)){save({engine:o.engine});lastSig=null;trayTitle()}
+    if(typeof o.symbol==='string'){const sy=o.symbol.trim().slice(0,20);save({symbol:sy});if(sy)save({depthSymbol:sy.toLocaleUpperCase('tr-TR')})}
+    if(market.TF[o.tf])save({tf:o.tf});
+    if(o.market==='BIST'||o.market==='US')save({market:o.market});
+    if(typeof o.avKey==='string'){const k=o.avKey.trim();if(k&&!/^[A-Z0-9]{8,24}$/i.test(k))return {...state(),err:'Alpha Vantage anahtarı geçersiz görünüyor.'};save({avKey:k?enc(k):undefined})}
     if(typeof o.alerts==='boolean')save({alerts:o.alerts});
     if(typeof o.liveAi==='boolean'){save({liveAi:o.liveAi});lastSig=null;trayTitle()}
     if(typeof o.pin==='boolean'){save({pin:o.pin});if(o.pin)clearTimeout(fadeTimer)}
@@ -432,6 +474,7 @@ app.whenReady().then(()=>{
   ipcMain.handle('openPerm',()=>shell.openExternal(SETTINGS_URL));
   ipcMain.handle('openBilling',()=>shell.openExternal('https://console.anthropic.com/settings/billing'));
   ipcMain.handle('quit',()=>app.quit());
+  market.init(app.getPath('userData'));
   ipcMain.handle('sbConnect',async(e,p)=>{try{
     const r=await sync.signIn({url:p.url,anon:p.anon,email:String(p.email||'').trim(),password:String(p.password||'')});
     save({sb:{url:r.url,anon:enc(String(p.anon).trim()),email:r.user,refresh:enc(sync.tokens().refresh)},sbOn:true});
@@ -457,6 +500,7 @@ app.whenReady().then(()=>{
   ipcMain.handle('tgClick',async(e,{msgId,i,j})=>{
     try{const r=await tg.click(tgCfg().bot,msgId,i,j);if(r.webapp)openTerminal(r.webapp);return {ok:true,...r}}catch(err){return {ok:false,msg:ai.errorText(err)}}});
   ipcMain.handle('openUrl',(e,u)=>{if(/^https:\/\//.test(u))openTerminal(u)});
+  ipcMain.handle('openExternal',(e,u)=>{if(/^https:\/\/[^\s]+$/.test(String(u)))shell.openExternal(u)});
   // Kayitli Telegram oturumunu sessizce geri yukle.
   const c=tgCfg();
   if(c.session&&c.apiId&&c.apiHash)tg.restore({apiId:c.apiId,apiHash:dec(c.apiHash),session:dec(c.session)}).then(u=>{tgUser=u;send('state',state())}).catch(()=>{});

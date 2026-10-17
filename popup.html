@@ -97,6 +97,11 @@ a{color:var(--acc);cursor:pointer;text-decoration:none}a:hover{text-decoration:u
 #ask{position:fixed;inset:0;background:oklch(0% 0 0 / .4);display:none;align-items:center;justify-content:center;z-index:9}
 #ask .c{width:300px;margin:0;background:var(--bg)}
 .sig{border-left:2px solid}
+.symbar{display:flex;gap:var(--s2);margin-bottom:var(--s2)}
+.symbar .inp{text-transform:uppercase}.symbar select{width:auto}
+.q{display:flex;align-items:baseline;gap:var(--s2)}.q .px{font:600 20px var(--mono);letter-spacing:-.02em}.q .ch{font:500 12px var(--mono)}
+.news a{display:block;color:var(--fg);font-size:12px;line-height:1.4;padding:6px 0;border-top:1px solid var(--line)}.news a:first-of-type{border-top:0}
+.news a:hover{color:var(--acc);text-decoration:none}.news small{display:block;font:400 10.5px var(--mono);color:var(--fg-3);margin-top:2px}
 </style></head><body><div class="win" id="win">
 <div class="h">
   <div class="logo"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12.5 6 8l3 2.5L14 4"/><path d="M10.5 4H14v3.5"/></svg></div>
@@ -106,9 +111,12 @@ a{color:var(--acc);cursor:pointer;text-decoration:none}a:hover{text-decoration:u
 <div class="tabs"><button data-p="an" class="on">Analiz</button><button data-p="dp">Derinlik</button><button data-p="hs">Geçmiş</button><button data-p="st">Ayarlar</button></div>
 <div class="body" id="body">
   <section class="pane on" id="an">
+    <div class="symbar"><input class="inp f1 num" id="msym" placeholder="Hisse kodu (THYAO)" spellcheck="false" autocomplete="off">
+      <select id="mtf" title="Zaman dilimi"></select><select id="mmkt" title="Borsa"><option value="BIST">BIST</option><option value="US">ABD</option></select></div>
     <div class="seg" id="seg">
-      <button data-e="yerel"><b>Hızlı</b><span>Ücretsiz · çevrimdışı</span></button>
-      <button data-e="claude"><b>Claude AI</b><span id="cl-sub">Fiyat ve yorum</span></button>
+      <button data-e="yerel"><b>Hızlı</b><span>Ekran · çevrimdışı</span></button>
+      <button data-e="piyasa"><b>Piyasa verisi</b><span>Gerçek fiyat · haber</span></button>
+      <button data-e="claude" id="segcl"><b>Claude</b><span id="cl-sub">Görsel okuma</span></button>
     </div>
     <div class="act">
       <button id="go"><span class="spin"></span><span id="gol">Ekranı Analiz Et</span></button>
@@ -169,6 +177,10 @@ a{color:var(--acc);cursor:pointer;text-decoration:none}a:hover{text-decoration:u
       <div class="row" style="margin-top:6px"><a class="f1 m" id="sbhow">Nasıl kurulur?</a><button class="btn" id="sbflush">Şimdi gönder</button><button class="btn dn" id="sbout">Çıkış</button><button class="btn pri" id="sbconn">Bağlan</button></div>
       <div class="m" id="sbhowtxt" style="display:none;margin-top:8px;line-height:1.5">1) Supabase panelinde SQL Editor'e depodaki <b>supabase.sql</b> dosyasını yapıştırıp çalıştır. 2) Authentication › Users'tan kendi e-posta ve şifrenle bir kullanıcı ekle. 3) Project Settings › API'den <b>Project URL</b> ve <b>anon public</b> anahtarını al. <b>service_role</b> anahtarını asla girme. Şifre kaydedilmez; yalnızca yenileme belirteci Anahtar Zinciri'nde şifreli tutulur. Buluta yalnızca hesaplanmış çıktılar gider (sinyal, baskı skoru, kurum akışı özeti, alarm); ham derinlik tablosu ve Telegram mesajları Mac'te kalır.</div>
     </div>
+    <div class="c"><div class="t">Alpha Vantage anahtarı (isteğe bağlı)</div>
+      <div id="avst" class="m" style="margin-bottom:8px"></div>
+      <div class="row"><input class="inp f1 num" id="avkey" type="password" placeholder="Alpha Vantage anahtarı" autocomplete="off"><button class="btn dn" id="avdel">Sil</button><button class="btn pri" id="avsave">Kaydet</button></div>
+    </div>
     <div class="c"><div class="t">Claude API anahtarı (isteğe bağlı)</div>
       <div id="kst" class="m" style="margin-bottom:8px"></div>
       <input type="password" id="key" placeholder="sk-ant-..." autocomplete="off" spellcheck="false">
@@ -182,7 +194,7 @@ a{color:var(--acc);cursor:pointer;text-decoration:none}a:hover{text-decoration:u
       <span>Çizimde araçlar</span><kbd>V T R H B F M A N</kbd><span>Geri al / sil</span><kbd>⌘Z · ⌫</kbd></div></div>
     <div class="c"><div class="t">Ekran kaydı izni</div><div class="row"><div class="f1" id="perm"></div><button class="btn" id="permb">Ayarları Aç</button></div></div>
     <label class="tg c" style="margin-top:10px;padding:8px 12px"><span class="f1">Oturum açılınca başlat</span><span class="sw"><input type="checkbox" id="login"><span></span></span></label>
-    <div class="row" style="margin-top:12px;justify-content:space-between"><span class="m">Sürüm 1.6</span><button class="btn" id="quit">Çıkış</button></div>
+    <div class="row" style="margin-top:12px;justify-content:space-between"><span class="m">Sürüm 1.7</span><button class="btn" id="quit">Çıkış</button></div>
   </section>
 </div>
 <div class="toast" id="toast"></div>
@@ -217,7 +229,11 @@ function idle(){$('go').disabled=false;$('gol').textContent='Ekranı Analiz Et'}
 const perCall=()=>C.usage&&C.usage.count>2?C.usage.cost/C.usage.count:EST[C.model]||0.002;
 function ui(){
   document.querySelectorAll('#seg button').forEach(b=>b.classList.toggle('on',b.dataset.e===C.engine));
-  $('cl-sub').textContent=C.hasKey?'Fiyat ve yorum · ~'+usd(perCall())+'/analiz':'API anahtarı gerekli';
+  $('cl-sub').textContent='~'+usd(perCall())+'/analiz';$('segcl').style.display=C.hasKey?'':'none';
+  const M=C.mkt||{};if(document.activeElement!==$('msym'))$('msym').value=M.symbol||'';$('mmkt').value=M.market||'BIST';
+  if(!$('mtf').options.length)(C.tfs||['1dk','5dk','15dk','1s','1g','1h']).forEach(t=>$('mtf').append(el('option',{value:t},{'1dk':'1 dk','5dk':'5 dk','15dk':'15 dk','1s':'1 saat','1g':'Günlük','1h':'Haftalık'}[t]||t)));
+  $('mtf').value=M.tf||'1g';
+  $('avst').textContent=C.hasAv?'Kayıtlı · bugün '+(C.avLeft??'?')+'/25 istek kaldı':'Anahtar yok. BIST için gerekmez (Yahoo); ABD hisselerinde haber duygu skoru ve yedek fiyat için.';
   $('ld').classList.toggle('live',C.live);$('lp').classList.toggle('on',C.live);$('live').checked=C.live;
   const liveAi=C.liveAi&&C.hasKey;
   $('lt').textContent=C.live?'Canlı · her '+C.interval+' sn · '+(liveAi?'Claude':'Hızlı (ücretsiz)'):'Canlı mod kapalı';
@@ -226,16 +242,37 @@ function ui(){
   settings();depthUi();sbUi();
 }
 
+const dt=t=>t?new Date(t).toLocaleDateString('tr-TR',{day:'2-digit',month:'short'})+(Date.now()-t<864e5?' '+new Date(t).toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'}):''):'';
+function marketCards(a,out){
+  const m=a.market,q=m.quote||{};
+  if(q.price!=null){const ch=q.prev?((q.price-q.prev)/q.prev*100):null;
+    out.append(el('div',{class:'c'},el('div',{class:'q'},el('span',{class:'px'},fmt(q.price)),el('span',{class:'m num'},q.currency||''),
+      ch!=null?el('span',{class:'ch '+(ch>=0?'pos':'neg')},(ch>=0?'+':'')+ch.toFixed(2).replace('.',',')+'%'):null),
+      el('div',{class:'m',style:'margin-top:2px'},[q.name,m.yahoo,m.stale?'çevrimdışı · son kayıtlı veri':(/\.IS$/.test(m.yahoo||'')?'~15 dk gecikmeli':null)].filter(Boolean).join(' · ')),
+      el('div',{class:'m',style:'margin-top:6px'},m.calib?'Fiyat ölçeği ekrandaki grafikle eşleşti (r² '+m.calib.r2.toFixed(3).replace('.',',')+', '+m.calib.n+' mum). Çizgiler gerçek fiyatla etiketli.':
+        'Fiyat ölçeği eşleşmedi: ekrandaki grafiğin zaman dilimi seçimle aynı mı? Analiz yine gerçek veriden yapıldı.')))}
+  if(m.levels&&(m.levels.R.length||m.levels.S.length))out.append(el('div',{class:'c'},el('div',{class:'t'},'Gerçek veriden seviyeler'),
+    el('div',{class:'chips'},...m.levels.R.map((l,i)=>el('span',{class:'chip neg num'},'R'+(i+1)+' '+fmt(l.price))),...m.levels.S.map((l,i)=>el('span',{class:'chip pos num'},'S'+(i+1)+' '+fmt(l.price))))));
+  const bt=m.backtest;
+  if(m.signals.length||bt&&bt.count)out.append(el('div',{class:'c'},el('div',{class:'t'},'Sinyal geçmişi'),
+    bt&&bt.count?el('div',{class:'row',style:'margin-bottom:6px'},el('span',{class:'f1'},bt.horizon+' mum sonra doğru çıkma oranı'),el('b',{class:'num '+(bt.winRate>=55?'pos':bt.winRate<45?'neg':'')},'%'+bt.winRate+' · '+bt.count+' sinyal')):null,
+    bt&&bt.count?el('div',{class:'m',style:'margin-bottom:6px'},'Ortalama getiri '+(bt.avgRet>0?'+':'')+String(bt.avgRet).replace('.',',')+'% · komisyon/kayma hariç, geçmiş performans geleceği göstermez.'):null,
+    ...m.signals.slice().reverse().map(sg=>el('div',{class:'fx'},el('span',{},el('b',{class:sg.dir>0?'pos':'neg'},sg.dir>0?'AL ':'SAT '),dt(sg.t)+' · '+(sg.why||[]).join(', ')),el('b',{class:'num'},fmt(sg.price))))));
+  if(m.news.length)out.append(el('div',{class:'c news'},el('div',{class:'t'},'Haberler'+(m.sentiment!=null?' · duygu '+(m.sentiment>0?'+':'')+m.sentiment:'')),
+    ...m.news.map(n=>{const x=el('a',{href:'#'},n.title,el('small',{},[n.publisher,dt(n.time),n.label].filter(Boolean).join(' · ')));x.onclick=e=>{e.preventDefault();api.openExternal(n.url)};return x})));
+  if(m.errors&&m.errors.length)out.append(el('div',{class:'warn'},m.errors.join(' · ')));
+}
 function render(a,anim=true){
   shown=a;const out=$('out');out.replaceChildren();
   if(!a.chart_found){out.append(el('div',{class:'c empty'},el('div',{class:'ic'},icon('search')),a.engine==='yerel'?'Ekranda mum grafiği bulunamadı. Çizgi grafikler için Claude analizini dene.':'Ekranda grafik bulunamadı.'));return}
   const [bl,col,ar]=BIAS[a.bias]||BIAS.notr,local=a.engine==='yerel';
   out.append(el('div',{class:'c'},
     el('div',{class:'row'},
-      el('div',{class:'f1'},el('div',{class:'sym'},a.symbol||'Grafik',el('span',{class:'etag'},local?'YEREL':'CLAUDE')),el('div',{class:'m'},[a.timeframe,a.trend,local&&a.candles?a.candles+' mum':null].filter(Boolean).join(' · '))),
+      el('div',{class:'f1'},el('div',{class:'sym'},a.symbol||'Grafik',el('span',{class:'etag'},local?'YEREL':a.engine==='piyasa'?'PİYASA':'CLAUDE')),el('div',{class:'m'},[a.timeframe,a.trend,local&&a.candles?a.candles+' mum':null].filter(Boolean).join(' · '))),
       el('span',{class:'pill',style:'background:'+col},ar+' '+bl)),
     el('div',{class:'row',style:'margin-top:8px'},el('span',{class:'m f1'},'Güven'),el('b',{},'%'+a.confidence)),
     el('div',{class:'bar'},el('i',{style:'width:'+a.confidence+'%;background:'+col+(anim?'':';transition:none')}))));
+  if(a.market)marketCards(a,out);
   const lv=(arr,c,lab)=>el('div',{class:'f1'},el('div',{class:'t'},lab),...(arr&&arr.length?arr.map((x,i)=>el('div',{class:'lv '+c},fmt(x.price)||(x.touches?x.touches+' temas':'~'),el('small',{},(c==='r'?'R':'S')+(i+1)))):[el('div',{class:'m'},'yok')]));
   out.append(el('div',{class:'c'},el('div',{class:'row',style:'align-items:flex-start'},lv(a.resistances,'r','Direnç'),lv(a.supports,'s','Destek'))));
   if(typeof a.score==='number'){const sc=a.score,lab=sc>=40?'Güçlü pozitif':sc>=12?'Pozitif':sc<=-40?'Güçlü negatif':sc<=-12?'Negatif':'Nötr';
@@ -415,11 +452,17 @@ $('sbconn').onclick=async()=>{$('sbconn').disabled=true;$('sbconn').textContent=
 $('sbout').onclick=async()=>{C=await api.sbLogout();ui()};
 $('sbon').onchange=async e=>{C=await api.sbToggle(e.target.checked);ui()};
 $('sbflush').onclick=async()=>{C=await api.sbFlush();ui();toast(C.sb.error||'Gönderildi')};
+$('msym').onchange=async e=>{C=await api.set({symbol:e.target.value});ui()};
+$('msym').onkeydown=e=>{if(e.key==='Enter'){e.target.blur();api.set({symbol:e.target.value}).then(c=>{C=c;ui();api.analyze()})}};
+$('mtf').onchange=async e=>{C=await api.set({tf:e.target.value});ui()};
+$('mmkt').onchange=async e=>{C=await api.set({market:e.target.value});ui()};
+$('avsave').onclick=async()=>{const r=await api.set({avKey:$('avkey').value});$('avkey').value='';if(r.err)toast(r.err);else{C=r;toast('Kaydedildi')}ui()};
+$('avdel').onclick=async()=>{C=await api.set({avKey:''});ui()};
 $('sigs').onchange=async e=>{C=await api.depthSet({signals:e.target.checked})};
 api.on('depthErr',e=>{$('dgo').disabled=false;$('dgo').textContent='Getir';$('derr').textContent=e.msg;$('derr').style.display='block';tab('dp');fit()});
 api.on('depth',d=>{$('dgo').disabled=false;$('dgo').textContent='Getir';$('sub').textContent=d.symbol+' derinlik · '+hm(d.at);if(d.usage)C.usage=d.usage;$('dsym').value=d.symbol;renderDepth(d)});
 api.on('state',c=>{C=c;ui()});
-api.on('busy',()=>{$('go').disabled=true;$('gol').textContent='Claude okuyor…';$('err').style.display='none';$('sub').textContent='Analiz ediliyor…'});
+api.on('busy',b=>{$('go').disabled=true;$('gol').textContent=(b&&b.text)||'Claude okuyor…';$('err').style.display='none';$('sub').textContent='Analiz ediliyor…'});
 api.on('skip',t=>{$('sub').textContent='Ekran değişmedi · '+hm(t)});
 api.on('err',e=>{idle();$('sub').textContent='Hata';$('errm').textContent=e.msg;
   const b=$('errb');b.style.display=e.perm||e.settings?'':'none';

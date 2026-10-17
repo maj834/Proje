@@ -81,7 +81,8 @@ function drawAnalysis(a){
   if(!a){b.style.display='none';render();return}
   // Claude fiyatlari verdiyse y -> fiyat dogrusal kalibrasyonu (Fibonacci, yatay cizgi ve olcum icin).
   const pts=[...(a.resistances||[]),...(a.supports||[])].filter(l=>typeof l.price==='number');
-  if(pts.length>=2){const n=pts.length,mx=pts.reduce((s,p)=>s+p.y,0)/n,my=pts.reduce((s,p)=>s+p.price,0)/n;
+  if(a.cal&&Number.isFinite(a.cal.k)){const C2=a.cal;cal=y=>C2.my+C2.k*(y-C2.mx)}
+  else if(pts.length>=2){const n=pts.length,mx=pts.reduce((s,p)=>s+p.y,0)/n,my=pts.reduce((s,p)=>s+p.price,0)/n;
     let sxy=0,sxx=0;for(const p of pts){sxy+=(p.y-mx)*(p.price-my);sxx+=(p.y-mx)**2}
     if(sxx>1e-6&&sxy<0){const k=sxy/sxx;cal=y=>my+k*(y-mx)}}
   an.classList.toggle('anim',!!a.anim);
@@ -126,7 +127,7 @@ function drawAnalysis(a){
   if(a.last){const cx=a.last.x*W,cy=a.last.y*H,c=(BIAS[a.bias]||BIAS.notr)[1];
     S('circle',{cx,cy,r:5,fill:c,class:'pulse'},an);S('circle',{cx,cy,r:4,fill:c,stroke:'#fff','stroke-width':1.5},an)}
   const [bl,c,ar]=BIAS[a.bias]||BIAS.notr;
-  b.replaceChildren();const eng=document.createElement('span');eng.className='eng';eng.textContent=a.engine==='claude'?'CLAUDE':'YEREL';
+  b.replaceChildren();const eng=document.createElement('span');eng.className='eng';eng.textContent=a.engine==='claude'?'CLAUDE':a.engine==='piyasa'?'PİYASA':'YEREL';
   const sm=document.createElement('small');sm.textContent='Güven %'+a.confidence+(a.patterns&&a.patterns.length?' · '+a.patterns[0]:'');
   b.append(eng,(a.symbol?a.symbol+'  ':'')+ar+' '+bl,sm);b.style.setProperty('--bc',c);b.style.display='flex';
   if(a.anim){b.classList.remove('in');void b.offsetWidth;b.classList.add('in')}

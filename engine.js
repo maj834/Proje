@@ -118,7 +118,14 @@ function analyzeMask(mask,W,H){
     c.open=c.up?bb:bt;c.close=c.up?bt:bb;
   }
 
-  const span=Y1-Y0,tol=Math.max(3,span*0.012);
+  return analyzeCandles(candles,{X0,X1,Y0,Y1,W,H,minTol:3});
+}
+
+// Mumlardan analiz. Koordinatlar "y" ekseninde: buyuk y = dusuk fiyat (ekran pikseli gibi).
+// Ekran icin W/H normalize eder; gercek fiyat serisi icin analyzeSeries y=-fiyat ve H=-1 verir.
+function analyzeCandles(candles,{X0,X1,Y0,Y1,W,H,minTol=3}){
+  const N=candles.length;
+  const span=Y1-Y0,tol=Math.max(minTol,span*0.012);
   // 5) Pivotlar.
   const k=Math.max(2,Math.round(N/30)),ph=[],pl=[];
   for(let i=k;i<N-1;i++){
@@ -267,9 +274,60 @@ function analyzeMask(mask,W,H){
     resistances:L(res),supports:L(sup),breakout,patterns,comment,
     trendlines:[tSup&&{type:'destek',...tSup},tRes&&{type:'direnc',...tRes}].filter(Boolean).map(t=>({type:t.type,x1:nx(t.x1),y1:ny(t.y1),x2:nx(t.x2),y2:ny(t.y2)})),
     chart_box:{x1:nx(X0),y1:ny(Y0),x2:nx(X1),y2:ny(Y1)},last:{x:nx(last.x),y:ny(lastY)},candles:N,
-    ind,score,factors:F.sort((a,b)=>Math.abs(b.v)-Math.abs(a.v)),rr:riskReward,fib,lines,signals:signals.slice(-12),lastCandle:{x:nx(last.x),hi:ny(last.hi),lo:ny(last.lo)}};
+    rawCandles:W>1?candles.map(c=>({hi:+(c.hi/H).toFixed(5),lo:+(c.lo/H).toFixed(5)})):undefined,
+    ind,score,factors:F.sort((a,b)=>Math.abs(b.v)-Math.abs(a.v)),rr:riskReward,fib,lines,signals:signals.slice(-12),allSignals:signals,lastCandle:{x:nx(last.x),hi:ny(last.hi),lo:ny(last.lo)}};
 }
 
-const api={analyzeBitmap,analyzeMask,classify};
+// Gercek OHLC serisinden analiz (Yahoo / Alpha Vantage). candles: [{t,o,h,l,c,v}] eskiden yeniye.
+// Cikti fiyat cinsindendir: seviyelerin y'si = fiyat, sinyallerin x'i = mum sirasi (t ile tarih).
+function analyzeSeries(rows,opts={}){
+  const rs=(rows||[]).filter(r=>[r.o,r.h,r.l,r.c].every(Number.isFinite));
+  if(rs.length<30)return {chart_found:false,engine:'piyasa'};
+  const candles=rs.map((r,i)=>({x:i,x0:i,x1:i,hi:-r.h,lo:-r.l,open:-r.o,close:-r.c,up:r.c>=r.o}));
+  const Y0=Math.min(...candles.map(c=>c.hi)),Y1=Math.max(...candles.map(c=>c.lo));
+  const a=analyzeCandles(candles,{X0:0,X1:rs.length-1,Y0,Y1,W:1,H:-1,minTol:0});
+  const P=v=>+(+v).toFixed(4);
+  const fix=l=>({...l,price:P(l.y),y:undefined});
+  const out={...a,engine:'piyasa',resistances:a.resistances.map(fix),supports:a.supports.map(fix),
+    signals:a.signals.map(s=>({...s,t:rs[s.i].t,price:rs[s.i].c})),allSignals:undefined,
+    last_price:rs[rs.length-1].c,backtest:backtest(rs,a.allSignals,opts.horizon||5)};
+  if(out.fib)out.fib.levels=out.fib.levels.map(l=>({f:l.f,price:P(l.y)}));
+  delete out.lines;delete out.chart_box;delete out.lastCandle;
+  out.trendlines=a.trendlines.map(t=>({type:t.type,i1:t.x1,p1:P(t.y1),i2:t.x2,p2:P(t.y2)}));
+  return out;
+}
+// Basit geriye donuk test: sinyalden h mum sonra yon dogru mu? (komisyon/kayma yok, tavsiye degil)
+function backtest(rs,sigs,h){
+  const done=(sigs||[]).filter(s=>s.i+h<rs.length);
+  if(!done.length)return {count:0,horizon:h};
+  const rets=done.map(s=>(rs[s.i+h].c-rs[s.i].c)/rs[s.i].c*100*s.dir);
+  const wins=rets.filter(r=>r>0).length;
+  return {count:done.length,horizon:h,winRate:Math.round(wins/done.length*100),avgRet:+(rets.reduce((a,b)=>a+b,0)/rets.length).toFixed(2),
+    byDir:[1,-1].map(d=>{const x=done.map((s,i)=>[s,rets[i]]).filter(([s])=>s.dir===d);return {dir:d,count:x.length,winRate:x.length?Math.round(x.filter(([,r])=>r>0).length/x.length*100):null}})};
+}
+
+// Ekrandaki mumlari gercek mumlarla eslestirip fiyat olcegi cikar (Claude'suz fiyat ekseni).
+// screen: analyzeBitmap ciktisi + .rawCandles (normalize hi/lo); rows: gercek mumlar.
+// Sag kenar hizalanir, +-shift kaydirilarak en iyi dogrusal uyum aranir. price = my + k*(y - mx)
+function calibrateFromSeries(screenCandles,rows,{maxShift=4,minN=15}={}){
+  if(!screenCandles||screenCandles.length<minN||!rows||rows.length<minN)return null;
+  let best=null;
+  for(let sh=-maxShift;sh<=maxShift;sh++){
+    const xs=[],ys=[];
+    for(let k=1;k<=Math.min(screenCandles.length,rows.length-Math.max(0,sh),80);k++){
+      const sc=screenCandles[screenCandles.length-k],r=rows[rows.length-k-sh];if(!sc||!r)break;
+      xs.push(sc.hi,sc.lo);ys.push(r.h,r.l);
+    }
+    if(xs.length<minN*2)continue;
+    const n=xs.length,mx=xs.reduce((a,b)=>a+b,0)/n,my=ys.reduce((a,b)=>a+b,0)/n;
+    let sxy=0,sxx=0,syy=0;for(let i=0;i<n;i++){sxy+=(xs[i]-mx)*(ys[i]-my);sxx+=(xs[i]-mx)**2;syy+=(ys[i]-my)**2}
+    if(!sxx||!syy||sxy>=0)continue;
+    const r2=sxy*sxy/(sxx*syy);
+    if(!best||r2>best.r2)best={mx,my,k:sxy/sxx,r2,shift:sh,n:n/2};
+  }
+  return best&&best.r2>=0.97?best:null;
+}
+
+const api={analyzeBitmap,analyzeMask,analyzeSeries,calibrateFromSeries,backtest,classify};
 if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.Engine=api;
 })(this);

@@ -27,6 +27,15 @@ Claude API aylık abonelik değil, **önceden ödemeli kredi** ile çalışır:
 
 Varsayılan model Haiku 5.5 ile $5 kabaca 4.000–5.000 analize yeter. Uygulama bu ayki harcamayı Ayarlar sekmesinde gösterir. claude.ai Pro aboneliği API kredisi içermez.
 
+## Piyasa verisi (Claude gerekmez)
+
+Analiz sekmesinin üstüne hisse kodunu (ör. `THYAO`), zaman dilimini ve borsayı (BIST/ABD) yaz, **Piyasa verisi** motorunu seç:
+
+- **Yahoo Finance** (anahtarsız): mum verisi ve haberler. BIST kodları otomatik `.IS` alır; veriler ~15 dk gecikmelidir. Yahoo'nun bu uçları resmi bir API değildir, istekler önbelleklenir.
+- **Alpha Vantage** (isteğe bağlı, Ayarlar'a anahtar): ABD hisselerinde haber + duygu skoru ve yedek fiyat. Ücretsiz plan günde 25 istek; uygulama sayar, sınırda durur. BIST'te kota harcanmaz.
+- **Fiyat ölçeği:** Ekrandaki mumlar gerçek mumlarla eşleştirilir (en iyi kaydırma + doğrusal uyum, r² ≥ 0,97). Eşleşince destek/direnç, derinlik duvarları, Fibonacci, ölçüm ve alarm çizgileri gerçek fiyatla etiketlenir. Grafiğin zaman dilimi seçimle aynı olmalı.
+- **Gerçek veriden analiz:** RSI, MACD, EMA, skor ve AL/SAT sinyalleri gerçek fiyatlardan, tarihleriyle hesaplanır; geçmiş sinyallerin 5 mum sonra doğru çıkma oranı gösterilir (komisyon/kayma hariç, tavsiye değildir).
+
 ## Analiz
 
 Her analizde (Hızlı ve Claude) şunlar hesaplanır:
@@ -110,7 +119,8 @@ GitHub Actions her push'ta macOS için imzasız bir `.dmg` üretir (Actions › 
 |---|---|
 | `main.js` | Menü çubuğu, kısayollar, ekran görüntüsü, canlı mod, bildirimler, ayarlar |
 | `engine.js` | Yerel mum grafiği okuyucu (piksel analizi) |
-| `ai.js` | Claude API isteği ve maliyet hesabı |
+| `ai.js` | Claude API isteği ve maliyet hesabı (isteğe bağlı) |
+| `market.js` | Yahoo Finance ve Alpha Vantage: mumlar, fiyat, haberler, önbellek ve kota |
 | `tg.js` | Telegram bağlantısı (GramJS) |
 | `depth.js` | Derinlik verisi ayrıştırma, duvarlar, al/sat baskısı ve trendi |
 | `preload.js` | Pencerelere açılan sınırlı API |
