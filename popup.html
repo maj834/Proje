@@ -186,8 +186,8 @@ textarea.inp{height:110px;padding:6px var(--s2);resize:vertical;font:400 11.5px/
     <div class="c" id="sbcard"><div class="t">Supabase yedek (isteğe bağlı)</div>
       <div id="sbst" class="m" style="margin-bottom:8px"></div>
       <div id="sbform">
-        <input class="inp" id="sburl" placeholder="https://xxxxxxxxxxxxxxx.supabase.co" spellcheck="false" autocomplete="off">
-        <input class="inp" id="sbanon" type="password" placeholder="anon (public) anahtar" autocomplete="off" style="margin-top:6px">
+        <input class="inp" id="sburl" placeholder="https://xxxxxxxxxxxxxxx.supabase.co" value="https://olengqbrkvmilsoelhxy.supabase.co" spellcheck="false" autocomplete="off">
+        <input class="inp" id="sbanon" placeholder="anon (public) anahtar" value="sb_publishable_NohTNy9mknVRU3tGUc4iUg_DJwL0t6q" spellcheck="false" autocomplete="off" style="margin-top:6px">
         <div class="row" style="margin-top:6px"><input class="inp f1" id="sbmail" placeholder="E-posta" autocomplete="off"><input class="inp f1" id="sbpass" type="password" placeholder="Şifre" autocomplete="off"></div>
       </div>
       <label class="tg" id="sbtoggle"><span class="f1">Sinyal, baskı ve alarm kayıtlarını yedekle</span><span class="sw"><input type="checkbox" id="sbon"><span></span></span></label>
@@ -487,7 +487,7 @@ api.on('depthWait',w=>{$('dgo').disabled=false;$('dgo').textContent='Getir';safe
 $('sbhow').onclick=()=>{const t=$('sbhowtxt');t.style.display=t.style.display==='none'?'block':'none';fit()};
 $('sbconn').onclick=async()=>{$('sbconn').disabled=true;$('sbconn').textContent='Bağlanıyor…';
   const r=await api.sbConnect({url:$('sburl').value,anon:$('sbanon').value,email:$('sbmail').value,password:$('sbpass').value});
-  $('sbconn').disabled=false;$('sbconn').textContent='Bağlan';$('sbpass').value='';$('sbanon').value='';
+  $('sbconn').disabled=false;$('sbconn').textContent='Bağlan';$('sbpass').value='';
   if(r.ok){C=r.state;toast('Supabase bağlandı');ui()}else toast(r.msg)};
 $('sbout').onclick=async()=>{C=await api.sbLogout();ui()};
 $('sbon').onchange=async e=>{C=await api.sbToggle(e.target.checked);ui()};
