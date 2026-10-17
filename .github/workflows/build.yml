@@ -4,7 +4,20 @@ on:
   pull_request:
   workflow_dispatch:
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      # Electron ikili dosyasi testlerde gerekmez (zaten ilk calistirmada indirilir).
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: 20, cache: npm}
+      - run: npm ci
+      - run: for f in *.js; do node --check "$f"; done
+      - run: npm test
   mac:
+    needs: test
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4

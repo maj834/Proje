@@ -89,7 +89,26 @@ async function webAppUrl(bot,url){
   return r.url;
 }
 
+// Botun sohbet menusundeki web uygulamasi (ör. BOPT "Canli Veri"). Yoksa alt klavyedeki web uygulamasi butonu.
+async function menuApp(bot){
+  const entity=await client.getEntity(bot);
+  const full=await client.invoke(new Api.users.GetFullUser({id:entity}));
+  const mb=full&&full.fullUser&&full.fullUser.botInfo&&full.fullUser.botInfo.menuButton;
+  if(mb&&mb.url){
+    const r=await client.invoke(new Api.messages.RequestWebView({peer:entity,bot:entity,url:mb.url,platform:'macos',fromBotMenu:true}));
+    return {url:r.url,text:mb.text||null};
+  }
+  for(const m of await client.getMessages(entity,{limit:10}))
+    for(const row of (m.replyMarkup&&m.replyMarkup.rows)||[])for(const b of row.buttons||[])
+      if(/WebView/.test(b.className)&&b.url){
+        const r=await client.invoke(/Simple/.test(b.className)?new Api.messages.RequestSimpleWebView({bot:entity,url:b.url,platform:'macos'})
+          :new Api.messages.RequestWebView({peer:entity,bot:entity,url:b.url,platform:'macos',fromBotMenu:false}));
+        return {url:r.url,text:b.text||null};
+      }
+  throw new Error('Botun menüsünde web uygulaması bulunamadı.');
+}
+
 // Telegram'in "bekle" hatasi: kac saniye beklenmesi gerektigini dondurur (yoksa 0).
 const floodSeconds=e=>e instanceof errors.FloodWaitError||/FLOOD_WAIT/.test(String(e&&e.message))?(e.seconds||+((String(e.message).match(/(\d+)/)||[])[1])||60):0;
 
-module.exports={floodSeconds,connect,restore,disconnect,logout,connected,query,click,webAppUrl};
+module.exports={floodSeconds,connect,restore,disconnect,logout,connected,query,click,webAppUrl,menuApp};

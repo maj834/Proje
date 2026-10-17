@@ -137,9 +137,10 @@ textarea.inp{height:110px;padding:6px var(--s2);resize:vertical;font:400 11.5px/
     <div class="row"><input class="inp f1" id="dsym" placeholder="Hisse kodu (ör. PRZMA)" spellcheck="false" style="text-transform:uppercase"><button class="btn pri" id="dgo">Getir</button></div>
     <div class="seg" style="margin:8px 0 0" id="dsrc">
       <button data-s="telegram"><b>Telegram botu</b><span id="dsrc-tg">Bağlı değil</span></button>
-      <button data-s="ekran"><b>Ekrandan</b><span>Terminali Claude okur</span></button>
+      <button data-s="ekran"><b>Ekrandan</b><span>Terminali Grok/Claude okur</span></button>
     </div>
     <div class="row" style="margin-top:8px"><span class="m f1">Otomatik yenile</span><select id="dauto" style="width:120px"><option value="0">Kapalı</option><option value="20">20 sn</option><option value="30">30 sn</option><option value="60">1 dk</option><option value="120">2 dk</option></select></div>
+    <div class="row" id="dlive" style="margin-top:6px;display:none"><span class="m f1">Botun menüsündeki canlı ekran</span><button class="btn" id="dmenu">Canlı Veri ↗</button></div>
     <div class="m" id="dsafe" style="margin-top:2px"></div><div class="warn" id="dcal" style="display:none"></div>
     <label class="tg"><span class="f1 m">Grafikte duvar etiketleri ve baskı kartı</span><span class="sw"><input type="checkbox" id="dov"><span></span></span></label>
     <div class="alert" id="derr"></div>
@@ -166,7 +167,7 @@ textarea.inp{height:110px;padding:6px var(--s2);resize:vertical;font:400 11.5px/
         <div class="row"><input class="inp" id="tgid" placeholder="api_id" inputmode="numeric" style="width:110px"><input class="inp f1" id="tghash" type="password" placeholder="api_hash" autocomplete="off"></div>
         <div class="row" style="margin-top:6px"><input class="inp f1" id="tgphone" placeholder="Telefon (+90…)" inputmode="tel"></div>
       </div>
-      <div class="row" style="margin-top:6px"><input class="inp f1" id="tgbot" placeholder="Bot kullanıcı adı (@…bot)" spellcheck="false"><input class="inp" id="tgcmd" placeholder="Komut" title="Bota gönderilecek mesaj; {KOD} hisse koduyla değişir" style="width:110px"></div>
+      <div class="row" style="margin-top:6px"><input class="inp f1" id="tgbot" placeholder="Bot kullanıcı adı (ör. @b0pt_bot)" spellcheck="false"><input class="inp" id="tgcmd" placeholder="Komut" title="Bota gönderilecek mesaj; {KOD} hisse koduyla değişir" style="width:110px"></div>
       <div class="row" style="margin-top:8px"><a class="f1 m" id="tghow">api_id nasıl alınır?</a><button class="btn dn" id="tgout">Çıkış</button><button class="btn pri" id="tgconn">Bağlan</button></div>
       <div class="m" id="tghowtxt" style="display:none;margin-top:8px;line-height:1.5">my.telegram.org › <b>API development tools</b> bölümünden uygulama oluştur; verilen api_id ve api_hash'i buraya yaz. Giriş kodu Telegram'a gelir. Oturum bu Mac'te Anahtar Zinciri ile şifreli saklanır ve yalnızca bota mesaj atmak için kullanılır.</div>
     </div>
@@ -406,6 +407,7 @@ function depthUi(){
   const t=C.tg||{};
   document.querySelectorAll('#dsrc button').forEach(b=>b.classList.toggle('on',b.dataset.s===C.depthSource));
   $('dsrc-tg').textContent=t.connected?(t.bot||'Bot yazılmadı'):'Bağlı değil';
+  $('dlive').style.display=t.connected&&t.bot?'':'none';
   $('dauto').value=String(C.depthAuto||0);$('dov').checked=C.depthOverlay!==false;$('sigs').checked=C.signals!==false;
   safeText(C.safe);
   if(!$('dsym').value&&C.symbol)$('dsym').value=C.symbol;
@@ -460,6 +462,7 @@ function renderDepth(d){
       raw?el('div',{class:'btns'},el('button',{class:'btn',onclick:()=>{api.copy(raw);toast('Mesaj panoya kopyalandı')}},'Mesajı kopyala'),el('button',{class:'btn',onclick:()=>{$('ptxt').value=raw;ptOpen(true);$('pgo').click()}},'Test alanında aç')):null)))}
   fit();
 }
+$('dmenu').onclick=async()=>{$('dmenu').disabled=true;try{const r=await api.tgMenu();if(!r.ok)toast(r.msg)}finally{$('dmenu').disabled=false}};
 document.querySelectorAll('#dsrc button').forEach(b=>b.onclick=async()=>{C=await api.depthSet({source:b.dataset.s});depthUi()});
 $('dgo').onclick=()=>api.depth({symbol:$('dsym').value.trim()});
 $('dsym').onkeydown=e=>{if(e.key==='Enter')$('dgo').click()};

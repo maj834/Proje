@@ -407,17 +407,21 @@ async function fetchDepth(opts={}){
     let d=null,messages=[];
     if(source==='telegram'){
       if(!tgUser)throw new Error('Telegram bağlı değil. Ayarlar › Telegram derinlik botu bölümünden bağlan.');
-      if(!tgCfg().bot)throw new Error('Botun kullanıcı adını Ayarlar\'a yaz (ör. @derinlikbot).');
+      if(!tgCfg().bot)throw new Error('Botun kullanıcı adını Ayarlar\'a yaz (ör. @b0pt_bot).');
       const why=canSend(!!opts.auto);
       if(why){send('depthWait',{msg:why,safe:safeInfo()});return}
       sent.push(Date.now());
       try{messages=await tg.query(tgCfg().bot,(tgCfg().cmd||'{KOD}').replace(/\{KOD\}/g,symbol))}
       catch(err){const w=tg.floodSeconds(err);if(w){floodUntil=Date.now()+(w+15)*1000;send('depthWait',{msg:'Telegram '+w+' sn beklememizi istedi; otomatik duraklatıldı.',safe:safeInfo()});return}throw err}
       d=depthLib.parseText(messages.map(m=>m.text).join('\n'),{symbol});
-      // Bot veriyi resim olarak gonderdiyse ve anahtar varsa Claude ile oku.
+      // Bot tabloyu resim olarak gonderdiyse (BOPT): once yerel OCR (ucretsiz), olmazsa Grok/Claude.
       const photo=messages.find(m=>m.photo);
-      if(!depthLib.hasData(d)&&photo&&visionAI()){
-        const r=await readDepthImage(photo.photo.split(',')[1]);if(r.found)d={...r,symbol:r.symbol||symbol}}
+      if(!depthLib.hasData(d)&&photo){
+        try{const im=nativeImage.createFromDataURL(photo.photo),sz=im.getSize();
+          const r=await require('./depthimg').read({width:sz.width,height:sz.height,data:im.toBitmap(),bgra:true},{hint:{symbol,last:d.last,change:d.change}});
+          if(r&&depthLib.hasData(r))d=r}catch(e){console.error('depthimg',e)}
+        if(!depthLib.hasData(d)&&visionAI()){const r=await readDepthImage(photo.photo.split(',')[1]);if(r.found)d={...r,symbol:r.symbol||symbol}}
+        if(!depthLib.hasData(d))throw new Error('Botun gönderdiği tablo resmi okunamadı.'+(visionAI()?'':' Yedek olarak Grok anahtarı ekleyebilirsin.'))}
     }else{
       if(!visionAI())throw new Error('Ekrandan derinlik okumak için Grok ya da Claude API anahtarı gerekli.');
       const disp=activeDisplay(),shot=await capture(disp);
@@ -638,6 +642,8 @@ app.whenReady().then(()=>{
     return state()});
   ipcMain.handle('tgClick',async(e,{msgId,i,j})=>{
     try{const r=await tg.click(tgCfg().bot,msgId,i,j);if(r.webapp)openTerminal(r.webapp);return {ok:true,...r}}catch(err){return {ok:false,msg:ai.errorText(err)}}});
+  ipcMain.handle('tgMenu',async()=>{if(!tgUser||!tgCfg().bot)return {ok:false,msg:'Önce Telegram\'a bağlan ve bot adını yaz.'};
+    try{const r=await tg.menuApp(tgCfg().bot);openTerminal(r.url);return {ok:true,text:r.text}}catch(err){return {ok:false,msg:ai.errorText(err)}}});
   ipcMain.handle('openUrl',(e,u)=>{if(/^https:\/\//.test(u))openTerminal(u)});
   ipcMain.handle('openExternal',(e,u)=>{if(/^https:\/\/[^\s]+$/.test(String(u)))shell.openExternal(u)});
   // Kayitli Telegram oturumunu sessizce geri yukle.
@@ -647,5 +653,5 @@ app.whenReady().then(()=>{
   if(cfg().live)setLive(true);
   trayTitle();
 });
-app.on('will-quit',()=>globalShortcut.unregisterAll());
+app.on('will-quit',()=>{globalShortcut.unregisterAll();try{require('./depthimg').close()}catch(e){}});
 app.on('window-all-closed',e=>e.preventDefault());

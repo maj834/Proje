@@ -14,7 +14,7 @@ function num(s){
   if(/^\d{1,3}(\.\d{3})+$/.test(s))return +s.replace(/\./g,'')*mul;          // 4.342.512
   if(/^\d{1,3}(,\d{3})+$/.test(s)&&!/,\d{1,2}$/.test(s))return +s.replace(/,/g,'')*mul;
   if(/,\d+$/.test(s))return +s.replace(/\./g,'').replace(',','.')*mul;        // 1.234,56 / 12,13
-  return +s*mul;
+  const v=+s*mul;return Number.isFinite(v)?v:null;
 }
 const TOK=/[-+]?%?\d[\d.,]*[mMkK]?%?/g;
 const isPrice=s=>/^\d{1,6}[.,]\d{1,4}$/.test(s)&&!/^\d{1,3}\.\d{3}$/.test(s);
@@ -35,11 +35,12 @@ function parseText(text,hint={}){
     const l=raw.replace(/[*_`]/g,'');
     // Ozet alanlar
     const kv=(re)=>{const m=l.match(re);return m?num(m[1]):null};
-    d.last=d.last??kv(/(?:son|fiyat|anl[ıi]k|last)\s*[:=]?\s*₺?\s*([\d.,]+)/i)??kv(/₺\s*([\d.,]+)/);
+    d.last=d.last??kv(/(?:son|fiyat|anl[ıi]k|last)\s*[:=]?\s*₺?\s*([\d.,]+)/i)??kv(/₺\s*([\d.,]+)/)??kv(/([\d.,]+)\s*(?:TL\b|₺)/i);
     d.ceiling=d.ceiling??kv(/tavan\s*[:=]?\s*([\d.,]+)/i);d.floor=d.floor??kv(/taban\s*[:=]?\s*([\d.,]+)/i);
     d.change=d.change??kv(/([-+]\d[\d.,]*)\s*%/)??kv(/%\s*([-+]\d[\d.,]*)/);
+    if(d.change==null){const m=l.match(/([-+])\s*%\s*(\d[\d.,]*)/);if(m)d.change=num(m[1]+m[2])}
     const br=l.match(/al[ıi][sş]\s*\/\s*sat[ıi][sş][^\d%]*%?\s*([\d.,]+)\s*%?/i);if(br)d.buyRatio=num(br[1]);
-    if(br||/tavan|taban|₺|\b(son|fiyat|anl[ıi]k|last)\b\s*[:=]/i.test(l))continue; // ozet satiri
+    if(br||/\d\s*TL\b|tavan|taban|₺|\b(son|fiyat|anl[ıi]k|last)\b\s*[:=]/i.test(l))continue; // ozet satiri
     // Bolum basligi mi?
     const toks=l.match(TOK)||[];
     const s=SEC.find(([re])=>re.test(l));
