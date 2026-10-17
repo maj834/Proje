@@ -36,6 +36,10 @@ Analiz sekmesinin üstüne hisse kodunu (ör. `THYAO`), zaman dilimini ve borsay
 - **Fiyat ölçeği:** Ekrandaki mumlar gerçek mumlarla eşleştirilir (en iyi kaydırma + doğrusal uyum, r² ≥ 0,97). Eşleşince destek/direnç, derinlik duvarları, Fibonacci, ölçüm ve alarm çizgileri gerçek fiyatla etiketlenir. Grafiğin zaman dilimi seçimle aynı olmalı.
 - **Gerçek veriden analiz:** RSI, MACD, EMA, skor ve AL/SAT sinyalleri gerçek fiyatlardan, tarihleriyle hesaplanır; geçmiş sinyallerin 5 mum sonra doğru çıkma oranı gösterilir (komisyon/kayma hariç, tavsiye değildir).
 
+## Grok (xAI) ile görsel okuma (isteğe bağlı)
+
+Ayarlar › **Grok (xAI) anahtarı** kartına anahtarı gir, **Modelleri getir** ile hesabındaki görsel destekli modelleri listele (boş bırakılırsa en uygun model otomatik seçilir). Analiz sekmesinde **Grok** motorunu seçince grafik görsel olarak okunur: sembol, fiyat ekseni ölçeği, destek/direnç, formasyonlar ve Türkçe yorum; yerel indikatörler ve teknik skorla birleştirilir. Ekrandan derinlik okuma ve bot resimleri de Grok ile çalışır. Canlı mod varsayılan olarak ücretsiz motorla çalışır; Grok yalnızca seçilince ya da ayarda açılınca kullanılır. Anahtar Anahtar Zinciri ile şifreli saklanır.
+
 ## Analiz
 
 Her analizde (Hızlı ve Claude) şunlar hesaplanır:
@@ -120,6 +124,8 @@ GitHub Actions her push'ta macOS için imzasız bir `.dmg` üretir (Actions › 
 | `main.js` | Menü çubuğu, kısayollar, ekran görüntüsü, canlı mod, bildirimler, ayarlar |
 | `engine.js` | Yerel mum grafiği okuyucu (piksel analizi) |
 | `ai.js` | Claude API isteği ve maliyet hesabı (isteğe bağlı) |
+| `grok.js` | xAI Grok ile grafik ve derinlik okuma (isteğe bağlı) |
+| `calendar.js` | BIST seans takvimi, tatiller ve yarım günler |
 | `market.js` | Yahoo Finance ve Alpha Vantage: mumlar, fiyat, haberler, önbellek ve kota |
 | `tg.js` | Telegram bağlantısı (GramJS) |
 | `depth.js` | Derinlik verisi ayrıştırma, duvarlar, al/sat baskısı ve trendi |

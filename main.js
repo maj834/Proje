@@ -2,6 +2,7 @@ const {app,BrowserWindow,Tray,screen,desktopCapturer,ipcMain,globalShortcut,nati
 const fs=require('fs'),path=require('path');
 const engine=require('./engine');
 const ai=require('./ai');
+const grok=require('./grok');
 const depthLib=require('./depth');
 const tg=require('./tg');
 const sync=require('./sync');
@@ -38,11 +39,16 @@ function setKey(k){
 }
 const model=()=>ai.MODELS.some(m=>m.id===cfg().model)?cfg().model:ai.MODELS[0].id;
 const interval=()=>INTERVALS.includes(cfg().interval)?cfg().interval:2;
-const engineName=()=>cfg().engine==='piyasa'?'piyasa':cfg().engine==='claude'&&getKey()?'claude':'yerel';
+const grokKey=()=>dec(cfg().grokKey)||null;
+const engineName=()=>cfg().engine==='piyasa'?'piyasa':cfg().engine==='claude'&&getKey()?'claude':cfg().engine==='grok'&&grokKey()?'grok':'yerel';
+// Gorsel okuma (derinlik ekrani / bot resmi) icin kullanilabilir yapay zeka: secili olan, yoksa anahtari olan.
+const visionAI=()=>{const e=cfg().engine;if(e==='grok'&&grokKey())return 'grok';if(getKey())return 'claude';if(grokKey())return 'grok';return null};
+async function readDepthImage(img){const v=visionAI();if(v==='grok'){try{return await grok.analyzeDepth({key:grokKey(),model:cfg().grokModel||null,img})}catch(e){throw new Error(grok.errorText(e))}}
+  const r=await ai.analyzeDepth({key:getKey(),model:model(),img});addCost(r.cost);return r}
 const mkt=()=>({symbol:cfg().symbol||'',tf:market.TF[cfg().tf]?cfg().tf:'1g',market:cfg().market==='US'?'US':'BIST'});
 const avKey=()=>dec(cfg().avKey)||null;
 // Canli mod, kullanici ayarlardan acikca izin vermedikce ucretsiz yerel motoru kullanir.
-const liveEngine=()=>cfg().liveAi&&getKey()?'claude':cfg().engine==='piyasa'&&cfg().symbol?'piyasa':'yerel';
+const liveEngine=()=>cfg().liveAi&&cfg().engine==='grok'&&grokKey()?'grok':cfg().liveAi&&getKey()?'claude':cfg().engine==='piyasa'&&cfg().symbol?'piyasa':'yerel';
 const month=()=>new Date().toISOString().slice(0,7);
 // Mum renkleri: 'auto' (varsayilan), 'green-red' ya da {up:'#rrggbb',down:'#rrggbb',tol}.
 const HEX=/^#[0-9a-f]{6}$/i;
@@ -140,7 +146,7 @@ function drawOverlay(a,d,anim){
   placeOverlay(d);lastResult=a;
   const live=liveSignal();recordSignal(live,a);
   sendOv('draw',{...a,anim,show:ind(),live});syncOverlay();
-  if(lastDepth&&a.engine==='claude')pushDepthOverlay();
+  if(lastDepth&&(a.engine==='claude'||a.engine==='grok'))pushDepthOverlay();
   clearTimeout(fadeTimer);
   if(!cfg().live&&!cfg().pin)fadeTimer=setTimeout(clearAnalysis,30000);
 }
@@ -228,7 +234,7 @@ const pendingAlarms=()=>Object.values(cfg().drawings||{}).some(l=>l.some(x=>x.t=
 function merge(a,local){
   if(!local.chart_found)return a;
   const f=[...(local.factors||[])],cv=a.bias==='yukselis'?1:a.bias==='dusus'?-1:0;
-  if(cv)f.unshift({v:Math.round(cv*a.confidence/4),t:'Claude: '+(cv>0?'yükseliş':'düşüş')+' (%'+a.confidence+')'});
+  if(cv)f.unshift({v:Math.round(cv*a.confidence/4),t:(a.engine==='grok'?'Grok':'Claude')+': '+(cv>0?'yükseliş':'düşüş')+' (%'+a.confidence+')'});
   let rr=local.rr;
   const R=(a.resistances||[])[0],S=(a.supports||[])[0];
   if(typeof a.last_price==='number'&&R&&S&&R.price!=null&&S.price!=null&&R.price>a.last_price&&S.price<a.last_price)
@@ -242,6 +248,7 @@ async function analyze(opts={}){
   if(busy)return;
   const eng=opts.engine||(opts.silent?liveEngine():engineName());
   const key=eng==='claude'?getKey():null;
+  if(eng==='grok'&&!grokKey()){send('err',{msg:'Grok analizi için Ayarlar sekmesinden xAI API anahtarını gir.',settings:true});return opts.silent||showPop()}
   if(eng==='claude'&&!key){send('err',{msg:'Claude analizi için Ayarlar sekmesinden API anahtarını gir. Anahtarsız da Hızlı (yerel) analiz kullanılabilir.',settings:true});return opts.silent||showPop()}
   if(!screenAllowed()){
     try{await desktopCapturer.getSources({types:['screen'],thumbnailSize:{width:1,height:1}})}catch(e){} // izin istemini tetikler
@@ -256,15 +263,16 @@ async function analyze(opts={}){
     const {width:W,height:H}=shot.getSize();
     const local=engine.analyzeBitmap(shot.toBitmap(),W,H,{colors:candleColors()});
     let a=local;
-    if(eng==='claude'){
-      send('busy',1);
+    if(eng==='claude'||eng==='grok'){
+      send('busy',{text:(eng==='grok'?'Grok':'Claude')+' okuyor…'});
       // Grafik alani bulunduysa yalnizca o bolumu (fiyat ekseniyle) gonder: daha az token, daha net okuma.
       let crop=null,img=shot;
       if(local.chart_found){const b=local.chart_box;
         const x=Math.max(0,b.x1-0.03),y=Math.max(0,b.y1-0.08),x2=Math.min(1,b.x2+0.14),y2=Math.min(1,b.y2+0.08);
         if((x2-x)*(y2-y)<0.85){crop={x,y,w:x2-x,h:y2-y};img=shot.crop({x:Math.round(x*W),y:Math.round(y*H),width:Math.round(crop.w*W),height:Math.round(crop.h*H)})}}
-      a=await ai.analyze({key,model:model(),img:img.toJPEG(82).toString('base64'),crop,effort:opts.silent?'low':'medium'});
-      addCost(a.cost);
+      const jpg=img.toJPEG(82).toString('base64');
+      if(eng==='grok'){try{a=await grok.analyze({key:grokKey(),model:cfg().grokModel||null,img:jpg,crop})}catch(e){throw new Error(grok.errorText(e))}}
+      else{a=await ai.analyze({key,model:model(),img:jpg,crop,effort:opts.silent?'low':'medium'});addCost(a.cost)}
       a=merge(a,local);
       lastAi=a;
     }else if(eng==='piyasa'){
@@ -274,13 +282,13 @@ async function analyze(opts={}){
     const prev=lastResult;
     if(local.chart_found){const cur={d:dkey(d),y:local.last.y,p:lastPrice(a,local),sym:a.symbol||mkt().symbol||null};if(lastLocal&&lastLocal.d===cur.d)checkAlarms(d,lastLocal,cur,a);lastLocal=cur}
     // Canli yerel takipte son 60 sn icindeki Claude sonucunu (fiyatli seviyeler) koru, yalnizca son fiyat noktasini guncelle.
-    if(opts.silent&&eng==='yerel'&&prev&&prev.engine==='claude'&&Date.now()-prev.at<60000&&local.chart_found&&change<0.25){
+    if(opts.silent&&eng==='yerel'&&prev&&(prev.engine==='claude'||prev.engine==='grok')&&Date.now()-prev.at<60000&&local.chart_found&&change<0.25){
       const keep={...prev,last:local.last,lines:local.lines,ind:local.ind,signals:local.signals,lastCandle:local.lastCandle};drawOverlay(keep,d,false);checkAlerts(prev,keep);return}
     a.at=Date.now();
     a.confidence=Math.max(0,Math.min(100,Math.round(a.confidence||0)));
-    const entry={...a,model:eng==='claude'?model():null};
+    const entry={...a,model:eng==='claude'?model():eng==='grok'?(a.model||cfg().grokModel||null):null};
     if(a.chart_found){
-      if(!opts.silent||eng==='claude')save({history:[slim(entry),...(cfg().history||[]).map(slim)].slice(0,HISTORY_MAX)});
+      if(!opts.silent||eng==='claude'||eng==='grok')save({history:[slim(entry),...(cfg().history||[]).map(slim)].slice(0,HISTORY_MAX)});
       drawOverlay(a,d,!opts.silent);checkAlerts(prev,a);
     }else if(!opts.silent)clearAnalysis();
     send('result',{...entry,silent:!!opts.silent,usage:state().usage});
@@ -408,12 +416,12 @@ async function fetchDepth(opts={}){
       d=depthLib.parseText(messages.map(m=>m.text).join('\n'),{symbol});
       // Bot veriyi resim olarak gonderdiyse ve anahtar varsa Claude ile oku.
       const photo=messages.find(m=>m.photo);
-      if(!depthLib.hasData(d)&&photo&&getKey()){
-        const r=await ai.analyzeDepth({key:getKey(),model:model(),img:photo.photo.split(',')[1]});addCost(r.cost);if(r.found)d={...r,symbol:r.symbol||symbol}}
+      if(!depthLib.hasData(d)&&photo&&visionAI()){
+        const r=await readDepthImage(photo.photo.split(',')[1]);if(r.found)d={...r,symbol:r.symbol||symbol}}
     }else{
-      if(!getKey())throw new Error('Ekrandan derinlik okumak için Claude API anahtarı gerekli.');
+      if(!visionAI())throw new Error('Ekrandan derinlik okumak için Grok ya da Claude API anahtarı gerekli.');
       const disp=activeDisplay(),shot=await capture(disp);
-      const r=await ai.analyzeDepth({key:getKey(),model:model(),img:shot.toJPEG(85).toString('base64')});addCost(r.cost);
+      const r=await readDepthImage(shot.toJPEG(85).toString('base64'));
       if(!r.found)throw new Error('Ekranda derinlik tablosu bulunamadı. Derinlik terminalini açık tut.');
       d={...r,symbol:r.symbol||symbol};
     }
@@ -511,6 +519,7 @@ async function diagnostics(){
   catch(e){add('Yahoo Finance','fail','Ulaşılamadı: '+e.message)}
   const left=market.avLeft();
   add('Alpha Vantage',avKey()?(left>0?'ok':'warn'):'ok',avKey()?'Anahtar kayıtlı · bugün '+left+'/25 istek kaldı (kontrol istek atmaz).':'Anahtar yok (isteğe bağlı; BIST için gerekmez).');
+  add('Grok (xAI)','ok',grokKey()?'Anahtar kayıtlı'+(cfg().grokModel?' · model '+cfg().grokModel:' · model otomatik')+' (kontrol istek atmaz).':'Anahtar yok (isteğe bağlı).');
   add('Claude API','ok',getKey()?'Anahtar kayıtlı (kontrol istek atmaz).':'Anahtar yok (isteğe bağlı; Hızlı analiz ücretsiz).');
   const t=tgCfg();
   add('Telegram',tgUser?'ok':t.session?'warn':'ok',tgUser?'Bağlı'+(t.bot?' · bot ayarlı':' · bot adı yazılmadı'):t.session?'Kayıtlı oturum var ama bağlantı kurulamadı.':'Kurulmamış (isteğe bağlı).');
@@ -535,7 +544,7 @@ function parseTest(text){
 
 function state(){
   const u=cfg().usage||{};
-  return{hasKey:!!getKey(),live:!!cfg().live,model:model(),models:ai.MODELS,interval:interval(),intervals:INTERVALS,engine:engineName(),mkt:mkt(),hasAv:!!avKey(),avLeft:market.avLeft(),tfs:Object.keys(market.TF),liveAi:!!cfg().liveAi,
+  return{hasGrok:!!grokKey(),grokModel:cfg().grokModel||'',grokModels:cfg().grokModels||[],hasKey:!!getKey(),live:!!cfg().live,model:model(),models:ai.MODELS,interval:interval(),intervals:INTERVALS,engine:engineName(),mkt:mkt(),hasAv:!!avKey(),avLeft:market.avLeft(),tfs:Object.keys(market.TF),liveAi:!!cfg().liveAi,
     history:cfg().history||[],perm:screenAllowed(),secure:safeStorage.isEncryptionAvailable(),alerts:!!cfg().alerts,pin:!!cfg().pin,ind:ind(),
     login:process.platform==='darwin'&&app.getLoginItemSettings().openAtLogin,alarms:Object.values(cfg().drawings||{}).flat().filter(x=>x.t==='alarm'&&!x.fired).length,
     usage:u.month===month()?u:{cost:0,count:0,total:u.total||0},sb:{...sync.state(),on:!!cfg().sbOn},
@@ -565,14 +574,19 @@ app.whenReady().then(()=>{
   ipcMain.handle('testNotify',()=>{if(!Notification.isSupported())return false;new Notification({title:'Grafik Okuyucu',body:'Test bildirimi: bildirimler çalışıyor.'}).show();return true});
   ipcMain.handle('parseTest',(e,t)=>parseTest(t));
   ipcMain.handle('scSet',(e,o)=>setShortcut(o&&o.name,o&&o.acc));
-  ipcMain.handle('analyze',(e,eng)=>analyze({engine:['claude','yerel','piyasa'].includes(eng)?eng:undefined}));
+  ipcMain.handle('analyze',(e,eng)=>analyze({engine:['claude','yerel','piyasa','grok'].includes(eng)?eng:undefined}));
+  // Grok: anahtari dogrula ve gorsel destekli modelleri listele (tek istek, kredi harcamaz).
+  ipcMain.handle('grokTest',async()=>{if(!grokKey())return {ok:false,msg:'Önce anahtarı kaydet.'};
+    try{const r=await grok.test(grokKey());save({grokModels:r.visionModels});return {ok:true,models:r.visionModels,state:state()}}catch(e){return {ok:false,msg:grok.errorText(e)}}});
   ipcMain.handle('key',(e,k)=>{setKey(typeof k==='string'?k.trim():'');trayTitle();return state()});
   ipcMain.handle('cfg',state);
   ipcMain.handle('live',(e,on)=>setLive(!!on));
   ipcMain.handle('set',(e,o)=>{
     if(ai.MODELS.some(x=>x.id===o.model))save({model:o.model});
     if(INTERVALS.includes(o.interval)){save({interval:o.interval});if(cfg().live)setLive(true)}
-    if(['yerel','claude','piyasa'].includes(o.engine)){save({engine:o.engine});lastSig=null;trayTitle()}
+    if(typeof o.grokKey==='string'){const k=o.grokKey.trim();if(k&&!grok.validKey(k))return {...state(),err:'Grok anahtarı "xai-" ya da "grok_" ile başlamalı.'};save({grokKey:k?enc(k):undefined});if(!k&&cfg().engine==='grok')save({engine:'yerel'})}
+    if(typeof o.grokModel==='string')save({grokModel:o.grokModel.trim().slice(0,60)||undefined});
+    if(['yerel','claude','piyasa','grok'].includes(o.engine)){save({engine:o.engine});lastSig=null;trayTitle()}
     if(typeof o.symbol==='string'){const sy=o.symbol.trim().slice(0,20);save({symbol:sy});if(sy)save({depthSymbol:sy.toLocaleUpperCase('tr-TR')})}
     if(market.TF[o.tf])save({tf:o.tf});
     if(o.market==='BIST'||o.market==='US')save({market:o.market});

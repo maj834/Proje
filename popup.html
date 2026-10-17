@@ -121,6 +121,7 @@ textarea.inp{height:110px;padding:6px var(--s2);resize:vertical;font:400 11.5px/
     <div class="seg" id="seg">
       <button data-e="yerel"><b>Hızlı</b><span>Ekran · çevrimdışı</span></button>
       <button data-e="piyasa"><b>Piyasa verisi</b><span>Gerçek fiyat · haber</span></button>
+      <button data-e="grok" id="seggr"><b>Grok</b><span>Görsel okuma</span></button>
       <button data-e="claude" id="segcl"><b>Claude</b><span id="cl-sub">Görsel okuma</span></button>
     </div>
     <div class="act">
@@ -196,6 +197,12 @@ textarea.inp{height:110px;padding:6px var(--s2);resize:vertical;font:400 11.5px/
       <div id="avst" class="m" style="margin-bottom:8px"></div>
       <div class="row"><input class="inp f1 num" id="avkey" type="password" placeholder="Alpha Vantage anahtarı" autocomplete="off"><button class="btn dn" id="avdel">Sil</button><button class="btn pri" id="avsave">Kaydet</button></div>
     </div>
+    <div class="c"><div class="t">Grok (xAI) anahtarı (isteğe bağlı)</div>
+      <div id="grst" class="m" style="margin-bottom:8px"></div>
+      <div class="row"><input class="inp f1 num" id="grkey" type="password" placeholder="xai-… ya da grok_…" autocomplete="off"><button class="btn dn" id="grdel">Sil</button><button class="btn pri" id="grsave">Kaydet</button></div>
+      <div class="row" id="grmrow" style="margin-top:6px"><select id="grmodel" class="f1"></select><button class="btn" id="grtest">Modelleri getir</button></div>
+      <div class="m" style="margin-top:6px">Grok grafiği görsel olarak okur: sembol, fiyat ekseni, seviyeler ve yorum. Ekrandan derinlik okumada ve bot resimlerinde de kullanılır. İstekler xAI hesabından ücretlendirilir.</div>
+    </div>
     <div class="c"><div class="t">Claude API anahtarı (isteğe bağlı)</div>
       <div id="kst" class="m" style="margin-bottom:8px"></div>
       <input type="password" id="key" placeholder="sk-ant-..." autocomplete="off" spellcheck="false">
@@ -248,7 +255,10 @@ function idle(){$('go').disabled=false;$('gol').textContent='Ekranı Analiz Et'}
 const perCall=()=>C.usage&&C.usage.count>2?C.usage.cost/C.usage.count:EST[C.model]||0.002;
 function ui(){
   document.querySelectorAll('#seg button').forEach(b=>b.classList.toggle('on',b.dataset.e===C.engine));
-  $('cl-sub').textContent='~'+usd(perCall())+'/analiz';$('segcl').style.display=C.hasKey?'':'none';
+  $('cl-sub').textContent='~'+usd(perCall())+'/analiz';$('segcl').style.display=C.hasKey?'':'none';$('seggr').style.display=C.hasGrok?'':'none';
+  $('grst').textContent=C.hasGrok?'Kayıtlı · model '+(C.grokModel||'otomatik (görsel destekli en uygun model)'):'Anahtar yok.';
+  $('grdel').style.display=C.hasGrok?'':'none';$('grmrow').style.display=C.hasGrok?'':'none';
+  {const sel=$('grmodel'),ms=['',...(C.grokModels||[])];if(sel.options.length!==ms.length||[...sel.options].some((o,i)=>o.value!==ms[i])){sel.replaceChildren(...ms.map(m=>el('option',{value:m},m||'Otomatik')))}sel.value=C.grokModel||''}
   const M=C.mkt||{};if(document.activeElement!==$('msym'))$('msym').value=M.symbol||'';$('mmkt').value=M.market||'BIST';
   if(!$('mtf').options.length)(C.tfs||['1dk','5dk','15dk','1s','1g','1h']).forEach(t=>$('mtf').append(el('option',{value:t},{'1dk':'1 dk','5dk':'5 dk','15dk':'15 dk','1s':'1 saat','1g':'Günlük','1h':'Haftalık'}[t]||t)));
   $('mtf').value=M.tf||'1g';
@@ -291,7 +301,7 @@ function render(a,anim=true){
   const [bl,col,ar]=BIAS[a.bias]||BIAS.notr,local=a.engine==='yerel';
   out.append(el('div',{class:'c'},
     el('div',{class:'row'},
-      el('div',{class:'f1'},el('div',{class:'sym'},a.symbol||'Grafik',el('span',{class:'etag'},local?'YEREL':a.engine==='piyasa'?'PİYASA':'CLAUDE')),el('div',{class:'m'},[a.timeframe,a.trend,local&&a.candles?a.candles+' mum':null,a.colorMode&&a.colorMode!=='green-red'?'renk: '+({'auto-hue':'otomatik ton',custom:'özel'}[a.colorMode]||a.colorMode):null,a.candleStyle==='hollow'?'içi boş mumlar':null].filter(Boolean).join(' · '))),
+      el('div',{class:'f1'},el('div',{class:'sym'},a.symbol||'Grafik',el('span',{class:'etag'},local?'YEREL':({piyasa:'PİYASA',grok:'GROK'}[a.engine]||'CLAUDE'))),el('div',{class:'m'},[a.timeframe,a.trend,local&&a.candles?a.candles+' mum':null,a.colorMode&&a.colorMode!=='green-red'?'renk: '+({'auto-hue':'otomatik ton',custom:'özel'}[a.colorMode]||a.colorMode):null,a.candleStyle==='hollow'?'içi boş mumlar':null].filter(Boolean).join(' · '))),
       el('span',{class:'pill',style:'background:'+col},ar+' '+bl)),
     el('div',{class:'row',style:'margin-top:8px'},el('span',{class:'m f1'},'Güven'),el('b',{},'%'+a.confidence)),
     el('div',{class:'bar'},el('i',{style:'width:'+a.confidence+'%;background:'+col+(anim?'':';transition:none')}))));
@@ -323,7 +333,7 @@ function render(a,anim=true){
   if(a.breakout)out.append(el('div',{class:'c'},el('div',{class:'t'},'Kırılım'),a.breakout));
   out.append(el('div',{class:'c'},el('div',{class:'t'},'Yorum'),el('div',{style:'line-height:1.55'},a.comment||'')));
   if(local)out.append(el('div',{class:'info'},icon('info'),el('span',{},'Hızlı analiz mumların konumunu okur; fiyat yazmaz. Fiyatlı seviyeler ve yorum için ',el('a',{onclick:()=>pick('claude')},'Claude AI'),' seç. Ekrandaki AL/SAT işaretleri yalnızca görünen mumlardan hesaplanır; grafik kaydırılınca değişebilir.')));
-  else out.append(el('div',{class:'m',style:'text-align:center;margin-top:10px'},(a.model||'').replace('claude-','').replace(/-(\d)-(\d)$/,' $1.$2')+(a.cost?' · '+usd(a.cost):'')+' · '+hm(a.at)));
+  else out.append(el('div',{class:'m',style:'text-align:center;margin-top:10px'},(a.model||'').replace('claude-','').replace(/^grok/,'Grok').replace(/-(\d)-(\d)$/,' $1.$2')+(a.cost?' · '+usd(a.cost):'')+' · '+hm(a.at)));
   fit();
 }
 
@@ -484,6 +494,11 @@ $('msym').onkeydown=e=>{if(e.key==='Enter'){e.target.blur();api.set({symbol:e.ta
 $('mtf').onchange=async e=>{C=await api.set({tf:e.target.value});ui()};
 $('mmkt').onchange=async e=>{C=await api.set({market:e.target.value});ui()};
 $('avsave').onclick=async()=>{const r=await api.set({avKey:$('avkey').value});$('avkey').value='';if(r.err)toast(r.err);else{C=r;toast('Kaydedildi')}ui()};
+$('grsave').onclick=async()=>{const r=await api.set({grokKey:$('grkey').value});$('grkey').value='';if(r.err)toast(r.err);else{C=r;toast('Kaydedildi')}ui()};
+$('grdel').onclick=async()=>{C=await api.set({grokKey:''});ui()};
+$('grmodel').onchange=async e=>{C=await api.set({grokModel:e.target.value});ui()};
+$('grtest').onclick=async()=>{$('grtest').disabled=true;const r=await api.grokTest();$('grtest').disabled=false;
+  if(r.ok){C=r.state;toast(r.models.length?r.models.length+' görsel destekli model bulundu':'Görsel destekli model bulunamadı');ui()}else toast(r.msg)};
 $('avdel').onclick=async()=>{C=await api.set({avKey:''});ui()};
 $('sigs').onchange=async e=>{C=await api.depthSet({signals:e.target.checked})};
 api.on('depthErr',e=>{$('dgo').disabled=false;$('dgo').textContent='Getir';$('derr').textContent=e.msg;$('derr').style.display='block';tab('dp');fit()});
@@ -523,7 +538,7 @@ function scUi(){
   $('scl').replaceChildren(...Object.keys(SCN).map(k=>{const v=s[k]||{},cap=capName===k;
     return el('div',{class:'scr'},el('span',{class:'f1'},SCN[k],v.acc&&!v.ok?el('span',{class:'m',style:'color:var(--warn)'},' · kayıtsız'):null),el('kbd',{},cap?'Tuşlara bas…':accTxt(v.acc)||'—'),
       el('button',{class:'btn',onclick:()=>cap?capEnd():capStart(k)},cap?'İptal':'Değiştir'))}));
-  if(s.analyze)$('sca').textContent=accTxt(s.analyze.acc);if(s.draw)$('drawb').title='Çizim modu ('+accTxt(s.draw.acc)+')';if(s.live)$('live').parentNode.title=accTxt(s.live.acc);
+  if(s.analyze&&$('sca'))$('sca').textContent=accTxt(s.analyze.acc); // bos durum metni sonuc gelince kalkarif(s.draw)$('drawb').title='Çizim modu ('+accTxt(s.draw.acc)+')';if(s.live)$('live').parentNode.title=accTxt(s.live.acc);
 }
 async function capStart(k){capName=k;$('scerr').style.display='none';scUi();C.shortcuts=await api.scCapture(true)||C.shortcuts}
 async function capEnd(){if(!capName)return;capName=null;C.shortcuts=await api.scCapture(false);scUi()}

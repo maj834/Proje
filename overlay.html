@@ -134,7 +134,7 @@ function drawAnalysis(a){
   if(a.last){const cx=a.last.x*W,cy=a.last.y*H,c=(BIAS[a.bias]||BIAS.notr)[1];
     S('circle',{cx,cy,r:5,fill:c,class:'pulse'},an);S('circle',{cx,cy,r:4,fill:c,stroke:'#fff','stroke-width':1.5},an)}
   const [bl,c,ar]=BIAS[a.bias]||BIAS.notr;
-  b.replaceChildren();const eng=document.createElement('span');eng.className='eng';eng.textContent=a.engine==='claude'?'CLAUDE':a.engine==='piyasa'?'PİYASA':'YEREL';
+  b.replaceChildren();const eng=document.createElement('span');eng.className='eng';eng.textContent={claude:'CLAUDE',grok:'GROK',piyasa:'PİYASA'}[a.engine]||'YEREL';
   const sm=document.createElement('small');sm.textContent='Güven %'+a.confidence+(a.patterns&&a.patterns.length?' · '+a.patterns[0]:'');
   b.append(eng,(a.symbol?a.symbol+'  ':'')+ar+' '+bl,sm);b.style.setProperty('--bc',c);b.style.display='flex';
   if(a.anim){b.classList.remove('in');void b.offsetWidth;b.classList.add('in')}

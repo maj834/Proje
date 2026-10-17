@@ -8,6 +8,6 @@ contextBridge.exposeInMainWorld('api',{
   depth:o=>i.invoke('depth',o),depthSet:o=>i.invoke('depthSet',o),openUrl:u=>i.invoke('openUrl',u),openExternal:u=>i.invoke('openExternal',u),
   sbConnect:p=>i.invoke('sbConnect',p),sbLogout:()=>i.invoke('sbLogout'),sbToggle:o=>i.invoke('sbToggle',o),sbFlush:()=>i.invoke('sbFlush'),
   scCapture:on=>i.invoke('scCapture',on),scSet:o=>i.invoke('scSet',o),diag:()=>i.invoke('diag'),testNotify:()=>i.invoke('testNotify'),parseTest:t=>i.invoke('parseTest',t),
-  openPerm:()=>i.invoke('openPerm'),openBilling:()=>i.invoke('openBilling'),quit:()=>i.invoke('quit'),
+  grokTest:()=>i.invoke('grokTest'),openPerm:()=>i.invoke('openPerm'),openBilling:()=>i.invoke('openBilling'),quit:()=>i.invoke('quit'),
   on:(c,f)=>{if(CH.includes(c))i.on(c,(_,d)=>f(d))}
 });
