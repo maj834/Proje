@@ -82,13 +82,23 @@ a{color:var(--acc);cursor:pointer;text-decoration:none}
 .spark{width:100%;height:34px;display:block;margin-top:4px}
 .toast{position:fixed;left:50%;bottom:58px;transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:6px 12px;border-radius:9px;font-size:12px;font-weight:600;opacity:0;transition:opacity .25s;pointer-events:none}
 .toast.on{opacity:1}
+.dt{width:100%;border-collapse:collapse;font-size:11.5px;font-variant-numeric:tabular-nums}
+.dt td{padding:3px 4px;position:relative}.dt td.b{color:var(--up);font-weight:700}.dt td.a{color:var(--dn);font-weight:700}
+.dt .bar{position:absolute;top:2px;bottom:2px;opacity:.16;border-radius:3px}
+.msg{white-space:pre-wrap;font:11.5px/1.45 ui-monospace,Menlo,monospace;background:var(--card2);border-radius:9px;padding:8px;margin-top:6px;max-height:220px;overflow:auto;-webkit-user-select:text;user-select:text}
+.msg img{max-width:100%;border-radius:6px;margin-top:6px}
+.btns{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}
+.inp{width:100%;padding:8px 10px;border-radius:9px;border:1px solid var(--ln);background:var(--card);color:var(--fg);font:13px inherit;outline:none}
+.inp:focus{border-color:var(--acc);box-shadow:0 0 0 3px rgba(79,107,255,.18)}
+#ask{position:fixed;inset:0;background:rgba(0,0,0,.35);display:none;align-items:center;justify-content:center;z-index:9}
+#ask .c{width:310px;margin:0;box-shadow:0 20px 50px rgba(0,0,0,.4);background:var(--bg)}
 </style></head><body><div class="win" id="win">
 <div class="h">
   <div class="logo"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12.5 6 8l3 2.5L14 4"/><path d="M10.5 4H14v3.5"/></svg></div>
   <div class="f1"><b>Grafik Okuyucu</b><div class="sub" id="sub">Hazır</div></div>
   <span class="livepill" id="lp"><span class="dot live"></span>CANLI</span>
 </div>
-<div class="tabs"><button data-p="an" class="on">Analiz</button><button data-p="hs">Geçmiş</button><button data-p="st">Ayarlar</button></div>
+<div class="tabs"><button data-p="an" class="on">Analiz</button><button data-p="dp">Derinlik</button><button data-p="hs">Geçmiş</button><button data-p="st">Ayarlar</button></div>
 <div class="body" id="body">
   <section class="pane on" id="an">
     <div class="seg" id="seg">
@@ -104,6 +114,17 @@ a{color:var(--acc);cursor:pointer;text-decoration:none}
     <div class="alert" id="err"><div id="errm"></div><button class="btn" id="errb" style="display:none"></button></div>
     <div id="out"><div class="empty"><div class="ic">📈</div>Grafiğini ekranda aç ve <b>⌘⇧A</b>'ya bas.<br>Destek, direnç ve trend çizgileri ekranına çizilir.</div></div>
   </section>
+  <section class="pane" id="dp">
+    <div class="row"><input class="inp f1" id="dsym" placeholder="Hisse kodu (ör. PRZMA)" spellcheck="false" style="text-transform:uppercase"><button class="btn pri" id="dgo">Getir</button></div>
+    <div class="seg" style="margin:8px 0 0" id="dsrc">
+      <button data-s="telegram"><b>✈︎ Telegram botu</b><span id="dsrc-tg">Bağlı değil</span></button>
+      <button data-s="ekran"><b>🖥 Ekrandan</b><span>Terminali Claude okur</span></button>
+    </div>
+    <div class="row" style="margin-top:8px"><span class="m f1">Otomatik yenile</span><select id="dauto" style="width:120px"><option value="0">Kapalı</option><option value="15">15 sn</option><option value="30">30 sn</option><option value="60">1 dk</option><option value="120">2 dk</option></select></div>
+    <label class="tg"><span class="f1 m">Grafikte duvar etiketleri ve baskı kartı</span><span class="sw"><input type="checkbox" id="dov"><span></span></span></label>
+    <div class="alert" id="derr"></div>
+    <div id="dout"><div class="empty"><div class="ic">📊</div>Hisse kodunu yazıp <b>Getir</b>'e bas.<br>Telegram botundan derinlik, aracı kurum ve işlemler gelir.</div></div>
+  </section>
   <section class="pane" id="hs"><div id="hl"></div></section>
   <section class="pane" id="st">
     <div class="c"><div class="t">Canlı mod</div>
@@ -113,6 +134,16 @@ a{color:var(--acc);cursor:pointer;text-decoration:none}
       <div class="warn" id="livecost"></div>
       <label class="tg"><span class="f1">Kırılım bildirimleri</span><span class="sw"><input type="checkbox" id="alerts"><span></span></span></label>
       <label class="tg"><span class="f1">Analiz çizgilerini ekranda tut</span><span class="sw"><input type="checkbox" id="pin"><span></span></span></label>
+    </div>
+    <div class="c" id="tgcard"><div class="t">Telegram derinlik botu</div>
+      <div id="tgst" class="m" style="margin-bottom:8px"></div>
+      <div id="tgform">
+        <div class="row"><input class="inp" id="tgid" placeholder="api_id" inputmode="numeric" style="width:110px"><input class="inp f1" id="tghash" type="password" placeholder="api_hash" autocomplete="off"></div>
+        <div class="row" style="margin-top:6px"><input class="inp f1" id="tgphone" placeholder="Telefon (+90…)" inputmode="tel"></div>
+      </div>
+      <div class="row" style="margin-top:6px"><input class="inp f1" id="tgbot" placeholder="Bot kullanıcı adı (@…bot)" spellcheck="false"><input class="inp" id="tgcmd" placeholder="Komut" title="Bota gönderilecek mesaj; {KOD} hisse koduyla değişir" style="width:110px"></div>
+      <div class="row" style="margin-top:8px"><a class="f1 m" id="tghow">api_id nasıl alınır?</a><button class="btn dn" id="tgout">Çıkış</button><button class="btn pri" id="tgconn">Bağlan</button></div>
+      <div class="m" id="tghowtxt" style="display:none;margin-top:8px;line-height:1.5">my.telegram.org › <b>API development tools</b> bölümünden uygulama oluştur; verilen api_id ve api_hash'i buraya yaz. Giriş kodu Telegram'a gelir. Oturum bu Mac'te Anahtar Zinciri ile şifreli saklanır ve yalnızca bota mesaj atmak için kullanılır.</div>
     </div>
     <div class="c"><div class="t">Grafikte göster</div>
       <label class="tg"><span class="f1"><span style="color:#d4a90f">━</span> EMA 20 / <span style="color:#9b5cf0">━</span> EMA 50</span><span class="sw"><input type="checkbox" data-ind="ema"><span></span></span></label>
@@ -133,10 +164,12 @@ a{color:var(--acc);cursor:pointer;text-decoration:none}
       <span>Çizimde araçlar</span><kbd>V T R H B F M A N</kbd><span>Geri al / sil</span><kbd>⌘Z · ⌫</kbd></div></div>
     <div class="c"><div class="t">Ekran kaydı izni</div><div class="row"><div class="f1" id="perm"></div><button class="btn" id="permb">Ayarları Aç</button></div></div>
     <label class="tg c" style="margin-top:10px;padding:8px 12px"><span class="f1">Oturum açılınca başlat</span><span class="sw"><input type="checkbox" id="login"><span></span></span></label>
-    <div class="row" style="margin-top:12px;justify-content:space-between"><span class="m">Sürüm 1.3</span><button class="btn" id="quit">Çıkış</button></div>
+    <div class="row" style="margin-top:12px;justify-content:space-between"><span class="m">Sürüm 1.4</span><button class="btn" id="quit">Çıkış</button></div>
   </section>
 </div>
 <div class="toast" id="toast"></div>
+<div id="ask"><div class="c"><div class="t" id="askt">Telegram girişi</div><div class="m" id="askh" style="margin-bottom:8px"></div>
+  <input class="inp" id="askv" autocomplete="one-time-code"><div class="row" style="margin-top:8px;justify-content:flex-end"><button class="btn" id="askno">İptal</button><button class="btn pri" id="askok">Devam</button></div></div></div>
 <div class="foot"><span class="dot" id="ld"></span><span class="f1" id="lt">Canlı mod kapalı</span><label class="sw" title="⌘⇧L"><input type="checkbox" id="live"><span></span></label></div>
 </div>
 <script>
@@ -169,7 +202,7 @@ function ui(){
   $('lt').textContent=C.live?'Canlı · her '+C.interval+' sn · '+(liveAi?'Claude':'Hızlı (ücretsiz)'):'Canlı mod kapalı';
   $('liveai').checked=C.liveAi;$('liveai').disabled=!C.hasKey;
   $('livecost').textContent=liveAi?'Ekran sürekli değişirse ≈ '+usd(3600/Math.max(C.interval,6)*perCall())+'/saat harcar. Ekran değişmezse istek gitmez.':'';
-  settings();
+  settings();depthUi();
 }
 
 function render(a,anim=true){
@@ -275,6 +308,68 @@ $('permb').onclick=()=>api.openPerm();
 $('quit').onclick=()=>api.quit();
 window.addEventListener('focus',()=>api.cfg().then(c=>{C=c;ui()}));
 
+
+// --- derinlik sekmesi -----------------------------------------------------
+const kf=n=>n==null?'—':Math.abs(n)>=1e6?(n/1e6).toLocaleString('tr-TR',{maximumFractionDigits:1})+'M':Math.abs(n)>=1e4?Math.round(n/1e3).toLocaleString('tr-TR')+'K':n.toLocaleString('tr-TR');
+function depthUi(){
+  const t=C.tg||{};
+  document.querySelectorAll('#dsrc button').forEach(b=>b.classList.toggle('on',b.dataset.s===C.depthSource));
+  $('dsrc-tg').textContent=t.connected?(t.bot||'Bot yazılmadı'):'Bağlı değil';
+  $('dauto').value=String(C.depthAuto||0);$('dov').checked=C.depthOverlay!==false;
+  if(!$('dsym').value&&C.symbol)$('dsym').value=C.symbol;
+  $('tgst').replaceChildren(t.connected?el('span',{class:'ok'},'✓ Bağlı: '+((t.user&&(t.user.username?'@'+t.user.username:t.user.name))||'')):'Bağlı değil. api_id ve api_hash ile bir kez giriş yap.');
+  $('tgform').style.display=t.connected?'none':'';$('tgout').style.display=t.connected?'':'none';$('tgconn').textContent=t.connected?'Kaydet':'Bağlan';
+  if(document.activeElement!==$('tgbot'))$('tgbot').value=t.bot||'';if(document.activeElement!==$('tgcmd'))$('tgcmd').value=t.cmd||'{KOD}';
+  if(!$('tgid').value&&t.apiId)$('tgid').value=t.apiId;$('tghash').placeholder=t.hasHash?'api_hash (kayıtlı)':'api_hash';
+}
+function renderDepth(d){
+  const o=$('dout');o.replaceChildren();
+  const pr=d.pressure,tr=d.trend||{};
+  o.append(el('div',{class:'c'},el('div',{class:'row'},el('div',{class:'f1'},el('div',{class:'sym'},d.symbol||''),el('div',{class:'m'},[d.last!=null?'₺'+fmt(d.last):null,d.change!=null?(d.change>0?'+':'')+fmt(d.change)+'%':null,d.ceiling?'Tavan '+fmt(d.ceiling):null,d.floor?'Taban '+fmt(d.floor):null].filter(Boolean).join(' · '))),
+    pr?el('b',{class:pr.score>=10?'pos':pr.score<=-10?'neg':''},(pr.score>0?'+':'')+pr.score):null),
+    pr?el('div',{class:'gauge'},el('i',{style:'left:'+((pr.score+100)/2)+'%'})):null,
+    pr?el('div',{class:'row',style:'margin-top:6px'},el('b',{class:'f1 '+(tr.dir>0?'pos':tr.dir<0?'neg':'')},(tr.dir>0?'↗ ':tr.dir<0?'↘ ':'→ ')+(tr.text||'')),el('span',{class:'m'},(d.history||[]).length+' ölçüm')):el('div',{class:'m'},'Baskı hesaplanacak veri bulunamadı.'),
+    pr?el('div',{style:'margin-top:6px'},...pr.parts.map(p=>el('div',{class:'fx'},el('span',{},p.k),el('b',{class:p.v>0?'pos':p.v<0?'neg':''},(p.v>0?'+':'')+p.v)))):null));
+  const n=Math.max(d.bids.length,d.asks.length);
+  if(n){const mx=Math.max(1,...d.bids.map(x=>x.qty||0),...d.asks.map(x=>x.qty||0));const tb=el('table',{class:'dt'});
+    tb.append(el('tr',{},...['Emir','Adet','Alış','Satış','Adet','Emir'].map(h=>el('td',{class:'m'},h))));
+    for(let i=0;i<Math.min(n,10);i++){const b=d.bids[i]||{},a=d.asks[i]||{};
+      tb.append(el('tr',{},el('td',{},b.orders??''),el('td',{},el('span',{class:'bar',style:'right:0;width:'+((b.qty||0)/mx*100)+'%;background:var(--up)'}),kf(b.qty)),el('td',{class:'b'},b.price!=null?fmt(b.price):''),
+        el('td',{class:'a'},a.price!=null?fmt(a.price):''),el('td',{},el('span',{class:'bar',style:'left:0;width:'+((a.qty||0)/mx*100)+'%;background:var(--dn)'}),kf(a.qty)),el('td',{},a.orders??'')))}
+    o.append(el('div',{class:'c'},el('div',{class:'t'},'Derinlik'),tb,(d.walls||[]).length?el('div',{class:'chips',style:'margin-top:8px'},...d.walls.map(w=>el('span',{class:'chip '+(w.side==='bid'?'pos':'neg')},(w.side==='bid'?'▲ Alış duvarı ':'▼ Satış duvarı ')+kf(w.qty)+' @ '+fmt(w.price)))):null))}
+  if(d.buyers.length||d.sellers.length){const L=(arr,cls)=>el('div',{class:'f1'},el('div',{class:'t'},cls==='pos'?'Alıcılar':'Satıcılar'),...arr.slice(0,5).map(b=>el('div',{class:'fx'},el('span',{},b.name.slice(0,16)),el('b',{class:cls},kf(b.net)+(b.cost!=null?' · '+fmt(b.cost):'')))));
+    o.append(el('div',{class:'c'},el('div',{class:'row',style:'align-items:flex-start;gap:12px'},L(d.buyers,'pos'),L(d.sellers,'neg'))))}
+  if(d.trades.length)o.append(el('div',{class:'c'},el('div',{class:'t'},'Gerçekleşen işlemler'),...d.trades.slice(0,8).map(x=>el('div',{class:'fx'},el('span',{},fmt(x.price)+' × '+kf(x.qty)),el('span',{class:'m'},(x.buyer||'')+(x.seller?' → '+x.seller:''))))));
+  if((d.messages||[]).length){const box=el('div',{class:'c'},el('div',{class:'t'},'Botun mesajı'));
+    for(const m of d.messages){const mm=el('div',{class:'msg'},m.text||'');if(m.photo)mm.append(el('img',{src:m.photo}));box.append(mm);
+      if(m.buttons&&m.buttons.length)box.append(el('div',{class:'btns'},...m.buttons.flatMap((r,i)=>r.map((b,j)=>el('button',{class:'btn',onclick:async()=>{
+        if(b.type==='url'&&b.url)return api.openUrl(b.url);const r2=await api.tgClick({msgId:m.id,i,j});if(!r2.ok)toast(r2.msg);else if(r2.messages)renderDepth({...d,messages:r2.messages})}},(b.type==='webapp'?'🖥 ':b.type==='url'?'🔗 ':'')+b.text)))))}
+    o.append(box)}
+  if(d.source==='telegram'&&!d.bids.length&&!d.buyers.length&&!d.trades.length)o.prepend(el('div',{class:'info'},'ℹ️',el('span',{},'Botun mesajından tablo çıkarılamadı. Mesajın ekran görüntüsünü paylaşırsan ayrıştırıcıyı bu bota göre uyarlarım. Terminal butonu varsa ona basarak uygulama içinde açabilirsin.')));
+  fit();
+}
+document.querySelectorAll('#dsrc button').forEach(b=>b.onclick=async()=>{C=await api.depthSet({source:b.dataset.s});depthUi()});
+$('dgo').onclick=()=>api.depth({symbol:$('dsym').value.trim()});
+$('dsym').onkeydown=e=>{if(e.key==='Enter')$('dgo').click()};
+$('dauto').onchange=async e=>{C=await api.depthSet({auto:+e.target.value})};
+$('dov').onchange=async e=>{C=await api.depthSet({overlay:e.target.checked})};
+$('tghow').onclick=()=>{const t=$('tghowtxt');t.style.display=t.style.display==='none'?'block':'none';fit()};
+$('tgconn').onclick=async()=>{
+  if(C.tg&&C.tg.connected){C.tg=await api.tgSet({bot:$('tgbot').value,cmd:$('tgcmd').value});depthUi();return toast('Kaydedildi')}
+  $('tgconn').disabled=true;$('tgconn').textContent='Bağlanıyor…';
+  const r=await api.tgConnect({apiId:$('tgid').value.trim(),apiHash:$('tghash').value.trim(),phone:$('tgphone').value.trim(),bot:$('tgbot').value,cmd:$('tgcmd').value});
+  $('tgconn').disabled=false;$('tghash').value='';
+  if(r.ok){C.tg=r.tg;toast('Telegram bağlandı')}else toast(r.msg);depthUi()};
+$('tgout').onclick=async()=>{C.tg=await api.tgLogout();depthUi()};
+const ASK={phone:['Telefon numarası','Telegram hesabının numarası (+90…)'],code:['Giriş kodu','Telegram uygulamana gelen kodu yaz.'],password:['İki adımlı doğrulama','Telegram bulut şifren']};
+api.on('tgAsk',q=>{const [t,h]=ASK[q.step]||['Telegram',''];$('askt').textContent=t;$('askh').textContent=h+(q.hint?' (ipucu: '+q.hint+')':'');
+  $('askv').type=q.step==='password'?'password':'text';$('askv').value='';$('ask').style.display='flex';setTimeout(()=>$('askv').focus(),50)});
+$('askok').onclick=()=>{api.tgAnswer($('askv').value.trim());$('ask').style.display='none'};
+$('askv').onkeydown=e=>{if(e.key==='Enter')$('askok').click()};
+$('askno').onclick=()=>{api.tgAnswer(null);$('ask').style.display='none'};
+api.on('depthBusy',o=>{$('dgo').disabled=true;$('dgo').textContent='…';$('derr').style.display='none';$('sub').textContent=o.symbol+' derinliği alınıyor…'});
+api.on('depthErr',e=>{$('dgo').disabled=false;$('dgo').textContent='Getir';$('derr').textContent=e.msg;$('derr').style.display='block';tab('dp');fit()});
+api.on('depth',d=>{$('dgo').disabled=false;$('dgo').textContent='Getir';$('sub').textContent=d.symbol+' derinlik · '+hm(d.at);if(d.usage)C.usage=d.usage;$('dsym').value=d.symbol;renderDepth(d)});
 api.on('state',c=>{C=c;ui()});
 api.on('busy',()=>{$('go').disabled=true;$('gol').textContent='Claude okuyor…';$('err').style.display='none';$('sub').textContent='Analiz ediliyor…'});
 api.on('skip',t=>{$('sub').textContent='Ekran değişmedi · '+hm(t)});

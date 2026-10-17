@@ -9,17 +9,18 @@ const MODELS=[
 
 const SYS='Sen deneyimli bir teknik analiz uzmanisin. Goruntudeki fiyat grafigini (TradingView, broker, Matriks, tarayici vb.) oku. '+
   'Tum x ve y degerleri goruntunun sol ust kosesine gore 0-1 araligindadir (x: 0 sol, 1 sag; y: 0 ust, 1 alt). '+
-  'chart_box mumlarin cizildigi alanin sinirlaridir (eksenler haric). last_price son mumun kapanis fiyatidir. Fiyat eksenini oku; okuyamayip tahmin ettiysen price null birak. '+
+  'chart_box mumlarin cizildigi alanin sinirlaridir (eksenler haric). last_price son mumun kapanis fiyatidir. axis: fiyat eksenindeki 3-4 etiketin degeri ve dikey konumu (olcek icin). Fiyat eksenini oku; okuyamayip tahmin ettiysen price null birak. '+
   'En fazla 3 destek, 3 direnc ve 2 trend cizgisi ver; trend cizgisi en az iki tepe/dibe degen gecerli bir cizgi olmali. '+
   'confidence 0-100 arasi tam sayidir. comment Turkce, kisa, net ve gerekceli olsun. Ekranda grafik yoksa chart_found false dondur.';
 const LEVEL={type:'object',properties:{price:{type:['number','null']},y:{type:'number'}},required:['price','y'],additionalProperties:false};
 const BOX={type:'object',properties:{x1:{type:'number'},y1:{type:'number'},x2:{type:'number'},y2:{type:'number'}},required:['x1','y1','x2','y2'],additionalProperties:false};
+const TICK={type:'object',properties:{price:{type:'number'},y:{type:'number'}},required:['price','y'],additionalProperties:false};
 const TLINE={type:'object',properties:{type:{type:'string',enum:['destek','direnc']},x1:{type:'number'},y1:{type:'number'},x2:{type:'number'},y2:{type:'number'}},
   required:['type','x1','y1','x2','y2'],additionalProperties:false};
 const SCHEMA={type:'object',additionalProperties:false,
-  required:['chart_found','symbol','timeframe','last_price','bias','confidence','trend','chart_box','resistances','supports','trendlines','breakout','patterns','comment'],
+  required:['chart_found','symbol','timeframe','last_price','axis','bias','confidence','trend','chart_box','resistances','supports','trendlines','breakout','patterns','comment'],
   properties:{
-    chart_found:{type:'boolean'},symbol:{type:['string','null']},timeframe:{type:['string','null']},last_price:{type:['number','null']},
+    chart_found:{type:'boolean'},symbol:{type:['string','null']},timeframe:{type:['string','null']},last_price:{type:['number','null']},axis:{type:'array',items:TICK},
     bias:{type:'string',enum:['yukselis','dusus','notr']},confidence:{type:'integer'},trend:{type:'string'},chart_box:BOX,
     resistances:{type:'array',items:LEVEL},supports:{type:'array',items:LEVEL},trendlines:{type:'array',items:TLINE},
     breakout:{type:['string','null']},patterns:{type:'array',items:{type:'string'}},comment:{type:'string'}
@@ -42,6 +43,7 @@ async function analyze({key,model,img,crop,effort}){
   const c=crop||{x:0,y:0,w:1,h:1},X=v=>c.x+v*c.w,Y=v=>c.y+v*c.h;
   for(const l of [...(a.resistances||[]),...(a.supports||[])])l.y=Y(l.y);
   for(const t of a.trendlines||[]){t.x1=X(t.x1);t.x2=X(t.x2);t.y1=Y(t.y1);t.y2=Y(t.y2)}
+  for(const t of a.axis||[])t.y=Y(t.y);
   if(a.chart_box){const b=a.chart_box;a.chart_box={x1:X(b.x1),y1:Y(b.y1),x2:X(b.x2),y2:Y(b.y2)}}
   a.engine='claude';a.cost=cost(model,r.usage||{});
   return a;
@@ -59,4 +61,23 @@ function errorText(e){
   return String(e.message||e);
 }
 
-module.exports={MODELS,analyze,errorText,modelInfo};
+// Derinlik ekrani ya da botun gonderdigi resimden derinlik verisini oku.
+const DSYS='Goruntudeki Borsa Istanbul derinlik/AKD ekranini (ya da bot mesajini) oku ve yalnizca gordugun verileri JSON olarak dondur. '+
+  'Fiyatlar ondalik sayidir (12.13), adetler tam sayidir. Gormedigin alanlari bos dizi ya da null birak, tahmin etme. '+
+  'bids alis kademeleri (yuksekten dusuge), asks satis kademeleri (dusukten yuksege), buyers en cok alan kurumlar, sellers en cok satan kurumlar, trades gerceklesen islemler. buyRatio alis/satis oranindaki alis yuzdesidir.';
+const LVL={type:'object',properties:{price:{type:'number'},qty:{type:['number','null']},orders:{type:['number','null']}},required:['price','qty','orders'],additionalProperties:false};
+const BRK={type:'object',properties:{name:{type:'string'},net:{type:['number','null']},cost:{type:['number','null']},pct:{type:['number','null']}},required:['name','net','cost','pct'],additionalProperties:false};
+const TRD={type:'object',properties:{price:{type:'number'},qty:{type:['number','null']},buyer:{type:['string','null']},seller:{type:['string','null']}},required:['price','qty','buyer','seller'],additionalProperties:false};
+const DSCHEMA={type:'object',additionalProperties:false,required:['found','symbol','last','change','ceiling','floor','buyRatio','bids','asks','buyers','sellers','trades'],
+  properties:{found:{type:'boolean'},symbol:{type:['string','null']},last:{type:['number','null']},change:{type:['number','null']},ceiling:{type:['number','null']},floor:{type:['number','null']},
+    buyRatio:{type:['number','null']},bids:{type:'array',items:LVL},asks:{type:'array',items:LVL},buyers:{type:'array',items:BRK},sellers:{type:'array',items:BRK},trades:{type:'array',items:TRD}}};
+async function analyzeDepth({key,model,img,media='image/jpeg'}){
+  const client=new Anthropic({apiKey:key,maxRetries:2});
+  const r=await client.messages.create({model,max_tokens:16000,system:DSYS,output_config:{effort:'low',format:{type:'json_schema',schema:DSCHEMA}},
+    messages:[{role:'user',content:[{type:'image',source:{type:'base64',media_type:media,data:img}},{type:'text',text:'Derinlik verilerini oku.'}]}]});
+  if(r.stop_reason==='refusal'||r.stop_reason==='max_tokens')throw new Error('Derinlik okunamadı. Tekrar dene.');
+  const d=JSON.parse(r.content.filter(c=>c.type==='text').map(c=>c.text).join(''));
+  d.cost=cost(model,r.usage||{});return d;
+}
+
+module.exports={MODELS,analyze,analyzeDepth,errorText,modelInfo};

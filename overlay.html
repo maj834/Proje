@@ -13,6 +13,21 @@ svg.layer{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
 #badge small{font-weight:500;opacity:.88}#badge .eng{font-size:10px;padding:2px 6px;border-radius:6px;background:rgba(255,255,255,.22);font-weight:700;letter-spacing:.03em}
 #badge.in{animation:bi .35s ease}@keyframes bi{from{opacity:0;transform:translate(-50%,-8px)}}
 body.draw #badge{display:none!important}
+/* derinlik */
+#dp .wall rect.bg{rx:7}#dp text{font-weight:700;font-size:11.5px}
+#dp.anim .wall{animation:grow .5s ease both}
+#dcard{position:absolute;left:18px;top:86px;width:290px;display:none;padding:11px 12px;border-radius:14px;background:rgba(16,18,28,.86);color:#e9edf5;
+  box-shadow:0 10px 30px rgba(0,0,0,.35);-webkit-backdrop-filter:blur(16px);backdrop-filter:blur(16px);font-weight:500;font-size:11.5px}
+#dcard .hd{display:flex;align-items:center;gap:8px;font-weight:700;font-size:13px}#dcard .hd small{margin-left:auto;font-weight:500;opacity:.6;font-size:10.5px}
+#dcard .gauge{position:relative;height:7px;border-radius:9px;background:linear-gradient(90deg,#e5484d,#6b7482 50%,#14a06b);margin:9px 0 3px}
+#dcard .gauge i{position:absolute;top:-4px;width:4px;height:15px;border-radius:3px;background:#fff;transform:translateX(-2px);transition:left .5s ease}
+#dcard .row{display:flex;justify-content:space-between;gap:8px;margin-top:4px}
+#dcard .tr{margin-top:6px;font-weight:700}#dcard .up{color:#22c58b}#dcard .dn{color:#ff6b6f}
+#dcard svg{position:static;width:100%;height:30px;margin-top:4px}
+#dcard .ws{margin-top:7px;display:flex;flex-direction:column;gap:3px}
+#dcard .tt{margin-top:7px;opacity:.85;font-variant-numeric:tabular-nums}
+body.draw #dcard{display:none!important}
+
 /* cizim */
 body.draw #dr .d{cursor:move}body.draw #dr .d *{pointer-events:stroke}body.draw #dr .d text,body.draw #dr .d .fill{pointer-events:all}
 #dr .sel line,#dr .sel rect:not(.h){filter:drop-shadow(0 0 3px rgba(79,107,255,.9))}
@@ -35,7 +50,9 @@ body.draw #hint{display:block}
 #noteIn{position:absolute;display:none;font:600 13px -apple-system,sans-serif;padding:4px 8px;border-radius:7px;border:2px solid #4f6bff;outline:none;background:rgba(20,22,30,.92);color:#fff;min-width:140px}
 </style></head><body>
 <svg id="an" class="layer"></svg>
+<svg id="dp" class="layer"></svg>
 <svg id="dr" class="layer"></svg>
+<div id="dcard"></div>
 <div id="badge"></div>
 <div id="tb"></div>
 <div id="hint">Sürükleyerek çiz · <b>A</b> alarm çizgisi · <b>Esc</b> bitir · <b>⌘Z</b> geri al · <b>Sil</b> seçileni kaldır</div>
@@ -203,8 +220,51 @@ addEventListener('keydown',e=>{
   if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='z'){undoLast();return}
   const t=KEYS[e.key.toLowerCase()];if(t&&!e.metaKey&&!e.ctrlKey){tool=t;sel=-1;toolbar();render()}
 });
-addEventListener('resize',()=>{if(A)drawAnalysis({...A,anim:false});else render()});
+addEventListener('resize',()=>{if(A)drawAnalysis({...A,anim:false});else render();if(DD)drawDepth(DD)});
 
+
+// --- derinlik katmani -----------------------------------------------------
+const kfmt=n=>n==null?'—':Math.abs(n)>=1e6?(n/1e6).toLocaleString('tr-TR',{maximumFractionDigits:1})+'M':Math.abs(n)>=1e3?Math.round(n/1e3).toLocaleString('tr-TR')+'K':n.toLocaleString('tr-TR');
+let lastWallsKey='',DD=null;
+function drawDepth(d){
+  DD=d;const dp=$('dp'),card=$('dcard');dp.replaceChildren();
+  if(!d){card.style.display='none';return}
+  const W=VW(),H=VH(),c=d.cal,bx=d.box||{x1:0.03,y1:0.1,x2:0.92,y2:0.9};
+  const yOf=p=>c?(c.mx+(p-c.my)/c.k)*H:null,inBox=y=>y!=null&&y>=bx.y1*H-4&&y<=bx.y2*H+4;
+  const key=JSON.stringify((d.walls||[]).map(w=>[w.price,w.qty]));dp.classList.toggle('anim',key!==lastWallsKey);lastWallsKey=key;
+  const right=bx.x2*W-6;let placed=0;const used=[];
+  // Cakisan etiketleri kaydir: her etiket icin bos bir satir bul (cizgi yine gercek fiyatta kalir).
+  const slot=y=>{let ty=y;for(let k=0;k<8&&used.some(u=>Math.abs(u-ty)<22);k++)ty=y+(k%2?-1:1)*22*Math.ceil((k+1)/2);used.push(ty);return ty};
+  for(const w of d.walls||[]){const y=yOf(w.price);if(!inBox(y))continue;placed++;
+    const col=w.side==='bid'?'#14a06b':'#e5484d',g=S('g',{class:'wall'},dp);
+    const len=Math.max(40,Math.min(260,w.ratio*320));
+    S('rect',{x:right-len,y:y-5,width:len,height:10,fill:col,opacity:.22,rx:3},g);   // isi seridi
+    const ty=slot(y);if(Math.abs(ty-y)>2)S('line',{x1:right-len-6,x2:right-len,y1:ty,y2:y,stroke:col,'stroke-width':1},g);
+    const t=S('text',{x:right-len-10,y:ty+4,'text-anchor':'end',fill:'#fff'},g);
+    t.textContent=(w.side==='bid'?'▲ Alış duvarı ':'▼ Satış duvarı ')+kfmt(w.qty)+' lot'+(w.orders?' · '+w.orders+' emir':'')+' @ '+fmt(w.price);
+    const bb=t.getBBox();g.insertBefore(S('rect',{class:'bg',x:bb.x-8,y:bb.y-4,width:bb.width+16,height:bb.height+8,fill:col,opacity:.92,rx:7},g),t)}
+  const cost=(k,label,col)=>{const b=(d[k]||[])[0];if(!b||b.cost==null)return;const y=yOf(b.cost);if(!inBox(y))return;placed++;
+    const g=S('g',{class:'wall'},dp);S('line',{x1:bx.x1*W,x2:right,y1:y,y2:y,stroke:col,'stroke-width':1.3,'stroke-dasharray':'2 5'},g);
+    const t=S('text',{x:bx.x1*W+10,y:slot(y-6),fill:col},g);t.textContent=label+': '+b.name+' · maliyet '+fmt(b.cost)+' · net '+kfmt(b.net)};
+  cost('buyers','En çok alan','#5aa9ff');cost('sellers','En çok satan','#ff9f6b');
+  // Kose karti: baski, trend, mini grafik, duvarlar (konumlanamadiysa), son islemler
+  const pr=d.pressure,tr=d.trend||{},h=d.history||[];
+  const parts=[];const e=(tag,cls,txt)=>{const x=document.createElement(tag);if(cls)x.className=cls;if(txt!=null)x.textContent=txt;return x};
+  const hd=e('div','hd');hd.append(e('span',null,'📊 '+(d.symbol||'')+(d.last!=null?'  '+fmt(d.last):'')+(d.change!=null?'  '+(d.change>0?'+':'')+fmt(d.change)+'%':'')),e('small',null,(d.source==='telegram'?'Telegram':'Ekran')+' · '+new Date(d.at).toLocaleTimeString('tr-TR')));parts.push(hd);
+  if(pr){const g=e('div','gauge'),i=e('i');i.style.left=((pr.score+100)/2)+'%';g.append(i);
+    parts.push(e('div','row'),g);parts[1].append(e('span',null,'Al/Sat baskısı'),e('b',pr.score>=10?'up':pr.score<=-10?'dn':'',(pr.score>0?'+':'')+pr.score));
+    parts.push(e('div','tr '+(tr.dir>0?'up':tr.dir<0?'dn':''),(tr.dir>0?'↗ ':tr.dir<0?'↘ ':'→ ')+(tr.text||'')))}
+  if(h.length>1){const sv=document.createElementNS(NS,'svg');sv.setAttribute('viewBox','0 0 100 30');sv.setAttribute('preserveAspectRatio','none');
+    const pts=h.map((x,i)=>(i/(h.length-1)*100).toFixed(1)+','+(15-x.p/100*14).toFixed(1)).join(' ');
+    sv.innerHTML='<line x1="0" x2="100" y1="15" y2="15" stroke="rgba(255,255,255,.2)" stroke-dasharray="2 2" vector-effect="non-scaling-stroke"/><polyline points="'+pts+'" fill="none" stroke="'+((h[h.length-1].p>=0)?'#22c58b':'#ff6b6f')+'" stroke-width="1.8" vector-effect="non-scaling-stroke"/>';parts.push(sv)}
+  if(!placed&&(d.walls||[]).length){const ws=e('div','ws');for(const w of d.walls)ws.append(e('div',w.side==='bid'?'up':'dn',(w.side==='bid'?'▲ Alış duvarı ':'▼ Satış duvarı ')+kfmt(w.qty)+' @ '+fmt(w.price)));
+    parts.push(ws,e('div',null,c?'':'Etiketleri grafiğe yerleştirmek için bir kez Claude analizi yap.'))}
+  const b0=(d.buyers||[])[0],s0=(d.sellers||[])[0];
+  if(b0||s0){const r=e('div','row');r.append(e('span','up',b0?'▲ '+b0.name.slice(0,14)+' '+kfmt(b0.net):''),e('span','dn',s0?'▼ '+s0.name.slice(0,14)+' '+kfmt(s0.net):''));parts.push(r)}
+  if((d.trades||[]).length){const t=d.trades.slice(0,3).map(x=>fmt(x.price)+' × '+kfmt(x.qty)+(x.buyer?' '+x.buyer+'→'+(x.seller||''):'')).join('\n');const tt=e('div','tt');tt.style.whiteSpace='pre';tt.textContent=t;parts.push(tt)}
+  card.replaceChildren(...parts);card.style.display='block';
+}
+api.on('depth',d=>drawDepth(d));
 api.on('draw',a=>drawAnalysis(a));
 api.on('drawings',l=>{D=Array.isArray(l)?l:[];undo=[];sel=-1;render()});
 api.on('mode',on=>{mode=on;document.body.classList.toggle('draw',on);sel=-1;$('noteIn').style.display='none';toolbar();render()});

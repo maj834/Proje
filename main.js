@@ -2,6 +2,8 @@ const {app,BrowserWindow,Tray,screen,desktopCapturer,ipcMain,globalShortcut,nati
 const fs=require('fs'),path=require('path');
 const engine=require('./engine');
 const ai=require('./ai');
+const depthLib=require('./depth');
+const tg=require('./tg');
 
 const INTERVALS=[2,5,10,30,60];
 const HISTORY_MAX=30;
@@ -100,11 +102,12 @@ function placeOverlay(d){
 }
 function syncOverlay(){
   const hasDraw=((cfg().drawings||{})[ovDisplay]||[]).length>0;
-  if(drawing||hasDraw||lastResult)ov.showInactive();else ov.hide();
+  if(drawing||hasDraw||lastResult||(lastDepth&&cfg().depthOverlay!==false))ov.showInactive();else ov.hide();
 }
 function drawOverlay(a,d,anim){
   placeOverlay(d);lastResult=a;
   sendOv('draw',{...a,anim,show:ind()});syncOverlay();
+  if(lastDepth&&a.engine==='claude')pushDepthOverlay();
   clearTimeout(fadeTimer);
   if(!cfg().live&&!cfg().pin)fadeTimer=setTimeout(clearAnalysis,30000);
 }
@@ -116,6 +119,16 @@ function setDrawing(on){
   if(on){placeOverlay(activeDisplay());pop.hide();ov.setIgnoreMouseEvents(false);ov.setFocusable(true);ov.show();ov.focus();app.focus({steal:true})}
   else{ov.setIgnoreMouseEvents(true);ov.setFocusable(false)}
   sendOv('mode',on);syncOverlay();
+}
+
+// Botun web terminali (mini app) icin ayri pencere.
+let termWin=null;
+function openTerminal(url){
+  if(!termWin||termWin.isDestroyed()){
+    termWin=new BrowserWindow({width:460,height:900,title:'Derinlik Terminali',webPreferences:{sandbox:true,partition:'persist:terminal'}});
+    termWin.webContents.setWindowOpenHandler(({url})=>{shell.openExternal(url);return {action:'deny'}});
+  }
+  termWin.loadURL(url);termWin.show();
 }
 
 function trayIcon(){
@@ -135,14 +148,18 @@ function checkAlerts(prev,a){
 }
 
 // Claude'un fiyatli seviyelerinden y -> fiyat dogrusal donusumu (yoksa null).
-function calibrate(a){
-  const pts=[...((a&&a.resistances)||[]),...((a&&a.supports)||[])].filter(l=>typeof l.price==='number');
+// Fiyat ekseni etiketleri (varsa) ve fiyatli seviyelerden y <-> fiyat dogrusal olcegi.
+function calibParams(a){
+  if(!a)return null;
+  const axis=(a.axis||[]).filter(t=>typeof t.price==='number'&&typeof t.y==='number');
+  const pts=axis.length>=2?axis:[...(a.resistances||[]),...(a.supports||[])].filter(l=>typeof l.price==='number');
   if(pts.length<2)return null;
   const n=pts.length,mx=pts.reduce((s,p)=>s+p.y,0)/n,my=pts.reduce((s,p)=>s+p.price,0)/n;
   let sxy=0,sxx=0;for(const p of pts){sxy+=(p.y-mx)*(p.price-my);sxx+=(p.y-mx)**2}
   if(sxx<1e-6||sxy>=0)return null;
-  const k=sxy/sxx;return y=>my+k*(y-mx);
+  return {mx,my,k:sxy/sxx};
 }
+function calibrate(a){const c=calibParams(a);return c?y=>c.my+c.k*(y-c.mx):null}
 const fmtP=v=>v.toLocaleString('tr-TR',{maximumFractionDigits:Math.abs(v)<10?4:2});
 
 // Alarm cizgileri: son fiyat cizgiyi gectiginde bir kez bildirim gonderir.
@@ -229,12 +246,85 @@ function setLive(on){
   trayTitle();
 }
 
+// --- derinlik (Telegram botu / ekran) --------------------------------------
+const enc=v=>v?(safeStorage.isEncryptionAvailable()?'e:'+safeStorage.encryptString(v).toString('base64'):'p:'+v):undefined;
+const dec=v=>!v?null:v.startsWith('e:')?(()=>{try{return safeStorage.decryptString(Buffer.from(v.slice(2),'base64'))}catch(e){return null}})():v.slice(2);
+const tgCfg=()=>cfg().tg||{};
+let tgUser=null,tgAskResolve=null,depthTimer=null,depthBusy=false,lastDepth=null;
+const depthHist={};
+
+function tgAsk(step,hint){
+  send('tgAsk',{step,hint:hint||null});showPop();
+  return new Promise((res,rej)=>{tgAskResolve={res,rej}});
+}
+async function tgConnect(p){
+  const c=tgCfg();
+  const apiId=String(p.apiId||c.apiId||'').trim(),apiHash=String(p.apiHash||dec(c.apiHash)||'').trim();
+  if(!/^\d+$/.test(apiId)||!/^[0-9a-f]{32}$/i.test(apiHash))throw new Error('api_id sayı, api_hash 32 karakterlik bir kod olmalı (my.telegram.org).');
+  const bot=String(p.bot||c.bot||'').trim().replace(/^@?/,'@');
+  save({tg:{...c,apiId,apiHash:enc(apiHash),bot:bot.length>1?bot:c.bot,cmd:p.cmd||c.cmd||'{KOD}'}});
+  tgUser=await tg.connect({apiId,apiHash,session:dec(tgCfg().session),
+    ask:(step,hint)=>step==='phone'&&p.phone?Promise.resolve(String(p.phone)):tgAsk(step,hint),
+    onSession:ss=>save({tg:{...tgCfg(),session:enc(ss)}})});
+  return tgState();
+}
+const tgState=()=>({connected:!!tgUser,user:tgUser,bot:tgCfg().bot||null,cmd:tgCfg().cmd||'{KOD}',apiId:tgCfg().apiId||'',hasHash:!!tgCfg().apiHash});
+
+// Grafikteki sembol: son Claude analizinden, yoksa son derinlikten.
+const currentSymbol=()=>(lastAi&&lastAi.symbol)||(lastDepth&&lastDepth.symbol)||cfg().depthSymbol||'';
+
+async function fetchDepth(opts={}){
+  if(depthBusy)return;depthBusy=true;
+  const symbol=String(opts.symbol||currentSymbol()||'').toUpperCase().replace(/[^A-ZÇĞİÖŞÜ0-9]/g,'');
+  const source=opts.source||cfg().depthSource||'telegram';
+  try{
+    if(!symbol)throw new Error('Hisse kodu yaz (ör. PRZMA) ya da önce grafiği Claude ile analiz et.');
+    save({depthSymbol:symbol,depthSource:source});
+    send('depthBusy',{symbol,source});
+    let d=null,messages=[];
+    if(source==='telegram'){
+      if(!tgUser)throw new Error('Telegram bağlı değil. Ayarlar › Telegram derinlik botu bölümünden bağlan.');
+      if(!tgCfg().bot)throw new Error('Botun kullanıcı adını Ayarlar\'a yaz (ör. @derinlikbot).');
+      messages=await tg.query(tgCfg().bot,(tgCfg().cmd||'{KOD}').replace(/\{KOD\}/g,symbol));
+      d=depthLib.parseText(messages.map(m=>m.text).join('\n'),{symbol});
+      // Bot veriyi resim olarak gonderdiyse ve anahtar varsa Claude ile oku.
+      const photo=messages.find(m=>m.photo);
+      if(!depthLib.hasData(d)&&photo&&getKey()){
+        const r=await ai.analyzeDepth({key:getKey(),model:model(),img:photo.photo.split(',')[1]});addCost(r.cost);if(r.found)d={...r,symbol:r.symbol||symbol}}
+    }else{
+      if(!getKey())throw new Error('Ekrandan derinlik okumak için Claude API anahtarı gerekli.');
+      const disp=activeDisplay(),shot=await capture(disp);
+      const r=await ai.analyzeDepth({key:getKey(),model:model(),img:shot.toJPEG(85).toString('base64')});addCost(r.cost);
+      if(!r.found)throw new Error('Ekranda derinlik tablosu bulunamadı. Derinlik terminalini açık tut.');
+      d={...r,symbol:r.symbol||symbol};
+    }
+    const pr=depthLib.pressure(d);
+    if(pr){const h=depthHist[symbol]=(depthHist[symbol]||[]);h.push({t:Date.now(),p:pr.score});if(h.length>120)h.shift()}
+    lastDepth={...d,symbol,at:Date.now(),source,walls:depthLib.walls(d),pressure:pr,trend:depthLib.trend(depthHist[symbol]||[]),history:(depthHist[symbol]||[]).slice(-40)};
+    send('depth',{...lastDepth,messages:messages.map(m=>({...m,photo:m.photo?m.photo.slice(0,200000):null})),usage:state().usage});
+    pushDepthOverlay();
+  }catch(e){send('depthErr',{msg:ai.errorText(e)})}
+  finally{depthBusy=false}
+}
+// Derinligi grafigin uzerine: fiyat olcegi varsa seviyelere, yoksa kose kartina.
+function pushDepthOverlay(){
+  if(!lastDepth||!cfg().depthOverlay&&cfg().depthOverlay!==undefined)return sendOv('depth',null);
+  const cal=lastResult&&lastResult.engine==='claude'&&(!lastResult.symbol||!lastDepth.symbol||lastResult.symbol.replace(/\W/g,'').includes(lastDepth.symbol))?calibParams(lastResult):null;
+  sendOv('depth',{...lastDepth,cal,box:lastResult&&lastResult.chart_box||null});
+  if(!ov.isVisible())ov.showInactive();
+}
+function setDepthAuto(sec){
+  save({depthAuto:sec});clearInterval(depthTimer);depthTimer=null;
+  if(sec>0)depthTimer=setInterval(()=>fetchDepth(),sec*1000);
+}
+
 function state(){
   const u=cfg().usage||{};
   return{hasKey:!!getKey(),live:!!cfg().live,model:model(),models:ai.MODELS,interval:interval(),intervals:INTERVALS,engine:engineName(),liveAi:!!cfg().liveAi,
     history:cfg().history||[],perm:screenAllowed(),secure:safeStorage.isEncryptionAvailable(),alerts:!!cfg().alerts,pin:!!cfg().pin,ind:ind(),
     login:process.platform==='darwin'&&app.getLoginItemSettings().openAtLogin,alarms:Object.values(cfg().drawings||{}).flat().filter(x=>x.t==='alarm'&&!x.fired).length,
-    usage:u.month===month()?u:{cost:0,count:0,total:u.total||0}};
+    usage:u.month===month()?u:{cost:0,count:0,total:u.total||0},
+    tg:tgState(),depthSource:cfg().depthSource||'telegram',depthAuto:cfg().depthAuto||0,depthOverlay:cfg().depthOverlay!==false,symbol:currentSymbol()};
 }
 
 app.whenReady().then(()=>{
@@ -277,6 +367,23 @@ app.whenReady().then(()=>{
   ipcMain.handle('openPerm',()=>shell.openExternal(SETTINGS_URL));
   ipcMain.handle('openBilling',()=>shell.openExternal('https://console.anthropic.com/settings/billing'));
   ipcMain.handle('quit',()=>app.quit());
+  ipcMain.handle('tgConnect',async(e,p)=>{try{return {ok:true,tg:await tgConnect(p||{})}}catch(err){return {ok:false,msg:ai.errorText(err)}}});
+  ipcMain.handle('tgAnswer',(e,v)=>{if(tgAskResolve){const r=tgAskResolve;tgAskResolve=null;v==null?r.rej(new Error('Giriş iptal edildi.')):r.res(String(v))}});
+  ipcMain.handle('tgLogout',async()=>{await tg.logout();tgUser=null;save({tg:{...tgCfg(),session:undefined}});return tgState()});
+  ipcMain.handle('tgSet',(e,o)=>{const c=tgCfg();save({tg:{...c,bot:o.bot!=null?String(o.bot).trim().replace(/^@?/,'@'):c.bot,cmd:o.cmd!=null?String(o.cmd).slice(0,60):c.cmd}});return tgState()});
+  ipcMain.handle('depth',(e,o)=>fetchDepth(o||{}));
+  ipcMain.handle('depthSet',(e,o)=>{
+    if(o.source==='telegram'||o.source==='ekran')save({depthSource:o.source});
+    if([0,15,30,60,120].includes(o.auto))setDepthAuto(o.auto);
+    if(typeof o.overlay==='boolean'){save({depthOverlay:o.overlay});pushDepthOverlay()}
+    return state()});
+  ipcMain.handle('tgClick',async(e,{msgId,i,j})=>{
+    try{const r=await tg.click(tgCfg().bot,msgId,i,j);if(r.webapp)openTerminal(r.webapp);return {ok:true,...r}}catch(err){return {ok:false,msg:ai.errorText(err)}}});
+  ipcMain.handle('openUrl',(e,u)=>{if(/^https:\/\//.test(u))openTerminal(u)});
+  // Kayitli Telegram oturumunu sessizce geri yukle.
+  const c=tgCfg();
+  if(c.session&&c.apiId&&c.apiHash)tg.restore({apiId:c.apiId,apiHash:dec(c.apiHash),session:dec(c.session)}).then(u=>{tgUser=u;send('state',state())}).catch(()=>{});
+  if(cfg().depthAuto)setDepthAuto(cfg().depthAuto);
   if(cfg().live)setLive(true);
   trayTitle();
 });

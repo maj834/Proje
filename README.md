@@ -41,6 +41,23 @@ Her analizde (Hızlı ve Claude) şunlar hesaplanır:
 
 Fiyat ekseni okunmadan, mumların ekrandaki konumundan hesaplanır; EMA, Bollinger, MACD ve RSI bu dönüşümden etkilenmez. Claude analizi fiyatları ekler ve skora kendi yorumunu katar.
 
+## Telegram derinlik botu
+
+Kullandığın Telegram derinlik botunu uygulamaya bağlayabilirsin:
+
+1. [my.telegram.org](https://my.telegram.org) › **API development tools** bölümünden `api_id` ve `api_hash` al.
+2. Ayarlar › **Telegram derinlik botu** kartına bunları, botun kullanıcı adını ve komutu yaz (`{KOD}` hisse koduyla değişir, ör. `/derinlik {KOD}`), **Bağlan**'a bas. Telegram'a gelen kodu gir.
+3. **Derinlik** sekmesinde hisse kodunu yazıp **Getir**'e bas ya da otomatik yenilemeyi aç.
+
+Uygulama bota senin hesabınla mesaj atar, cevabı ayrıştırır ve:
+
+- **Derinlik kademeleri**, **aracı kurum dağılımı** (alıcılar/satıcılar) ve **gerçekleşen işlemleri** listeler
+- Grafikte biriken emirlere **"▲ Alış duvarı 4,3M lot @ 12,13"** gibi etiketler, en çok alan/satan kurumun **maliyet çizgisini** çizer (fiyat ölçeği için bir kez Claude analizi gerekir)
+- **Al/sat baskısını** (-100…+100) derinlik dengesi, alış/satış oranı, kurum net akışı ve işlemlerden hesaplar; her yenilemede kaydedip **trendini** gösterir ("Alış baskısı artıyor")
+- Bot resim gönderirse Claude ile okur, web terminali butonunu uygulama içinde açar
+
+Telegram yoksa **Ekrandan** kaynağı, açık olan derinlik terminalini Claude ile okur. Oturum ve `api_hash` Anahtar Zinciri ile şifreli saklanır.
+
 ## Özellikler
 
 - **⌘⇧A** analiz, **⌘⇧D** çizim modu, **⌘⇧L** canlı mod
@@ -73,6 +90,8 @@ GitHub Actions her push'ta macOS için imzasız bir `.dmg` üretir (Actions › 
 | `main.js` | Menü çubuğu, kısayollar, ekran görüntüsü, canlı mod, bildirimler, ayarlar |
 | `engine.js` | Yerel mum grafiği okuyucu (piksel analizi) |
 | `ai.js` | Claude API isteği ve maliyet hesabı |
+| `tg.js` | Telegram bağlantısı (GramJS) |
+| `depth.js` | Derinlik verisi ayrıştırma, duvarlar, al/sat baskısı ve trendi |
 | `preload.js` | Pencerelere açılan sınırlı API |
 | `popup.html` | Menü çubuğu penceresi (Analiz / Geçmiş / Ayarlar) |
 | `overlay.html` | Ekrana çizilen analiz katmanı ve çizim araçları |

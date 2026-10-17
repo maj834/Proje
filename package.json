@@ -1,6 +1,6 @@
 {
   "name": "grafik-okuyucu",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Ekrandaki fiyat grafigini Claude ile okuyan macOS menu cubugu uygulamasi",
   "main": "main.js",
   "scripts": {
@@ -8,7 +8,8 @@
     "dist": "electron-builder --mac"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.135.0"
+    "@anthropic-ai/sdk": "^0.135.0",
+    "telegram": "^2.26.22"
   },
   "devDependencies": {
     "electron": "^33.0.0",
@@ -17,9 +18,21 @@
   "build": {
     "appId": "com.grafik.okuyucu",
     "productName": "Grafik Okuyucu",
-    "files": ["*.js", "*.html", "assets/**"],
+    "files": [
+      "*.js",
+      "*.html",
+      "assets/**"
+    ],
     "mac": {
-      "target": [{"target": "dmg", "arch": ["arm64", "x64"]}],
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
       "identity": null,
       "category": "public.app-category.finance",
       "extendInfo": {

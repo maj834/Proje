@@ -1,0 +1,111 @@
+// Derinlik verisi: ortak model, bot mesaji ayristirici, al/sat baskisi ve trendi.
+//
+// Model:
+// {symbol,last,change,ceiling,floor,buyRatio,
+//  bids:[{price,qty,orders}], asks:[{price,qty,orders}],
+//  trades:[{price,qty,buyer,seller,side}], buyers:[{name,net,cost,pct}], sellers:[{name,net,cost,pct}]}
+(function(root){
+
+// "4.342.512" -> 4342512, "12,13" / "12.13" -> 12.13, "%26,7" -> 26.7, "1,2M" -> 1200000
+function num(s){
+  if(s==null)return null;s=String(s).trim().replace(/[%₺TL\s]/gi,'');
+  const mul=/[mM]$/.test(s)?1e6:/[kKbB]$/.test(s)?1e3:1;s=s.replace(/[mMkKbB]$/,'');
+  if(!/^[-+]?[\d.,]+$/.test(s))return null;
+  if(/^\d{1,3}(\.\d{3})+$/.test(s))return +s.replace(/\./g,'')*mul;          // 4.342.512
+  if(/^\d{1,3}(,\d{3})+$/.test(s)&&!/,\d{1,2}$/.test(s))return +s.replace(/,/g,'')*mul;
+  if(/,\d+$/.test(s))return +s.replace(/\./g,'').replace(',','.')*mul;        // 1.234,56 / 12,13
+  return +s*mul;
+}
+const TOK=/[-+]?%?\d[\d.,]*[mMkK]?%?/g;
+const isPrice=s=>/^\d{1,6}[.,]\d{1,4}$/.test(s)&&!/^\d{1,3}\.\d{3}$/.test(s);
+
+const SEC=[
+  [/derinlik|kademe|emir/i,'depth'],
+  [/al[ıi]c[ıi]lar|al[ıi]c[ıi] kurum|en [çc]ok alan|net al[ıi][sş]/i,'buyers'],
+  [/sat[ıi]c[ıi]lar|sat[ıi]c[ıi] kurum|en [çc]ok satan|net sat[ıi][sş]/i,'sellers'],
+  [/ger[çc]ekle[sş]en|i[sş]lemler|son i[sş]lem|trades?/i,'trades'],
+  [/^\W*(al[ıi][sş]|bid)\W*$/i,'bids'],[/^\W*(sat[ıi][sş]|ask)\W*$/i,'asks']];
+
+function parseText(text,hint={}){
+  const d={symbol:hint.symbol||null,last:null,change:null,ceiling:null,floor:null,buyRatio:null,bids:[],asks:[],trades:[],buyers:[],sellers:[]};
+  const lines=String(text||'').split(/\r?\n/).map(l=>l.replace(/[│┃|]/g,' | ').trim()).filter(Boolean);
+  let sec=null;
+  const sym=String(text).match(/\b([A-ZÇĞİÖŞÜ]{4,6})\b/);if(!d.symbol&&sym)d.symbol=sym[1];
+  for(const raw of lines){
+    const l=raw.replace(/[*_`]/g,'');
+    // Ozet alanlar
+    const kv=(re)=>{const m=l.match(re);return m?num(m[1]):null};
+    d.last=d.last??kv(/(?:son|fiyat|anl[ıi]k|last)\s*[:=]?\s*₺?\s*([\d.,]+)/i)??kv(/₺\s*([\d.,]+)/);
+    d.ceiling=d.ceiling??kv(/tavan\s*[:=]?\s*([\d.,]+)/i);d.floor=d.floor??kv(/taban\s*[:=]?\s*([\d.,]+)/i);
+    d.change=d.change??kv(/([-+]\d[\d.,]*)\s*%/)??kv(/%\s*([-+]\d[\d.,]*)/);
+    const br=l.match(/al[ıi][sş]\s*\/\s*sat[ıi][sş][^\d%]*%?\s*([\d.,]+)\s*%?/i);if(br)d.buyRatio=num(br[1]);
+    if(br||/tavan|taban|₺|\b(son|fiyat|anl[ıi]k|last)\b\s*[:=]/i.test(l))continue; // ozet satiri
+    // Bolum basligi mi?
+    const toks=l.match(TOK)||[];
+    const s=SEC.find(([re])=>re.test(l));
+    if(s&&toks.length<2){sec=s[1];continue}
+    if(toks.length<2)continue;
+    const words=l.replace(TOK,' ').replace(/[|:;=•·\-–>]+/g,' ').trim().split(/\s+/).filter(w=>/[a-zçğıöşüİĞŞÇÖÜ]{2,}/i.test(w));
+    const name=words.join(' ').replace(/\s*(lot|adet|emir|tl)\b/gi,'').trim();
+    if((sec==='buyers'||sec==='sellers')&&name){
+      const nums=toks.map(num),prices=toks.filter(isPrice).map(num),pm=l.match(/%\s*([\d.,]+)/)||l.match(/([\d.,]+)\s*%/),pct=pm?num(pm[1]):null;
+      const big=nums.filter(n=>n!=null&&!prices.includes(n)&&n!==pct).sort((a,b)=>b-a)[0];
+      d[sec].push({name,net:big??null,cost:prices.find(x=>x!==pct)??null,pct});continue}
+    if(sec==='trades'||(name.split(/\s+/).length>=2&&toks.length===2&&isPrice(toks[0]))){
+      const p=toks.find(isPrice),q=toks.filter(t=>t!==p).map(num)[0];
+      const ws=name.split(/\s+/);
+      if(p)d.trades.push({price:num(p),qty:q??null,buyer:ws[0]||null,seller:ws[1]||null,side:/al[ıi][sş]|🟢|↑|▲/i.test(l)?'buy':/sat[ıi][sş]|🔴|↓|▼/i.test(l)?'sell':null});
+      continue}
+    // Kademe satiri: tek tarafli ya da "alis | satis" iki tarafli
+    const halves=l.includes(' | ')&&l.split(' | ').filter(h=>(h.match(TOK)||[]).length>=2).length===2?l.split(' | ').filter(h=>(h.match(TOK)||[]).length>=2):[l];
+    halves.forEach((h,k)=>{
+      const t=h.match(TOK)||[];const pi=t.findIndex(isPrice);if(pi<0)return;
+      const rest=t.filter((_,i)=>i!==pi).map(num).filter(n=>n!=null);
+      const qty=rest.length?Math.max(...rest):null,orders=rest.length>1?Math.min(...rest):null;
+      const side=halves.length===2?(k===0?'bids':'asks'):(sec==='asks'||/sat|ask|🔴/i.test(h)?'asks':sec==='bids'||/al[ıi]|bid|🟢/i.test(h)?'bids':sec==='depth'?null:null);
+      if(side)d[side].push({price:num(t[pi]),qty,orders});
+    });
+  }
+  // Fiyata gore sirala: alis yuksekten, satis dusukten
+  d.bids.sort((a,b)=>b.price-a.price);d.asks.sort((a,b)=>a.price-b.price);
+  return d;
+}
+const hasData=d=>!!d&&(d.bids.length+d.asks.length+d.trades.length+d.buyers.length+d.sellers.length)>0;
+
+// Ortalamanin cok uzerinde biriken kademeler: "duvar".
+function walls(d){
+  const pick=(arr,side)=>{const q=arr.map(x=>x.qty||0).filter(Boolean);if(q.length<2)return arr.slice(0,1).filter(x=>x.qty).map(x=>({...x,side,ratio:1}));
+    const sorted=[...q].sort((a,b)=>a-b),med=sorted[sorted.length>>1]||1,tot=q.reduce((a,b)=>a+b,0);
+    return arr.filter(x=>x.qty&&(x.qty>=med*3||x.qty>=tot*0.25)).slice(0,3).map(x=>({...x,side,ratio:x.qty/tot}))};
+  return [...pick(d.bids,'bid'),...pick(d.asks,'ask')];
+}
+
+// Al/sat baskisi: -100 (satis) .. +100 (alis), bilesenleriyle.
+function pressure(d){
+  const parts=[];const clamp=v=>Math.max(-1,Math.min(1,v));
+  const sum=a=>a.reduce((s,x)=>s+(x.qty||0),0);
+  const bq=sum(d.bids.slice(0,10)),aq=sum(d.asks.slice(0,10));
+  if(bq+aq>0)parts.push({k:'Derinlik dengesi',v:clamp((bq-aq)/(bq+aq)),w:0.35});
+  if(d.buyRatio!=null)parts.push({k:'Alış/satış oranı',v:clamp((d.buyRatio-50)/50),w:0.25});
+  const bn=d.buyers.reduce((s,x)=>s+(x.net||0),0),sn=d.sellers.reduce((s,x)=>s+(x.net||0),0);
+  if(bn+sn>0)parts.push({k:'Kurum net akışı',v:clamp((bn-sn)/(bn+sn)),w:0.2});
+  const bestB=d.bids[0]&&d.bids[0].price,bestA=d.asks[0]&&d.asks[0].price;
+  let tb=0,ts=0;for(const t of d.trades){const side=t.side||(bestA&&t.price>=bestA?'buy':bestB&&t.price<=bestB?'sell':null);if(side==='buy')tb+=t.qty||1;else if(side==='sell')ts+=t.qty||1}
+  if(tb+ts>0)parts.push({k:'Gerçekleşen işlemler',v:clamp((tb-ts)/(tb+ts)),w:0.2});
+  if(!parts.length)return null;
+  const w=parts.reduce((s,p)=>s+p.w,0);
+  return {score:Math.round(parts.reduce((s,p)=>s+p.v*p.w,0)/w*100),parts:parts.map(p=>({k:p.k,v:Math.round(p.v*100)}))};
+}
+
+// Trend: son olcumlerin egimi.
+function trend(hist){
+  const h=hist.slice(-12);if(h.length<3)return {dir:0,text:'Trend için birkaç ölçüm daha gerekli'};
+  const n=h.length,mx=(n-1)/2,my=h.reduce((s,x)=>s+x.p,0)/n;
+  let sxy=0,sxx=0;h.forEach((x,i)=>{sxy+=(i-mx)*(x.p-my);sxx+=(i-mx)**2});
+  const slope=sxy/sxx;const dir=slope>2?1:slope<-2?-1:0;
+  return {dir,slope:+slope.toFixed(1),text:dir>0?(my>0?'Alış baskısı artıyor':'Satış baskısı azalıyor'):dir<0?(my<0?'Satış baskısı artıyor':'Alış baskısı azalıyor'):'Baskı yatay seyrediyor'};
+}
+
+const api={num,parseText,hasData,walls,pressure,trend};
+if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.Depth=api;
+})(this);
