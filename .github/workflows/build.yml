@@ -43,4 +43,4 @@ jobs:
           npx electron-builder --mac --publish never
       - run: ls -la dist/mac-arm64/*.app/Contents/Resources/bin/ && plutil -p dist/mac-arm64/*.app/Contents/Info.plist | grep -E 'NSAudioCapture|LSUIElement' || true
       - uses: actions/upload-artifact@v4
-        with: {name: GrafikOkuyucu-dmg, path: dist/*.dmg}
+        with: {name: CemApp-dmg, path: dist/*.dmg}

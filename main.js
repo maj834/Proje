@@ -9,7 +9,7 @@ const sync=require('./sync');
 const market=require('./market');
 const calendar=require('./calendar');
 const shareLib=require('./share');
-const APP_NAME='Grafik Okuyucu';
+const APP_NAME='Cem App';
 let hubUi=null,lockUi=null;
 const modOn=id=>!hubUi||hubUi.enabled(id);
 const cleanerUi=require('./cleaner-main').registerCleaner({ipcMain,dialog,shell,app,BrowserWindow,path});
@@ -302,7 +302,7 @@ async function analyze(opts={}){
   if(eng==='claude'&&!key){send('err',{msg:'Claude analizi için Ayarlar sekmesinden API anahtarını gir. Anahtarsız da Hızlı (yerel) analiz kullanılabilir.',settings:true});return opts.silent||showPop()}
   if(!screenAllowed()){
     try{await desktopCapturer.getSources({types:['screen'],thumbnailSize:{width:1,height:1}})}catch(e){} // izin istemini tetikler
-    send('err',{msg:'Ekran Kaydı izni gerekli. Sistem Ayarları › Gizlilik ve Güvenlik › Ekran Kaydı bölümünden Grafik Okuyucu\'yu aç, sonra uygulamayı yeniden başlat.',perm:true});
+    send('err',{msg:'Ekran Kaydı izni gerekli. Sistem Ayarları › Gizlilik ve Güvenlik › Ekran Kaydı bölümünden Cem App\'yu aç, sonra uygulamayı yeniden başlat.',perm:true});
     return opts.silent||showPop();
   }
   busy=true;
@@ -714,7 +714,7 @@ async function diagnostics(){
   let size=0;try{size=fs.statSync(F()).size}catch(e){}
   add('Ayar dosyası',size>1e6?'warn':'ok',(size/1024).toFixed(1).replace('.',',')+' KB'+(size>1e6?' · büyük; Geçmiş ya da çizimleri temizle.':''));
   const icon={ok:'[TAMAM]',warn:'[UYARI]',fail:'[HATA]'};
-  const report=['Grafik Okuyucu sistem kontrolü · '+new Date().toISOString(),...out.map(x=>icon[x.st]+' '+x.name+': '+x.msg)].join('\n');
+  const report=['Cem App sistem kontrolü · '+new Date().toISOString(),...out.map(x=>icon[x.st]+' '+x.name+': '+x.msg)].join('\n');
   return {items:out,report};
 }
 // Bot mesaji ayristirici testi: Telegram'a istek atmadan yapistirilan metni ayristir.
@@ -743,7 +743,7 @@ app.whenReady().then(()=>{
   // Cozunurluk/olcek degisince imza degisir: katmanin durdugu ekranin cizimlerini yeni imzaya tasi.
   screen.on('display-metrics-changed',(e,d)=>{if(d.id!==ovDisplay||!ovKey||ovKey===dkey(d))return;const all=cfg().drawings||{},nk=dkey(d);
     if(all[ovKey]&&!(all[nk]||[]).length){const o={...all,[nk]:all[ovKey]};delete o[ovKey];save({drawings:o})}placeOverlay(d)});
-  tray=new Tray(trayIcon());tray.setToolTip('Grafik Okuyucu');
+  tray=new Tray(trayIcon());tray.setToolTip(APP_NAME);
   tray.on('click',()=>modOn('borsa')?toggle():hubUi.open());
   tray.on('right-click',()=>tray.popUpContextMenu(Menu.buildFromTemplate([
     {label:'Merkezi Aç',click:()=>hubUi.open()},{type:'separator'},
@@ -780,7 +780,7 @@ app.whenReady().then(()=>{
   ipcMain.handle('shareRemove',(e,id)=>{if(shareSess)shareSess.remove(String(id));return shareState()});
   // Yalnizca bu oturumda telefondan gelen dosyalar Finder'da gosterilir
   ipcMain.handle('shareReveal',(e,p)=>{if(shareSess&&shareSess.info().received.some(r=>r.path===p))shell.showItemInFolder(p)});
-  ipcMain.handle('testNotify',()=>{if(!Notification.isSupported())return false;new Notification({title:'Grafik Okuyucu',body:'Test bildirimi: bildirimler çalışıyor.'}).show();return true});
+  ipcMain.handle('testNotify',()=>{if(!Notification.isSupported())return false;new Notification({title:APP_NAME,body:'Test bildirimi: bildirimler çalışıyor.'}).show();return true});
   ipcMain.handle('parseTest',(e,t)=>parseTest(t));
   ipcMain.handle('scSet',(e,o)=>setShortcut(o&&o.name,o&&o.acc));
   ipcMain.handle('analyze',(e,eng)=>analyze({engine:['claude','yerel','piyasa','grok'].includes(eng)?eng:undefined}));

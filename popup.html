@@ -1,6 +1,6 @@
 <!DOCTYPE html><html lang="tr"><head><meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self' 'unsafe-inline' file:; font-src 'self' file:; script-src 'unsafe-inline'; img-src data:">
-<title>Grafik Okuyucu</title><link rel="stylesheet" href="theme.css"><style>
+<title>Borsa · Cem App</title><link rel="stylesheet" href="theme.css"><style>
 *{box-sizing:border-box}
 html,body{margin:0;height:100%;background:transparent}
 body{color:var(--fg);font:400 13px/1.45 var(--font);-webkit-user-select:none;user-select:none;-webkit-font-smoothing:antialiased}
@@ -112,7 +112,7 @@ textarea.inp{height:110px;padding:6px var(--s2);resize:vertical;font:400 11.5px/
 </style></head><body><div class="win" id="win">
 <div class="h">
   <div class="logo"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12.5 6 8l3 2.5L14 4"/><path d="M10.5 4H14v3.5"/></svg></div>
-  <div class="f1"><b>Grafik Okuyucu</b><div class="sub" id="sub">Hazır</div></div>
+  <div class="f1"><b>Borsa</b><div class="sub" id="sub">Hazır</div></div>
   <span class="livepill" id="lp"><span class="dot live"></span>CANLI</span>
   <button class="ib" id="hb" title="Merkez"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2" y="2" width="5" height="5" rx="1"/><rect x="9" y="2" width="5" height="5" rx="1"/><rect x="2" y="9" width="5" height="5" rx="1"/><rect x="9" y="9" width="5" height="5" rx="1"/></svg></button>
   <button class="ib" id="snd" title="Ses"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6h2.5l3.5-3v10l-3.5-3H2.5z"/><path d="M11 5.5a3.5 3.5 0 0 1 0 5M12.8 3.7a6 6 0 0 1 0 8.6"/></svg></button>
@@ -227,7 +227,7 @@ textarea.inp{height:110px;padding:6px var(--s2);resize:vertical;font:400 11.5px/
       <div class="row" style="margin-top:8px"><button class="btn" id="dnote">Test bildirimi</button><span class="f1"></span><button class="btn" id="dcopy" style="display:none">Raporu kopyala</button><button class="btn pri" id="dchk">Kontrol et</button></div>
     </div>
     <label class="tg c" style="margin-top:10px;padding:8px 12px"><span class="f1">Oturum açılınca başlat</span><span class="sw"><input type="checkbox" id="login"><span></span></span></label>
-    <div class="row" style="margin-top:12px;justify-content:space-between"><span class="m">Sürüm 1.8</span><button class="btn" id="quit">Çıkış</button></div>
+    <div class="row" style="margin-top:12px;justify-content:space-between"><span class="m">Cem App 2.0</span><button class="btn" id="quit">Çıkış</button></div>
   </section>
 </div>
 <div class="toast" id="toast"></div>
@@ -389,7 +389,7 @@ $('copyb').onclick=()=>{const a=shown;if(!a||!a.chart_found)return toast('Önce 
     'Direnç: '+L(a.resistances,'R'),'Destek: '+L(a.supports,'S'),
     a.ind?'RSI '+a.ind.rsi+' · MACD '+a.ind.macd+' · EMA20/50 '+(a.ind.emaTrend==='yukari'?'yukarı':'aşağı'):null,
     a.rr!=null?'Risk/ödül 1:'+a.rr:null,a.patterns&&a.patterns.length?'Formasyon: '+a.patterns.join(', '):null,
-    a.breakout?'Kırılım: '+a.breakout:null,a.comment,'— Grafik Okuyucu · yatırım tavsiyesi değildir'].filter(Boolean).join('\n');
+    a.breakout?'Kırılım: '+a.breakout:null,a.comment,'— Cem App · yatırım tavsiyesi değildir'].filter(Boolean).join('\n');
   api.copy(t);toast('Analiz panoya kopyalandı')};
 $('hideb').onclick=()=>api.hideOverlay();
 $('live').onchange=async e=>{await api.live(e.target.checked);C.live=e.target.checked;ui()};

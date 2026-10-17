@@ -1,4 +1,8 @@
-# Grafik Okuyucu
+# Cem App
+
+Mac için hepsi bir arada uygulama: Borsa (grafik okuma, derinlik, AL/SAT, haberler), Ses, Dosya Paylaşımı, Temizlik ve Dosya Kilidi. Özellikler Merkez penceresinden açılıp kapatılır.
+
+## Borsa
 
 Ekrandaki fiyat grafiğini (TradingView, Matriks, broker ekranları, tarayıcı…) okuyan macOS menü çubuğu uygulaması. Destek/direnç seviyelerini, trend çizgilerini, yönü ve formasyonları bulur; hepsini doğrudan grafiğin üstüne çizer. Ekrana kendi çizimlerini de yapabilirsin.
 

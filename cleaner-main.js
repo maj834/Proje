@@ -4,7 +4,7 @@
 const fs=require('fs'),{execFile}=require('child_process');
 const C=require('./cleaner');
 
-const OWN_IDS=['com.grafik.okuyucu','com.github.Electron'];   // kendi onbellegimize dokunma
+const OWN_IDS=['com.cem.app','com.grafik.okuyucu','com.github.Electron'];   // kendi onbellegimize dokunma
 
 // Calisan uygulamalarin paket kimlikleri: ps ciktisindaki .app yollarindan Info.plist okunur (en iyi caba)
 function runningBundleIds(){

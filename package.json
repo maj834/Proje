@@ -1,6 +1,6 @@
 {
-  "name": "grafik-okuyucu",
-  "version": "1.8.0",
+  "name": "cem-app",
+  "version": "2.0.0",
   "description": "Ekrandaki fiyat grafigini Claude ile okuyan macOS menu cubugu uygulamasi",
   "main": "main.js",
   "scripts": {
@@ -21,8 +21,8 @@
     "electron-builder": "^26.17.0"
   },
   "build": {
-    "appId": "com.grafik.okuyucu",
-    "productName": "Grafik Okuyucu",
+    "appId": "com.cem.app",
+    "productName": "Cem App",
     "files": [
       "*.js",
       "*.html",
