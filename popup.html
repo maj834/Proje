@@ -276,10 +276,12 @@ function ui(){
 const dt=t=>t?new Date(t).toLocaleDateString('tr-TR',{day:'2-digit',month:'short'})+(Date.now()-t<864e5?' '+new Date(t).toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'}):''):'';
 function marketCards(a,out){
   const m=a.market,q=m.quote||{};
-  if(q.price!=null){const ch=q.prev?((q.price-q.prev)/q.prev*100):null;
-    out.append(el('div',{class:'c'},el('div',{class:'q'},el('span',{class:'px'},fmt(q.price)),el('span',{class:'m num'},q.currency||''),
+  // Gosterilen fiyat: ekrandaki grafikten ya da bottan (gecikmesiz); yoksa Yahoo (~15 dk gecikmeli)
+  const px=m.priceSource&&m.priceSource!=='yahoo'&&a.last_price!=null?a.last_price:q.price;
+  if(px!=null){const ch=q.prev?((px-q.prev)/q.prev*100):null;
+    out.append(el('div',{class:'c'},el('div',{class:'q'},el('span',{class:'px'},fmt(px)),el('span',{class:'m num'},q.currency||''),
       ch!=null?el('span',{class:'ch '+(ch>=0?'pos':'neg')},(ch>=0?'+':'')+ch.toFixed(2).replace('.',',')+'%'):null),
-      el('div',{class:'m',style:'margin-top:2px'},[q.name,m.yahoo,m.stale?'çevrimdışı · son kayıtlı veri':(/\.IS$/.test(m.yahoo||'')?'~15 dk gecikmeli':null)].filter(Boolean).join(' · ')),
+      el('div',{class:'m',style:'margin-top:2px'},[q.name,m.yahoo,m.priceSource==='ekran'?'fiyat ekrandaki grafikten (anlık)':m.priceSource==='bot'?'fiyat Telegram botundan':m.stale?'çevrimdışı · son kayıtlı veri':(/\.IS$/.test(m.yahoo||'')?'~15 dk gecikmeli':null)].filter(Boolean).join(' · ')),
       el('div',{class:'m',style:'margin-top:6px'},m.calib?'Fiyat ölçeği ekrandaki grafikle eşleşti (r² '+m.calib.r2.toFixed(3).replace('.',',')+', '+m.calib.n+' mum). Çizgiler gerçek fiyatla etiketli.':
         'Fiyat ölçeği eşleşmedi: ekrandaki grafiğin zaman dilimi seçimle aynı mı? Analiz yine gerçek veriden yapıldı.')))}
   if(m.levels&&(m.levels.R.length||m.levels.S.length))out.append(el('div',{class:'c'},el('div',{class:'t'},'Gerçek veriden seviyeler'),

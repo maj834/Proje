@@ -202,10 +202,13 @@ function calibParams(a){
 function calibrate(a){const c=calibParams(a);return c?y=>c.my+c.k*(y-c.mx):null}
 const fmtP=v=>v.toLocaleString('tr-TR',{maximumFractionDigits:Math.abs(v)<10?4:2});
 
-// Son fiyat: piyasa motorunda gercek kotasyon, yoksa olcekli ekran son noktasi (yoksa null).
+// Son fiyat, en guncelden: kullanicinin ekranindaki son nokta (araci kurum grafigi, gecikmesiz; Yahoo'dan alinan olcekle
+// fiyata cevrilir) > bottan son 2 dk icinde gelen fiyat > Yahoo kotasyonu (~15 dk gecikmeli).
+const botPrice=sym=>lastDepth&&lastDepth.last!=null&&Date.now()-lastDepth.at<120000&&(!sym||String(sym).replace(/\W/g,'').includes(lastDepth.symbol))?lastDepth.last:null;
 function lastPrice(a,local){
-  if(a&&a.engine==='piyasa'&&typeof a.last_price==='number')return a.last_price;
-  const c=calibParams(a);return c&&local&&local.last?c.my+c.k*(local.last.y-c.mx):null;
+  const c=calibParams(a);if(c&&local&&local.last)return c.my+c.k*(local.last.y-c.mx);
+  const b=botPrice(a&&a.symbol);if(b!=null)return b;
+  return a&&a.engine==='piyasa'&&typeof a.last_price==='number'?a.last_price:null;
 }
 // Alarm cizgileri: son fiyat cizgiyi gectiginde bir kez bildirim gonderir.
 // Fiyatli alarm (price) fiyat karsilastirmasiyla, fiyatsiz eski alarm ekran y'si ile tetiklenir.
@@ -325,6 +328,9 @@ async function withMarket(local,opts={}){
     news:[...((r.news&&r.news.items)||[]),...((r.avNews&&r.avNews.items)||[])].slice(0,8),sentiment:r.avNews?r.avNews.sentiment:null,
     calib:cal?{r2:+cal.r2.toFixed(4),n:cal.n,shift:cal.shift}:null,errors:r.errors,avLeft:r.avLeft};
   a.market.rows=rows.length;a.market.screenN=local.rawCandles?local.rawCandles.length:0;
+  // Yahoo BIST verisi ~15 dk gecikmeli: gosterilen son fiyat ekrandaki grafikten (olcekle) ya da bottan alinir
+  const live=cal&&local.last?+P(local.last.y):botPrice(r.symbol);
+  if(live!=null){a.market.delayedPrice=a.last_price;a.last_price=live;a.market.priceSource=cal&&local.last?'ekran':'bot'}else a.market.priceSource='yahoo';
   if(cal&&series)a.realSignals=realMarks(series.signals||[],rows,local,cal);
   if(!a.chart_found&&!series)throw new Error(r.errors.join(' · ')||'Veri alınamadı.');
   return a;
