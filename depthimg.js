@@ -169,11 +169,63 @@ async function read(img,{ocr=defaultOcr,hint={}}={}){
   d.ocr={dropped:nb-d.bids.length-d.asks.length,cells:n,ms:Date.now()-t0,conf:confs.length?Math.round(confs.reduce((a,b)=>a+b,0)/confs.length):null};
   return d;
 }
-// Blok metin icin: buyutme 2x, kirpma yok
-function cellBlock(s,x0,x1,y0,y1,scale=2){
+// Blok metin icin: cift dogrusal 3x buyutme, kirpma yok
+function cellBlock(s,x0,x1,y0,y1,scale=3){
   const w=(x1-x0+1)*scale,h=(y1-y0+1)*scale,g=Buffer.alloc(w*h,255);
-  for(let y=0;y<h;y++)for(let x=0;x<w;x++){const v=ink(s.px(x0+Math.floor(x/scale),y0+Math.floor(y/scale)));g[y*w+x]=255-Math.max(0,Math.min(255,Math.round((v-70)*255/130)))}
+  const v=(x,y)=>ink(s.px(Math.max(x0,Math.min(x1,x)),Math.max(y0,Math.min(y1,y))));
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){
+    const fx=x0+(x+0.5)/scale-0.5,fy=y0+(y+0.5)/scale-0.5,ix=Math.floor(fx),iy=Math.floor(fy),tx=fx-ix,ty=fy-iy;
+    const q=(v(ix,iy)*(1-tx)+v(ix+1,iy)*tx)*(1-ty)+(v(ix,iy+1)*(1-tx)+v(ix+1,iy+1)*tx)*ty;
+    g[y*w+x]=255-Math.max(0,Math.min(255,Math.round((q-70)*255/130)));
+  }
   return {png:png(w,h,g),w,h};
 }
 
-module.exports={read,segment,parseStats,priceOf,qtyOf,png,close};
+// --- AKD (araci kurum dagilimi) resmi ------------------------------------------------
+// Siyah zemin: yesil "Net Alicilar" basligi + tablo, kirmizi "Net Saticilar" basligi + tablo.
+// Satir: KURUM | NET (lot) | MALIYET | ORAN %
+const AKD_ROW=/^(.*?[A-Za-zÇĞİÖŞÜçğıöşü].*?)\s+([\d.,]{1,12})\s+([\d.,]{3,9})\s+([\d.,]{1,6})\s*%?\s*$/;
+// Maliyet: nokta okunmadiysa son fiyata en yakin ondalik konumunu sec
+function costOf(t,ref){
+  const s=digits(t);if(!s)return null;
+  const far=v=>!ref||!(v>0)?0:Math.abs(Math.log(v/ref));
+  if(/[.,]\d{2,3}$/.test(s)){const v=+s.replace(/,/g,'.').replace(/\.(?=.*\.)/g,'');if(far(v)<Math.log(1.6))return v}
+  // Nokta okunmadi ya da fazladan rakam okundu (156.742): rakam dizisinden fiyata en yakin degeri sec
+  const d=s.replace(/[.,]/g,'');if(!ref)return priceOf(d);
+  const cand=[d,...[...d].map((_,i)=>d.slice(0,i)+d.slice(i+1))];
+  let best=null;for(const c of cand)for(let k=1;k<=3&&k<c.length;k++){const v=+(c.slice(0,-k)+'.'+c.slice(-k));if(best==null||far(v)<far(best))best=v}
+  return best!=null&&far(best)<Math.log(1.6)?best:null;
+}
+const pctOf=t=>{const s=digits(t);if(!s)return null;const v=/[.,]/.test(s)?+s.replace(',','.'):+s/100;return v>=0&&v<=100?v:null};
+function parseAkd(text,ref){
+  const out=[];
+  for(const raw of String(text||'').split(/\n/)){
+    const l=raw.replace(/[|]/g,' ').replace(/\s+/g,' ').trim(),m=l.match(AKD_ROW);if(!m)continue;
+    const name=m[1].replace(/^[^A-Za-zÇĞİÖŞÜçğıöşü]+/,'').trim();if(!name||/kurum|net al|net sat|maliyet/i.test(name))continue;
+    out.push({name,net:qtyOf(m[2]),cost:costOf(m[3],ref),pct:pctOf(m[4])});
+  }
+  return out;
+}
+function akdSections(img){
+  const {width:W,height:H,data:D}=img,R=img.bgra?2:0,B=img.bgra?0:2;
+  const px=(x,y)=>{const i=(y*W+x)*4;return [D[i+R],D[i+1],D[i+B]]};
+  const hdr=(test)=>{const ys=[];for(let y=0;y<H;y++){let n=0;for(let x=0;x<W;x+=2)if(test(px(x,y)))n++;if(n*2>W*0.15)ys.push(y)}return ys};
+  const g=hdr(([r,gg,b])=>gg>170&&r<120&&gg>b+40),r=hdr(([rr,gg,b])=>rr>170&&gg<90&&b<120);
+  if(!g.length||!r.length||r[0]<=g[g.length-1])return null;
+  return {W,H,px,green:[g[0],g[g.length-1]],red:[r[0],r[r.length-1]]};
+}
+// Donus: {buyers,sellers,buyTotal,sellTotal} ya da null
+async function readAkd(img,{ocr=defaultOcr,ref=null}={}){
+  const s=akdSections(img);if(!s)return null;
+  const t0=Date.now(),pad=6;
+  const block=async(y0,y1)=>{const c=cellBlock(s,0,s.W-1,Math.max(0,y0),Math.min(s.H-1,y1));return (await ocr(c.png,'text')).text};
+  const [bt,st]=[await block(s.green[0]-pad,s.red[0]-pad-1),await block(s.red[0]-pad,s.H-1)];
+  const tot=t=>{const m=String(t).match(/10\s*[:;]\s*([\d.,]+)\s*Lot/i);return m?qtyOf(m[1]):null};
+  // Oran ~ lot / toplam: satirlarin cogunun lot/oran degeri ayni; uymayan oran yanlis okunmustur, lottan hesapla
+  const fixPct=rows=>{const k=rows.filter(x=>x.net&&x.pct).map(x=>x.net/x.pct).sort((a,b)=>a-b),m=k[k.length>>1];
+    if(k.length>=3)rows.forEach(x=>{if(x.net&&(!x.pct||Math.abs(x.net/m-x.pct)>Math.max(0.05,x.pct*0.15)))x.pct=+(x.net/m).toFixed(2)});return rows};
+  const buyers=fixPct(parseAkd(bt,ref)),sellers=fixPct(parseAkd(st,ref));
+  return {buyers,sellers,buyTotal:tot(bt),sellTotal:tot(st),ocr:{ms:Date.now()-t0}};
+}
+
+module.exports={read,readAkd,parseAkd,segment,parseStats,priceOf,qtyOf,png,close};

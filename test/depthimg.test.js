@@ -111,3 +111,27 @@ test('read: gercek BOPT HUBVC tablosu (alis + satis dolu)', { timeout: 120000 },
     const w = D.walls(d); assert.ok(w.some(x => x.side === 'bid' && x.price === 2.3), 'alis duvari 540.690 @ 2,30');
   } finally { await DI.close(); }
 });
+
+test('parseAkd: OCR satirlari, maliyet duzeltme', () => {
+  const r = DI.parseAkd('Net Alicilar ilk 10: 1.696.075 Lot - 99.58%\nKURUM NET ALIS MALIYET ORAN\nBank Of America 711.393 15.848 41.77%\nGedik 21.224 156.742 1.25%\nUnlu 341.843 15920 20.07%\n', 16.15);
+  assert.deepEqual(r, [{ name: 'Bank Of America', net: 711393, cost: 15.848, pct: 41.77 }, { name: 'Gedik', net: 21224, cost: 15.742, pct: 1.25 }, { name: 'Unlu', net: 341843, cost: 15.92, pct: 20.07 }]);
+});
+
+test('readAkd: gercek BOPT AKD resmi (EKIM)', { timeout: 120000 }, async (t) => {
+  try { require.resolve('tesseract.js'); } catch (e) { t.skip('tesseract.js kurulu degil'); return; }
+  const im = decodePng(fs.readFileSync(path.join(__dirname, 'fixtures', 'bopt-akd.png')));
+  try {
+    const a = await DI.readAkd(im, { ref: 16.15 });
+    assert.equal(a.buyTotal, 1696075); assert.equal(a.sellTotal, 1641319);
+    assert.deepEqual(a.buyers.map(x => x.name), ['Bank Of America', 'Unlu', 'Yapi Kredi', 'Oyak', 'Garanti', 'Gedik', 'Halk', 'Tacirler', 'Marbas', 'Piramit', 'DIGER']);
+    assert.deepEqual(a.buyers.map(x => x.net), [711393, 341843, 300040, 229637, 38045, 21224, 18488, 17557, 12848, 5000, 6930]);
+    assert.deepEqual(a.buyers.map(x => x.cost), [15.848, 15.92, 15.897, 15.899, 15.524, 15.742, 15.49, 16.093, 16.089, 15.78, 15.745]);
+    // Oran yanlis okunursa lottan yeniden hesaplanir (yuvarlama farki olabilir)
+    [41.77, 20.07, 17.62].forEach((p, i) => assert.ok(Math.abs(a.buyers[i].pct - p) <= 0.05, a.buyers[i].name + ' ' + a.buyers[i].pct));
+    assert.equal(a.sellers.length, 11);
+    assert.deepEqual(a.sellers.map(x => x.net), [429973, 351849, 238336, 214953, 113588, 99680, 68139, 57879, 35093, 31829, 61686]);
+    assert.deepEqual(a.sellers.map(x => x.cost), [15.812, 15.734, 16.013, 15.811, 15.921, 15.785, 16.416, 16.079, 15.929, 15.978, 15.834]);
+    assert.equal(a.sellers[0].name, 'Vakif');
+    assert.equal(DI.segment(im), null, 'AKD resmi derinlik tablosu sanilmaz');
+  } finally { await DI.close(); }
+});
