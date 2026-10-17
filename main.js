@@ -48,6 +48,8 @@ function addCost(c){
 
 // --- ekran ---------------------------------------------------------------
 const activeDisplay=()=>screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+// Otomatik (canli) analizde katmanin durdugu ekrana sadik kal; imlec baska monitore gecince katman ziplamasin.
+const targetDisplay=silent=>(silent&&ovDisplay!=null&&screen.getAllDisplays().find(x=>x.id===ovDisplay))||activeDisplay();
 const screenAllowed=()=>process.platform!=='darwin'||systemPreferences.getMediaAccessStatus('screen')==='granted';
 
 async function capture(d){
@@ -78,7 +80,7 @@ function mk(){
   pop=new BrowserWindow({width:380,height:560,show:false,frame:false,resizable:false,skipTaskbar:true,alwaysOnTop:true,transparent:true,
     vibrancy:'popover',visualEffectState:'active',roundedCorners:true,webPreferences:{preload:pre,sandbox:true}});
   pop.setContentProtection(true);pop.loadFile(path.join(__dirname,'popup.html'));
-  pop.on('blur',()=>{if(!pop.webContents.isDevToolsOpened())pop.hide()});
+  pop.on('blur',()=>{if(!pop.webContents.isDevToolsOpened()&&!tgAskResolve)pop.hide()});
   ov=new BrowserWindow({transparent:true,frame:false,focusable:false,hasShadow:false,skipTaskbar:true,show:false,enableLargerThanScreen:true,
     webPreferences:{preload:pre,sandbox:true}});
   ov.setAlwaysOnTop(true,'screen-saver');ov.setVisibleOnAllWorkspaces(true,{visibleOnFullScreen:true});
@@ -203,7 +205,7 @@ async function analyze(opts={}){
   }
   busy=true;
   try{
-    const d=activeDisplay(),shot=await capture(d),sig=signature(shot);
+    const d=targetDisplay(opts.silent),shot=await capture(d),sig=signature(shot);
     const change=d.id===ovDisplay?diff(sig,lastSig):1;
     if(opts.silent&&change===0){send('skip',Date.now());return}
     const {width:W,height:H}=shot.getSize();
@@ -358,7 +360,8 @@ function setDepthAuto(sec){
   save({depthAuto:sec});clearTimeout(depthTimer);depthTimer=null;
   if(sec<=0)return;
   // Sabit aralik yerine rastgele sapmali zamanlayici (her istek %0-35 gecikmeli).
-  const loop=()=>{depthTimer=setTimeout(async()=>{await fetchDepth({auto:true});if(cfg().depthAuto>0)loop()},Math.max(SAFE.minSec,sec)*1000*(1+Math.random()*0.35))};
+  // Ekrandan okuma her turda Claude kredisi harcar: otomatikte en az 60 sn.
+  const loop=()=>{const floor=(cfg().depthSource==='ekran')?60:SAFE.minSec;depthTimer=setTimeout(async()=>{await fetchDepth({auto:true});if(cfg().depthAuto>0)loop()},Math.max(floor,sec)*1000*(1+Math.random()*0.35))};
   loop();
 }
 
