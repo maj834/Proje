@@ -71,7 +71,7 @@ function render(){
   $('temps').textContent=s.cpu.tempMax!=null&&s.cpu.tempMax!==t?'en sıcak '+tr(s.cpu.tempMax)+'°C':t==null?'sensör okunamadı':'';
   setv('cpu',s.cpu.usage!=null?tr(s.cpu.usage)+'%':'—');$('cpus').textContent=s.power!=null?tr(s.power,1)+' W sistem':'';
   setv('fps',s.fps.screen!=null?tr(s.fps.screen):'—');
-  $('fpss').textContent=(s.fps.display?'ekran '+tr(s.fps.display)+' Hz':'')+(s.fps.screen==null&&S.conf?' · ölçülmüyor':'');
+  $('fpss').textContent=(s.fps.display?'ekran '+tr(s.fps.display)+' Hz':'')+(s.fps.screen==null?' · ölçülmüyor':s.fps.screen<1?' · ekran sabit':'');
   setv('gpu',s.gpu.usage!=null?tr(s.gpu.usage)+'%':'—');$('gpus').textContent=s.gpu.temp!=null?tr(s.gpu.temp)+'°C':'';
   $('gtemp').style.color='var(--'+(t>=90?'dn':t>=75?'warn':'up')+')';$('gcpu').style.color=$('gfps').style.color=$('ggpu').style.color='var(--acc)';
   spark('gtemp',H.map(x=>x.cpu.temp),110);spark('gcpu',H.map(x=>x.cpu.usage),100);spark('gfps',H.map(x=>x.fps.screen));spark('ggpu',H.map(x=>x.gpu.usage),100);
