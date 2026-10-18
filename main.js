@@ -16,14 +16,55 @@ const cleanerUi=require('./cleaner-main').registerCleaner({ipcMain,dialog,shell,
 const audioUi=require('./audio-main').registerAudio({ipcMain,app,BrowserWindow,path,cfg:()=>cfg(),save:o=>save(o),isOn:()=>modOn('ses')});
 // Sistem durumu: menu cubugunda kendi tusu (sicaklik, FPS, CPU/GPU/RAM...)
 const sysUi=require('./sistem-main').registerSystem({ipcMain,app,BrowserWindow,Tray,nativeImage,screen,path,Notification,cfg:()=>cfg(),save:o=>save(o),isOn:()=>modOn('sistem')});
+// Pano gecmisi: kopyalananlar, ⌘⇧V
+const panoUi=require('./pano-main').registerPano({ipcMain,app,BrowserWindow,path,clipboard,nativeImage,globalShortcut,screen,safeStorage,cfg:()=>cfg(),save:o=>save(o),isOn:()=>modOn('pano')});
+global.panoUi=panoUi;
+// Internet hiz testi ve misafir Wi-Fi QR
+const hizUi=require('./hiz-main').registerHiz({ipcMain,app,BrowserWindow,path,cfg:()=>cfg(),save:o=>save(o),isOn:()=>modOn('hiz')});
+global.hizUi=hizUi;
+// Neo: "Hey Neo" sesli asistan. Araclari uygulamanin kendi ozellikleri; Claude anahtari Borsa ayarlarindaki anahtar.
+const neoUi=require('./neo-main').registerNeo({ipcMain,app,BrowserWindow,path,screen,globalShortcut,Notification,cfg:()=>cfg(),save:o=>save(o),
+  getKey:()=>getKey(),isOn:()=>modOn('neo'),actions:{
+  feature:id=>{if(id==='merkez'){hubUi.open();return {ok:true}}if(!modOn(id))return {error:'Bu özellik Merkez\'de kapalı.'};const f=OPEN[id];if(!f)return {error:'Bu özellik henüz yok.'};f();return {ok:true}},
+  status:()=>{const v=sysUi.view(),s=v.last;if(!s)return {error:modOn('sistem')?'Ölçüm henüz gelmedi.':'Sistem Durumu özelliği kapalı.'};
+    return {cpu_temp_c:s.cpu.temp,cpu_hottest_c:s.cpu.tempMax,cpu_percent:s.cpu.usage,gpu_percent:s.gpu.usage,ram_used_gb:s.mem.used&&+(s.mem.used/1e9).toFixed(1),
+      ram_total_gb:s.mem.total&&+(s.mem.total/1e9).toFixed(1),memory_pressure:s.mem.pressure,screen_fps:s.fps.screen,display_hz:s.fps.display,fans_rpm:s.fans,
+      battery:s.battery,net_down_mbit:+(s.net.down*8/1e6).toFixed(1),net_up_mbit:+(s.net.up*8/1e6).toFixed(1),disk_free_gb:s.disk.free&&Math.round(s.disk.free/1e9),thermal:s.thermal}},
+  appVolume:(name,pct)=>modOn('ses')?audioUi.setByName(name,pct):{error:'Ses özelliği Merkez\'de kapalı.'},
+  macVolume:(pct,mute)=>modOn('ses')?audioUi.master(pct,mute):{error:'Ses özelliği Merkez\'de kapalı.'},
+  stock:async sym=>{const code=bistCode(sym);if(!code)return {error:'Hisse kodu anlaşılmadı.'};
+    const out={symbol:code};
+    try{const c=await market.candles(code,'1g','BIST'),q=c.quote;out.price=q.price;out.prev_close=q.prev;out.change_pct=q.price&&q.prev?+((q.price/q.prev-1)*100).toFixed(2):null;
+      out.day_high=q.dayHigh;out.day_low=q.dayLow;out.volume=q.volume;out.name=q.name;out.note='Yahoo verisi ~15 dk gecikmeli olabilir'}catch(e){out.price_error=e.message}
+    if(lastDepth&&lastDepth.symbol===code&&Date.now()-lastDepth.at<15*60000){const d=lastDepth;out.depth={last:d.last,pressure:d.pressure&&d.pressure.text,trend:d.trend&&d.trend.text,
+      signal:d.signal&&d.signal.why,top_buyers:(d.buyers||[]).slice(0,3).map(b=>b.name+' '+b.net),top_sellers:(d.sellers||[]).slice(0,3).map(b=>b.name+' '+b.net)}}
+    try{const n=await botNews(code);if(n){out.news=(n.list||[]).slice(0,4).map(x=>({title:x.summary||x.title,score:x.score,importance:x.importance}));
+      out.upcoming=(n.calendar||[]).slice(0,3).map(x=>x.day+' '+x.kind+' '+x.title)}}catch(e){}
+    return out},
+  showStock:sym=>{const code=bistCode(sym);if(!modOn('borsa'))return {error:'Borsa özelliği kapalı.'};showPop();fetchDepth({symbol:code});return {ok:true,symbol:code}},
+  timer:(min,label)=>{setTimeout(()=>{new Notification({title:'Neo hatırlatma',body:label||'Süre doldu'}).show();neoUi.say('Hatırlatma: '+(label||'süre doldu'))},min*60000);
+    return {ok:true,at:new Date(Date.now()+min*60000).toLocaleTimeString('tr-TR',{timeZone:'Europe/Istanbul',hour:'2-digit',minute:'2-digit'})}},
+  openApp:name=>new Promise(r=>require('child_process').execFile('/usr/bin/open',['-a',name],{timeout:10000},e=>r(e?{error:'"'+name+'" uygulaması bulunamadı.'}:{ok:true}))),
+  openUrl:url=>{shell.openExternal(url);return {ok:true}},
+  speed:()=>global.hizUi&&modOn('hiz')?global.hizUi.run():{error:'İnternet hız testi özelliği henüz yüklü değil.'},
+  clipboard:q=>global.panoUi&&modOn('pano')?global.panoUi.find(q):{error:'Pano geçmişi özelliği henüz yüklü değil.'},
+}});
+// Ozellik pencereleri (Merkez ve Neo ortak)
+const OPEN={borsa:()=>showPop(),ses:()=>audioUi.open(),paylas:()=>openShare(),temizlik:()=>cleanerUi.open(),kilit:()=>lockUi&&lockUi.open(),
+  sistem:()=>sysUi.show(),neo:()=>neoUi.open(),pano:()=>panoUi.open(),hiz:()=>hizUi.open()};
+// Borsa kisayollari unregisterAll ile yenilenir; Pano (⌘⇧V) ve Neo (⌥Bosluk) kisayollarini geri kur
+const rearmOthers=()=>{try{panoUi.rearm()}catch(e){}try{neoUi.rearm()}catch(e){}};
 // Merkez penceresi: ozellikleri ac/kapat. Kapatilan ozellik menude gorunmez ve arka planda calismaz.
 hubUi=require('./hub-main').registerHub({ipcMain,app,BrowserWindow,path,cfg:()=>cfg(),save:o=>save(o),name:APP_NAME,actions:{
-  open:id=>({borsa:()=>showPop(),ses:()=>audioUi.open(),paylas:()=>openShare(),temizlik:()=>cleanerUi.open(),kilit:()=>lockUi&&lockUi.open(),sistem:()=>sysUi.show()})[id]?.(),
+  open:id=>OPEN[id]?.(),
   toggle:(id,on)=>{
-    if(id==='borsa'){if(on)registerShortcuts();else{globalShortcut.unregisterAll();if(cfg().live)setLive(false);setDepthAuto(0);
+    if(id==='borsa'){if(on)registerShortcuts();else{globalShortcut.unregisterAll();rearmOthers();if(cfg().live)setLive(false);setDepthAuto(0);
       if(drawing)setDrawing(false);lastDepth=null;sendOv('depth',null);clearAnalysis();ov.hide();pop.hide()}}
     if(id==='ses'&&!on)audioUi.stop();
     if(id==='sistem')on?sysUi.enable():sysUi.disable();
+    if(id==='neo')on?neoUi.enable():neoUi.disable();
+    if(id==='pano')on?panoUi.enable():panoUi.disable();
+    if(id==='hiz')on?hizUi.enable():hizUi.disable();
     if(id==='kilit'&&!on&&lockUi)lockUi.lock();
     if(id==='paylas'&&!on){if(shareSess){shareSess.stop('user');shareSess=null}if(shareWin)shareWin.close()}
     send('state',state());
@@ -31,7 +72,10 @@ hubUi=require('./hub-main').registerHub({ipcMain,app,BrowserWindow,path,cfg:()=>
   status:id=>id==='borsa'?(cfg().live?'Canlı mod açık':cfg().depthAuto>0?'Canlı takip açık':null)
     :id==='ses'?(n=>n?n+' uygulamada özel ayar':null)(Object.keys((cfg().sound||{}).apps||{}).length)
     :id==='paylas'?(shareSess&&shareSess.info().running?'Paylaşım açık':null)
-    :id==='sistem'?sysUi.status():null}});
+    :id==='sistem'?sysUi.status()
+    :id==='neo'?neoUi.status()
+    :id==='pano'?panoUi.status()
+    :id==='hiz'?hizUi.status():null}});
 
 const INTERVALS=[2,5,10,30,60];
 const HISTORY_MAX=30;
@@ -680,6 +724,7 @@ const tryReg=(acc,f)=>{try{return globalShortcut.register(acc,f)}catch(e){return
 function registerShortcuts(){
   globalShortcut.unregisterAll();scPaused=false;const s=sc();
   for(const k in SC_DEFAULT){const ok=tryReg(s[k],SC_FN[k]);scState[k]={acc:s[k],ok};if(!ok)console.warn(s[k]+' kısayolu kaydedilemedi.')}
+  rearmOthers();
   return scState;
 }
 // Yeni kisayol kaydedilemezse eskisi kalir ve hata doner.
@@ -778,6 +823,9 @@ app.whenReady().then(()=>{
     ...(modOn('temizlik')?[{label:'Temizlik…',click:()=>cleanerUi.open()}]:[]),
     ...(modOn('kilit')?[{label:'Dosya Kilidi…',click:()=>lockUi.open()}]:[]),
     ...(modOn('sistem')?[{label:'Sistem Durumu…',click:()=>sysUi.show()}]:[]),
+    ...(modOn('pano')?[{label:'Pano Geçmişi (⌘⇧V)…',click:()=>panoUi.open()}]:[]),
+    ...(modOn('hiz')?[{label:'İnternet Hız Testi…',click:()=>hizUi.open()}]:[]),
+    ...(modOn('neo')?[{label:'Neo ile konuş (⌥ Boşluk)',click:()=>neoUi.talk()},{label:'Neo…',click:()=>neoUi.open()}]:[]),
     {type:'separator'},{label:'Çıkış',role:'quit'}])));
   if(modOn('borsa'))registerShortcuts();
   // Dock simgesi: tiklaninca Merkez acilir. Oturum acilisinda baslatildiysa pencere gosterilmez.

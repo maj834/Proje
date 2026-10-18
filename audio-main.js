@@ -85,6 +85,16 @@ function registerAudio({ipcMain,app,BrowserWindow,path,cfg,save,isOn=()=>true}){
   // Uygulama acilisinda kayitli bir ayar varsa (or. Spotify %150) hemen uygula
   app.whenReady().then(()=>{if(needed())start()});
   app.on('will-quit',stop);
-  return {open,start,stop,view};
+  // Neo (sesli asistan) icin: uygulamayi adiyla bul ve sesini ayarla; ana ses duzeyi
+  const norm=x=>String(x||'').toLocaleLowerCase('tr-TR').replace(/[^a-z0-9çğıöşü]/g,'');
+  async function setByName(name,pct){
+    if(!start())return {error:state.error||'Ses yardımcısı çalışmıyor.'};
+    for(let i=0;i<20&&!state.apps.length;i++)await new Promise(r=>setTimeout(r,100));   // ilk liste gelsin
+    const n=norm(name),a=state.apps.find(x=>norm(x.name)===n)||state.apps.find(x=>norm(x.name).includes(n)||norm(x.bundle).includes(n));
+    if(!a)return {error:'"'+name+'" şu an ses çalan uygulamalar arasında yok.',apps:state.apps.map(x=>x.name).slice(0,15)};
+    setApp(a.bundle,{gain:Math.max(0,Math.min(200,pct))/100,mute:false});return {ok:true,app:a.name,percent:pct}}
+  function master(pct,mute){if(!start())return {error:state.error||'Ses yardımcısı çalışmıyor.'};
+    send({cmd:'masterVolume',value:Math.max(0,Math.min(1,pct/100))});send({cmd:'masterMute',value:!!mute});return {ok:true,percent:pct,mute:!!mute}}
+  return {open,start,stop,view,setByName,master};
 }
 module.exports={registerAudio,PRESETS,clampS,neutral,cleanApps};

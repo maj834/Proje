@@ -1,0 +1,175 @@
+<!doctype html><html lang="tr"><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; script-src 'self' 'unsafe-inline'">
+<title>İnternet Hız Testi</title><link rel="stylesheet" href="theme.css">
+<style>
+html,body{margin:0;min-height:100%;background:var(--bg);color:var(--fg);font:400 13px/1.45 var(--font);-webkit-user-select:none;user-select:none}
+.w{display:flex;flex-direction:column;gap:var(--s4);padding:var(--s4) var(--s5) var(--s5);box-sizing:border-box}
+h1{font:600 15px var(--font);margin:0}.m{color:var(--fg-3);font-size:12px}
+.tabs{display:flex;gap:2px;padding:2px;background:var(--sunk);border:1px solid var(--line);border-radius:6px}
+.tabs button{flex:1;border:0;background:none;color:var(--fg-2);font:500 12px var(--font);padding:5px 8px;border-radius:4px;cursor:pointer}
+.tabs button[aria-selected=true]{background:var(--surface);color:var(--fg);box-shadow:0 0 0 1px var(--line)}
+.pane{display:flex;flex-direction:column;gap:var(--s4)}.pane[hidden]{display:none}
+.gauge{position:relative;display:flex;flex-direction:column;align-items:center;padding:var(--s3) 0 0;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
+.gauge svg{width:240px;height:200px;display:block}
+.gauge .trk{stroke:var(--sunk)}.gauge .val{stroke:var(--acc);transition:stroke-dashoffset .15s linear}
+.gauge .val.up{stroke:var(--info)}
+.gauge .tk{fill:var(--fg-3);font:400 9px var(--mono)}
+.big{position:absolute;top:84px;left:0;right:0;text-align:center}
+.big b{display:block;font:600 40px var(--mono);font-variant-numeric:tabular-nums;letter-spacing:-.03em;line-height:1.05}
+.big span{color:var(--fg-3);font-size:11.5px}
+.ph{margin:-28px 0 var(--s3);color:var(--fg-2);font-size:12px;min-height:18px}
+.pbar{width:calc(100% - 24px);height:3px;border-radius:2px;background:var(--sunk);overflow:hidden;margin-bottom:var(--s3)}.pbar i{display:block;height:100%;width:0;background:var(--acc)}
+.btn{border:1px solid var(--line-2);background:var(--surface);color:var(--fg);font:500 12px var(--font);padding:6px 12px;border-radius:5px;cursor:pointer}
+.btn:hover{border-color:var(--fg-3)}.btn:disabled{opacity:.5;cursor:default}
+.btn.pri{background:var(--acc);border-color:var(--acc);color:var(--acc-ink)}.btn.wide{width:100%;padding:9px 12px;font-size:13px}
+.btn:focus-visible,.tabs button:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
+.cards{display:grid;grid-template-columns:1fr 1fr 1fr;gap:var(--s2)}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+.card .k{font-size:11px;color:var(--fg-3)}.card .v{font:600 20px var(--mono);font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.card .v small{font:400 10.5px var(--font);color:var(--fg-3);margin-left:2px}
+.card.w2{grid-column:span 1}
+.verdict{padding:var(--s3);border-radius:8px;border:1px solid var(--line);background:var(--surface)}
+.verdict b{display:block;font-weight:600}.verdict.good{border-color:var(--up);background:var(--up-soft)}.verdict.bad{border-color:var(--dn);background:var(--dn-soft)}
+.verdict ul{margin:4px 0 0;padding-left:18px;color:var(--fg-2);font-size:12px}
+.where{color:var(--fg-3);font-size:11.5px}
+.t{font:600 11px var(--font);letter-spacing:.06em;text-transform:uppercase;color:var(--fg-3);margin-bottom:var(--s1);display:flex;align-items:center;justify-content:space-between}
+.t .x{border:0;background:none;color:var(--fg-3);font:500 11px var(--font);cursor:pointer;text-transform:none;letter-spacing:0}.t .x:hover{color:var(--fg)}
+.hist{border:1px solid var(--line);border-radius:8px;background:var(--surface);overflow:hidden}
+.hist svg{display:block;width:100%;height:44px;color:var(--acc);border-bottom:1px solid var(--line)}
+table{width:100%;border-collapse:collapse;font-size:12px}th,td{padding:5px 10px;text-align:right;white-space:nowrap}th:first-child,td:first-child{text-align:left}
+th{font:500 11px var(--font);color:var(--fg-3)}td{font:400 12px var(--mono);font-variant-numeric:tabular-nums;border-top:1px solid var(--line)}
+.empty{padding:10px;color:var(--fg-3)}
+.err{padding:var(--s3);border-radius:6px;background:var(--dn-soft);color:var(--dn)}.err:empty{display:none}
+.note{color:var(--fg-3);font-size:11.5px}
+label.f{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--fg-2)}
+input[type=text],input[type=password]{font:400 13px var(--font);color:var(--fg);background:var(--surface);border:1px solid var(--line-2);border-radius:5px;padding:7px 9px;-webkit-user-select:text;user-select:text}
+.row{display:flex;align-items:center;gap:var(--s2)}.row>input{flex:1;min-width:0}
+.chk{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--fg-2);cursor:pointer}
+.qrbox{display:flex;flex-direction:column;align-items:center;gap:var(--s2);padding:var(--s4);border:1px solid var(--line);border-radius:8px;background:var(--surface)}
+.qrbox img{width:280px;height:280px;background:#fff;border-radius:6px;display:block;image-rendering:pixelated}
+.qrbox .n{font:600 16px var(--font);text-align:center;word-break:break-all}.qrbox .p{font:400 13px var(--mono);color:var(--fg-2);word-break:break-all;text-align:center;-webkit-user-select:text;user-select:text}
+</style></head><body><div class="w">
+  <div><h1>İnternet Hız Testi</h1><div class="m">Cloudflare sunucularıyla indirme, yükleme ve gecikmeyi ölçer (en fazla 30 sn).</div></div>
+  <div class="tabs" role="tablist">
+    <button role="tab" id="tabSpeed" aria-selected="true" aria-controls="pSpeed">Hız testi</button>
+    <button role="tab" id="tabWifi" aria-selected="false" aria-controls="pWifi">Wi-Fi QR</button>
+  </div>
+
+  <section class="pane" id="pSpeed" role="tabpanel" aria-labelledby="tabSpeed">
+    <div class="gauge">
+      <svg viewBox="0 0 240 200" aria-hidden="true">
+        <path class="trk" d="M 49.3 170.7 A 100 100 0 1 1 190.7 170.7" fill="none" stroke-width="12" stroke-linecap="round"/>
+        <path class="val" id="arc" d="M 49.3 170.7 A 100 100 0 1 1 190.7 170.7" fill="none" stroke-width="12" stroke-linecap="round" pathLength="100" stroke-dasharray="100" stroke-dashoffset="100"/>
+        <g id="ticks"></g>
+      </svg>
+      <div class="big" aria-live="off"><b id="num">—</b><span>Mb/sn</span></div>
+      <div class="ph" id="phase" role="status">Başlamak için düğmeye bas</div>
+      <div class="pbar"><i id="pct"></i></div>
+    </div>
+    <button class="btn pri wide" id="go">Testi başlat</button>
+    <div class="err" id="err" role="alert"></div>
+    <div id="res" hidden>
+      <div class="cards">
+        <div class="card"><div class="k">↓ İndirme</div><div class="v"><span id="rDown">—</span><small>Mb/sn</small></div></div>
+        <div class="card"><div class="k">↑ Yükleme</div><div class="v"><span id="rUp">—</span><small>Mb/sn</small></div></div>
+        <div class="card"><div class="k">Gecikme (ping)</div><div class="v"><span id="rPing">—</span><small>ms</small></div></div>
+        <div class="card"><div class="k">Titreme (jitter)</div><div class="v"><span id="rJit">—</span><small>ms</small></div></div>
+        <div class="card"><div class="k">Yüklü gecikme</div><div class="v"><span id="rLoad">—</span><small>ms</small></div></div>
+        <div class="card"><div class="k">Aktarılan</div><div class="v"><span id="rBytes">—</span><small>MB</small></div></div>
+      </div>
+      <div class="verdict" id="verdict" style="margin-top:var(--s2)"><b id="vText"></b><ul id="vNotes"></ul></div>
+      <div class="where" id="where" style="margin-top:var(--s2)"></div>
+    </div>
+    <div>
+      <div class="t"><span>Geçmiş</span><button class="x" id="clear">Temizle</button></div>
+      <div class="hist"><svg id="spark" viewBox="0 0 100 40" preserveAspectRatio="none" aria-label="İndirme hızı geçmişi"><polyline id="sparkLine" fill="none" stroke="currentColor" stroke-width="1.5" vector-effect="non-scaling-stroke" points=""/></svg>
+        <table><thead><tr><th>Zaman</th><th>↓ Mb/sn</th><th>↑ Mb/sn</th><th>Ping</th></tr></thead><tbody id="rows"></tbody></table>
+        <div class="empty" id="noHist">Henüz test yok.</div></div>
+    </div>
+  </section>
+
+  <section class="pane" id="pWifi" role="tabpanel" aria-labelledby="tabWifi" hidden>
+    <div class="note">Misafirin telefon kamerasıyla QR'ı okutup ağa şifre yazmadan bağlanır. Şifre hiçbir yere kaydedilmez; pencere kapanınca silinir.</div>
+    <label class="f">Ağ adı (SSID)<span class="row"><input type="text" id="ssid" maxlength="32" autocomplete="off" spellcheck="false"><button class="btn" id="find">Bul</button></span></label>
+    <label class="f">Şifre<span class="row"><input type="password" id="pass" maxlength="64" autocomplete="off" spellcheck="false"><button class="btn" id="getPass">Anahtar Zinciri'nden al</button></span></label>
+    <div class="row" style="flex-wrap:wrap;gap:var(--s3)">
+      <label class="chk"><input type="checkbox" id="show">Şifreyi göster</label>
+      <label class="chk"><input type="checkbox" id="open">Şifresiz ağ</label>
+      <label class="chk"><input type="checkbox" id="hidden">Gizli ağ</label>
+    </div>
+    <div class="note" id="wNote">"Anahtar Zinciri'nden al" seçilince macOS yönetici adı ve parolasını sorar; bu beklenen bir adımdır.</div>
+    <div class="err" id="wErr" role="alert"></div>
+    <div class="row"><button class="btn pri" id="make" style="flex:1">QR oluştur</button><button class="btn" id="wipe">Temizle</button></div>
+    <div class="qrbox" id="qrbox" hidden><img id="qr" alt="Wi-Fi QR kodu"><div class="n" id="qrName"></div><div class="p" id="qrPass"></div></div>
+  </section>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+const tr=(v,d)=>v==null?'—':v.toLocaleString('tr-TR',{maximumFractionDigits:d,minimumFractionDigits:0});
+const sp=v=>v==null?'—':tr(v,v<10?1:0);   // hiz: 9,4 / 94
+const MAX=1000,PH={ping:'Gecikme ölçülüyor…',down:'İndirme ölçülüyor…',up:'Yükleme ölçülüyor…',done:'Bitti'};
+const LV={'cok-iyi':'good','iyi':'good','orta':'','zayif':'bad','cok-zayif':'bad'};
+let S={history:[]},busy=false,mac=true;
+// Kadran: logaritmik olcek (0-1000 Mb/sn), 270 derece yay
+const frac=v=>Math.max(0,Math.min(1,Math.log10(1+Math.max(0,v||0))/Math.log10(1+MAX)));
+(function ticks(){const g=$('ticks'),NS='http://www.w3.org/2000/svg';
+  for(const v of [0,5,10,50,100,250,500,1000]){const a=(135+270*frac(v))*Math.PI/180,x=120+80*Math.cos(a),y=100+80*Math.sin(a);
+    const t=document.createElementNS(NS,'text');t.setAttribute('x',x.toFixed(1));t.setAttribute('y',(y+3).toFixed(1));t.setAttribute('text-anchor','middle');
+    t.setAttribute('class','tk');t.textContent=String(v);g.append(t)}})();
+function gauge(v,kind){$('arc').setAttribute('stroke-dashoffset',String(100-100*frac(v)));$('arc').classList.toggle('up',kind==='up');$('num').textContent=v==null?'—':sp(v)}
+function tab(w){const on=w==='speed';$('tabSpeed').setAttribute('aria-selected',on);$('tabWifi').setAttribute('aria-selected',!on);$('pSpeed').hidden=!on;$('pWifi').hidden=on}
+$('tabSpeed').onclick=()=>tab('speed');$('tabWifi').onclick=()=>tab('wifi');
+
+function result(r){
+  $('res').hidden=false;
+  $('rDown').textContent=sp(r.down);$('rUp').textContent=sp(r.up);$('rPing').textContent=tr(r.ping,0);$('rJit').textContent=tr(r.jitter,1);
+  $('rLoad').textContent=tr(r.loaded,0);$('rBytes').textContent=tr((r.bytes||0)/1e6,0);
+  const v=r.verdict||{};$('vText').textContent=v.text||'';$('verdict').className='verdict '+(LV[v.level]||'');
+  $('vNotes').replaceChildren(...(v.notes||[]).concat(r.partial?['Süre ya da veri sınırı doldu; ölçüm kısa kesildi.']:[]).concat(r.upError?['Yükleme ölçülemedi.']:[]).map(n=>{const li=document.createElement('li');li.textContent=n;return li}));
+  $('where').textContent=[r.isp,[r.city,r.country].filter(Boolean).join(', '),r.colo?'Sunucu: '+r.colo:null,new Date(r.at).toLocaleString('tr-TR')].filter(Boolean).join(' · ');
+}
+function history(){
+  const h=S.history||[];$('noHist').hidden=h.length>0;
+  const v=h.map(x=>x.down).filter(x=>x!=null),mx=Math.max(1,...v);
+  $('sparkLine').setAttribute('points',v.length<2?'':v.map((x,i)=>(i/(v.length-1)*100).toFixed(1)+','+(38-x/mx*34).toFixed(1)).join(' '));
+  $('rows').replaceChildren(...h.slice(-10).reverse().map(x=>{const tr_=document.createElement('tr');
+    for(const c of [new Date(x.at).toLocaleString('tr-TR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}),sp(x.down),sp(x.up),x.ping==null?'—':tr(x.ping,0)+' ms']){
+      const td=document.createElement('td');td.textContent=c;tr_.append(td)}return tr_}));
+}
+hiz.on(p=>{if(!busy||!p)return;$('phase').textContent=PH[p.phase]||'';
+  $('pct').style.width=Math.max(0,Math.min(100,+p.pct||0))+'%';
+  if(p.phase==='ping'){$('num').textContent=p.ping!=null?tr(p.ping,0):'—';$('num').nextElementSibling.textContent='ms'}
+  else{$('num').nextElementSibling.textContent=p.phase==='up'?'Mb/sn ↑':'Mb/sn ↓';gauge(p.mbps,p.phase)}});
+$('go').onclick=async()=>{
+  if(busy){$('go').disabled=true;hiz.cancel();return}
+  busy=true;$('err').textContent='';$('go').textContent='İptal';gauge(0);$('pct').style.width='0%';
+  const r=await hiz.start();busy=false;$('go').disabled=false;$('go').textContent='Testi yeniden başlat';
+  $('num').nextElementSibling.textContent='Mb/sn ↓';
+  if(!r){$('phase').textContent='';return}
+  if(!r.ok){$('phase').textContent=r.cancelled?'İptal edildi':'';gauge(null);$('pct').style.width='0%';if(!r.cancelled)$('err').textContent=r.error||'Test tamamlanamadı.';return}
+  $('phase').textContent='Bitti';gauge(r.result.down);$('pct').style.width='100%';S.history=r.history;result(r.result);history();
+};
+$('clear').onclick=async()=>{const r=await hiz.clear();if(r){S=r;history()}};
+
+// --- Wi-Fi QR ---
+const stale=()=>{$('qrbox').hidden=true;$('qr').removeAttribute('src')};
+for(const id of ['ssid','pass','open','hidden'])$(id).addEventListener('input',stale);
+$('show').onchange=()=>{$('pass').type=$('show').checked?'text':'password';$('qrPass').hidden=!$('show').checked};
+$('open').onchange=()=>{$('pass').disabled=$('open').checked;$('getPass').disabled=$('open').checked||!mac;stale()};
+$('find').onclick=async()=>{$('wErr').textContent='';$('find').disabled=true;const r=await hiz.ssid();$('find').disabled=false;
+  if(!r)return;if(r.ok)$('ssid').value=r.ssid;else{$('wErr').textContent=r.error;$('ssid').focus()}stale()};
+$('getPass').onclick=async()=>{$('wErr').textContent='';const s=$('ssid').value;if(!s){$('wErr').textContent='Önce ağ adını yaz ya da "Bul"a bas.';return}
+  $('getPass').disabled=true;$('wNote').textContent='macOS onayı bekleniyor…';const r=await hiz.pass(s);$('getPass').disabled=false;
+  $('wNote').textContent='"Anahtar Zinciri\'nden al" seçilince macOS yönetici adı ve parolasını sorar; bu beklenen bir adımdır.';
+  if(!r)return;if(r.ok){$('pass').value=r.pass;stale()}else $('wErr').textContent=r.error};
+$('make').onclick=async()=>{$('wErr').textContent='';
+  const r=await hiz.qr({ssid:$('ssid').value,pass:$('pass').value,open:$('open').checked,hidden:$('hidden').checked});
+  if(!r)return;if(!r.ok||typeof r.url!=='string'||!r.url.startsWith('data:image/png;base64,')){$('wErr').textContent=(r&&r.error)||'QR oluşturulamadı.';stale();return}
+  $('qr').src=r.url;$('qrName').textContent=$('ssid').value;$('qrPass').textContent=$('open').checked?'Şifresiz':$('pass').value;$('qrPass').hidden=!$('show').checked;$('qrbox').hidden=false};
+$('wipe').onclick=()=>{$('pass').value='';$('ssid').value='';$('qrPass').textContent='';$('show').checked=false;$('pass').type='password';$('wErr').textContent='';stale()};
+// Pencere kapanirken sifreyi arayuzden de sil
+window.addEventListener('pagehide',()=>{$('pass').value='';$('qrPass').textContent='';stale()});
+
+hiz.state().then(s=>{if(!s)return;S=s;history();mac=!!s.wifi;if(!s.wifi){$('find').disabled=$('getPass').disabled=true;$('wNote').textContent='Ağ adı ve şifre otomatik yalnızca Mac\'te alınır; elle yazabilirsin.'}
+  const l=(s.history||[]).at(-1);if(l)gauge(l.down)});
+</script></body></html>

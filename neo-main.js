@@ -1,0 +1,119 @@
+// Neo: "Hey Neo" sesli asistani. Kulak ve agiz native/neo.swift (neo-yardimcisi): uyandirma kelimesi Mac'te, internetsiz.
+// Beyin neo.js (Claude + uygulama araclari). Ekranin ustunde kucuk bir kure: dinliyor / dusunuyor / konusuyor.
+const {spawn}=require('child_process'),fs=require('fs');
+const {createBrain}=require('./neo.js');
+
+const DEF={wake:true,voice:'',rate:0.5,hotkey:'Alt+Space'};
+const WAKE=['hey neo','hey nio','hey niyo','hey neyo','hey neo','hey nevo','hey new'];
+const clean=c=>({wake:c.wake!==false,voice:typeof c.voice==='string'?c.voice.slice(0,200):'',
+  rate:Math.max(0.3,Math.min(0.7,+c.rate||DEF.rate)),hotkey:typeof c.hotkey==='string'&&/^[\w+]{1,40}$/.test(c.hotkey)?c.hotkey:DEF.hotkey});
+
+function registerNeo({ipcMain,app,BrowserWindow,path,screen,globalShortcut,Notification,cfg,save,getKey,actions,isOn=()=>true,brain=null}){
+  let child=null,buf='',restarts=0,orb=null,win=null,hello=null,state='off',error=null,partial='',answer='',hideT=null,busy=false,sayN=0;
+  const log=[];                                          // son 30 konusma (pencerede gecmis)
+  const conf=()=>clean({...DEF,...(cfg().neo||{})});
+  const bin=()=>process.env.CEM_NEO_BIN||(app.isPackaged?path.join(process.resourcesPath,'bin','neo-yardimcisi'):path.join(__dirname,'build','bin','neo-yardimcisi'));
+  const send=o=>{if(child&&child.stdin.writable)child.stdin.write(JSON.stringify(o)+'\n')};
+  const B=brain||createBrain({getKey,actions,onTool:n=>show({tool:n})});
+  const view=()=>({supported:process.platform==='darwin'||!!process.env.CEM_NEO_BIN,hello,state,error,conf:conf(),log,hasKey:!!getKey()});
+  const toWin=()=>{if(win&&!win.isDestroyed())win.webContents.send('neo:state',view())};
+  // Kureye canli bilgi: durum, duyulan metin, cevap, ses duzeyi
+  function show(o={}){
+    if(!orb||orb.isDestroyed())makeOrb();
+    orb.webContents.send('neo:orb',{state,partial,answer,error,...o});
+    if(!orb.isVisible()){place();orb.showInactive()}
+    clearTimeout(hideT);
+    if(state==='idle'||state==='off')hideT=setTimeout(()=>{if(orb&&!orb.isDestroyed())orb.hide()},answer?7000:2500);
+  }
+  function setState(s){state=s;show();toWin()}
+
+  async function onCommand(text){
+    if(busy)return;busy=true;partial=text;answer='';send({cmd:'thinking'});setState('thinking');
+    let r;try{r=await B.ask(text)}catch(e){r={text:'Bir şeyler ters gitti.'}}
+    answer=r.text;log.unshift({at:Date.now(),q:text,a:r.text,tools:r.tools||[]});if(log.length>30)log.pop();
+    busy=false;toWin();
+    if(child){const id='s'+(++sayN);send({cmd:'say',id,text:r.text});setState('speaking')}else{setState('idle')}
+  }
+  function onLine(line){
+    let m;try{m=JSON.parse(line)}catch(e){return}
+    switch(m.type){
+      case 'hello':hello={wakeOnDevice:!!m.wakeOnDevice,cmdOnDevice:!!m.cmdOnDevice,voices:Array.isArray(m.voices)?m.voices.slice(0,40).map(v=>({id:String(v.id||''),name:String(v.name||''),quality:String(v.quality||'')})):[]};
+        restarts=0;error=null;configure();if(conf().wake)send({cmd:'start'});toWin();break;
+      case 'state':if(!busy&&['off','idle','listening','speaking'].includes(m.state)){if(m.state==='listening'){partial='';answer=''}setState(m.state)}break;
+      case 'wake':partial='';answer='';show({wake:true});break;
+      case 'partial':partial=String(m.text||'').slice(0,300);show();break;
+      case 'level':if(orb&&!orb.isDestroyed()&&orb.isVisible())orb.webContents.send('neo:level',+m.db||-90);break;
+      case 'command':{const t=String(m.text||'').trim();if(t)onCommand(t.slice(0,1000));else{send({cmd:'idle'});setState(conf().wake?'idle':'off')}break}
+      case 'nocommand':partial='';answer='Seni duyamadım.';send({cmd:'idle'});setState(conf().wake?'idle':'off');break;
+      case 'spoken':send({cmd:'idle'});setState(conf().wake?'idle':'off');break;
+      case 'error':error=String(m.msg||m.code||'').slice(0,200);if(m.code==='mic_denied'||m.code==='speech_denied'){state='off'}show({error});toWin();break;
+    }
+  }
+  const configure=()=>{const c=conf();send({cmd:'config',wake:WAKE,locale:'tr-TR',silenceMs:1200,maxMs:15000,voice:c.voice,rate:c.rate})};
+  function start(){
+    if(child)return true;if(!isOn())return false;
+    if(process.platform!=='darwin'&&!process.env.CEM_NEO_BIN||!fs.existsSync(bin())){error='Neo ses yardımcısı bulunamadı. Uygulamanın Mac sürümünü GitHub\'dan indirdiğinden emin ol.';toWin();return false}
+    const c=child=spawn(bin(),[],{stdio:['pipe','pipe','pipe']});buf='';
+    c.stdout.setEncoding('utf8');c.stdin.on('error',()=>{});
+    c.stdout.on('data',d=>{if(child!==c)return;buf+=d;let i;while((i=buf.indexOf('\n'))>=0){onLine(buf.slice(0,i));buf=buf.slice(i+1)}if(buf.length>1e6)buf=''});
+    c.stderr.on('data',d=>console.error('neo-yardimcisi:',String(d).trim()));
+    c.on('exit',(code,sig)=>{if(child!==c)return;child=null;state='off';
+      if((code||sig)&&isOn()&&restarts<3){restarts++;setTimeout(start,2000*restarts)}
+      else if(code||sig){error='Neo ses yardımcısı durdu ('+(sig||code)+').'}toWin()});
+    c.on('error',e=>{if(child===c)child=null;error='Neo başlatılamadı: '+e.message;toWin()});
+    return true;
+  }
+  function stop(){if(!child)return;const c=child;child=null;state='off';try{c.stdin.end(JSON.stringify({cmd:'quit'})+'\n')}catch(e){}
+    setTimeout(()=>{if(c.exitCode===null&&c.signalCode===null)try{c.kill('SIGKILL')}catch(e){}},1500)}
+  // Kisayol ya da kureye tiklama: uyandirma kelimesi beklemeden dinle; konusurken basilirsa sustur
+  function talk(){
+    if(!isOn())return;if(!child&&!start())return show({error});
+    if(state==='speaking'){send({cmd:'stopSay'});return}
+    if(state==='listening'){send({cmd:'cancel'});return}
+    partial='';answer='';send({cmd:'listen'});
+  }
+  // Yazili soru (pencereden): ses olmadan da calisir
+  async function typed(text){text=String(text||'').trim().slice(0,1000);if(!text)return view();await onCommand(text);return view()}
+
+  function makeOrb(){
+    orb=new BrowserWindow({width:420,height:150,show:false,frame:false,transparent:true,resizable:false,movable:false,focusable:false,
+      skipTaskbar:true,hasShadow:false,alwaysOnTop:true,fullscreenable:false,
+      webPreferences:{preload:path.join(__dirname,'neo-preload.js'),sandbox:true,backgroundThrottling:false}});
+    orb.setAlwaysOnTop(true,'screen-saver');orb.setVisibleOnAllWorkspaces(true,{visibleOnFullScreen:true});
+    orb.loadFile(path.join(__dirname,'neo.html'),{query:{orb:'1'}});
+    orb.webContents.setWindowOpenHandler(()=>({action:'deny'}));orb.webContents.on('will-navigate',e=>e.preventDefault());
+    orb.on('closed',()=>{orb=null});
+  }
+  // Kure: imlecin oldugu ekranin ust ortasi, menu cubugunun hemen alti
+  function place(){const d=screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea,[w]=orb.getSize();
+    orb.setPosition(Math.round(d.x+d.width/2-w/2),d.y+8)}
+  function open(){
+    if(win&&!win.isDestroyed()){win.show();win.focus();return}
+    win=new BrowserWindow({width:440,height:620,minWidth:380,minHeight:480,title:'Neo',show:false,
+      webPreferences:{preload:path.join(__dirname,'neo-preload.js'),sandbox:true}});
+    win.loadFile(path.join(__dirname,'neo.html'));win.once('ready-to-show',()=>{win.show();win.focus()});
+    win.webContents.setWindowOpenHandler(()=>({action:'deny'}));win.webContents.on('will-navigate',e=>e.preventDefault());
+    win.on('closed',()=>{win=null});start();
+  }
+  let hk=null;
+  function rearm(){if(!isOn())return;if(hk){try{globalShortcut.unregister(hk)}catch(e){}hk=null}const k=conf().hotkey;try{if(globalShortcut.register(k,talk))hk=k}catch(e){}}
+  function enable(){if(!isOn())return;start();rearm()}
+  function disable(){stop();if(hk){try{globalShortcut.unregister(hk)}catch(e){}hk=null}if(orb&&!orb.isDestroyed())orb.close();if(win&&!win.isDestroyed())win.close();B.reset()}
+
+  const from=e=>!!((win&&!win.isDestroyed()&&e.sender===win.webContents)||(orb&&!orb.isDestroyed()&&e.sender===orb.webContents));
+  ipcMain.handle('neo:state',e=>from(e)?view():null);
+  ipcMain.handle('neo:talk',e=>{if(from(e))talk()});
+  ipcMain.handle('neo:ask',(e,t)=>from(e)?typed(t):null);
+  ipcMain.handle('neo:set',(e,o)=>{if(!from(e)||!o||typeof o!=='object')return null;const before=conf();
+    save({neo:clean({...before,...o})});const c=conf();configure();
+    if(c.wake!==before.wake)send({cmd:c.wake?'start':'stop'});
+    if(c.hotkey!==before.hotkey&&hk){try{globalShortcut.unregister(hk)}catch(e){}hk=null;try{if(globalShortcut.register(c.hotkey,talk))hk=c.hotkey}catch(e){}}
+    toWin();return view()});
+  ipcMain.handle('neo:forget',e=>{if(!from(e))return null;B.reset();log.length=0;return view()});
+  app.whenReady().then(()=>{if(isOn())enable()});
+  app.on('will-quit',stop);
+  // Disaridan (zamanlayici) sesli bildirim
+  const say=t=>{if(!child&&!start())return;send({cmd:'say',id:'n'+(++sayN),text:String(t).slice(0,500)});answer=String(t);setState('speaking')};
+  return {enable,disable,open,talk,stop,view,rearm,say,status:()=>error?'Sorun var':state==='idle'?'"Hey Neo" dinliyor':state==='off'?null:'Çalışıyor'};
+}
+module.exports={registerNeo,clean,WAKE};
