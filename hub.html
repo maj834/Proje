@@ -25,12 +25,20 @@ h1{font:600 22px var(--font);margin:0;letter-spacing:-.01em}.sub{color:var(--fg-
 .sw span:before{content:'';position:absolute;left:2px;top:2px;width:14px;height:14px;border-radius:50%;background:#fff;transition:transform .15s;box-shadow:0 1px 2px rgba(0,0,0,.25)}
 .sw input:checked+span{background:var(--acc)}.sw input:checked+span:before{transform:translateX(14px)}.sw input:disabled+span{opacity:.4;cursor:default}
 .lbl{font-size:12px;color:var(--fg-2)}
+.upd{margin-top:var(--s4);background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:var(--s3) var(--s4);display:none;gap:var(--s3);align-items:center;flex-wrap:wrap}
+.upd.on{display:flex}.upd.ready{border-color:var(--acc)}.upd .t{font:600 13px var(--font)}.upd .n{color:var(--fg-3);font-size:12px;flex-basis:100%}
+.upd .grow{flex:1;min-width:160px}.upd .pb{height:4px;border-radius:2px;background:var(--sunk);overflow:hidden;margin-top:6px}.upd .pb i{display:block;height:100%;background:var(--acc)}
+.upd .btn{margin-left:0}.upd .btn.pri{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.ver{color:var(--fg-3);font-size:11.5px;margin-top:var(--s5);display:flex;gap:var(--s3);align-items:center}
+.ver a{color:var(--fg-2);cursor:pointer;text-decoration:underline}
 </style></head><body>
 <div class="top"></div>
 <div class="wrap">
   <h1 id="title"></h1><div class="sub">Kullanmak istediğin özellikleri aç. Kapalı özellik menü çubuğunda görünmez ve arka planda çalışmaz.</div>
+  <div class="upd" id="upd" role="status"></div>
   <div class="bar" id="flt"></div>
   <div class="grid" id="grid"></div>
+  <div class="ver"><span id="ver"></span><a id="chk">Güncellemeleri denetle</a><label><input type="checkbox" id="auto"> Otomatik indir</label></div>
 </div>
 <script>
 const $=id=>document.getElementById(id);
@@ -70,4 +78,31 @@ function render(){
     c.append(hd,el('div','ds',m.desc),ft);return c}));
 }
 hub.on(s=>{S=s;render()});hub.state().then(s=>{S=s;render()});
+// Guncelleme seridi
+let U=null;
+function renderUpd(){
+  const u=U,b=$('upd');if(!u)return;
+  $('ver').textContent='Sürüm '+u.current+(u.phase==='uptodate'?' · güncel':'')+(u.enabled?'':' · güncelleme yalnızca kurulu Mac uygulamasında');
+  $('auto').checked=!!(u.conf&&u.conf.auto);
+  const show=['available','downloading','ready','installing','error'].includes(u.phase);b.className='upd'+(show?' on':'')+(u.phase==='ready'?' ready':'');
+  if(!show){b.replaceChildren();return}
+  const g=el('div','grow');
+  const title={available:'Yeni sürüm: '+u.latest,downloading:'İndiriliyor: '+u.latest,ready:'Cem App '+u.latest+' hazır',installing:'Kuruluyor…',error:'Güncelleme sorunu'}[u.phase];
+  g.append(el('div','t',title));
+  if(u.phase==='downloading'){const pb=el('div','pb'),i=el('i');i.style.width=Math.round((u.progress||0)*100)+'%';pb.append(i);g.append(pb)}
+  if(u.phase==='error')g.append(el('div','n',u.error||''));
+  const btns=[];
+  const B=(t,f,pri)=>{const x=el('button','btn'+(pri?' pri':''),t);x.onclick=f;btns.push(x)};
+  if(u.phase==='ready'||u.phase==='available'){
+    if(u.canInstall&&u.canInstall.ok===false){g.append(el('div','n',u.canInstall.reason));B('İndirme sayfası',()=>hub.upd.open())}
+    else B(u.phase==='ready'?'Yeniden başlat ve kur':'İndir ve kur',async()=>{await hub.upd.install()},true);
+    B('Bu sürümü atla',async()=>{await hub.upd.set({skip:u.latest})});
+  }
+  if(u.phase==='error')B('Tekrar dene',()=>hub.upd.check());
+  b.replaceChildren(g,...btns);
+  if(u.notes&&u.notes.length&&u.phase!=='error'){const n=el('div','n','Yenilikler: '+u.notes.slice(0,5).join(' · '));b.append(n)}
+}
+hub.upd.on(u=>{U=u;renderUpd()});hub.upd.state().then(u=>{if(u){U=u;renderUpd()}});
+$('chk').onclick=async()=>{$('chk').textContent='Denetleniyor…';const u=await hub.upd.check();if(u)U=u;$('chk').textContent='Güncellemeleri denetle';renderUpd()};
+$('auto').onchange=async()=>{const u=await hub.upd.set({auto:$('auto').checked});if(u)U=u;renderUpd()};
 </script></body></html>

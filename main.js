@@ -49,6 +49,9 @@ const neoUi=require('./neo-main').registerNeo({ipcMain,app,BrowserWindow,path,sc
   speed:()=>global.hizUi&&modOn('hiz')?global.hizUi.run():{error:'İnternet hız testi özelliği henüz yüklü değil.'},
   clipboard:q=>global.panoUi&&modOn('pano')?global.panoUi.find(q):{error:'Pano geçmişi özelliği henüz yüklü değil.'},
 }});
+// Kendi kendini guncelleme: GitHub Releases'tan yeni surum (yalnizca paketlenmis Mac uygulamasinda)
+const updUi=require('./updater-main').registerUpdater({ipcMain,app,path,Notification,shell,cfg:()=>cfg(),save:o=>save(o),
+  send:(ch,st)=>{hubUi&&hubUi.sendTo(ch,st)},isAllowed:e=>!!hubUi&&hubUi.isWin(e)});
 // Ozellik pencereleri (Merkez ve Neo ortak)
 const OPEN={borsa:()=>showPop(),ses:()=>audioUi.open(),paylas:()=>openShare(),temizlik:()=>cleanerUi.open(),kilit:()=>lockUi&&lockUi.open(),
   sistem:()=>sysUi.show(),neo:()=>neoUi.open(),pano:()=>panoUi.open(),hiz:()=>hizUi.open()};

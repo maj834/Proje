@@ -19,11 +19,20 @@ jobs:
   mac:
     needs: test
     runs-on: macos-latest
+    # GitHub Release olusturmak / eskileri silmek icin (yalniz push'ta kullanilir)
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
+        with: {fetch-depth: 0}   # surum notlari icin onceki etiket ve gecmis
       - uses: actions/setup-node@v4
         with: {node-version: 20, cache: npm}
       - run: npm ci
+      # Surum yalniz CI'da: 2.0.<calisma no>. Depodaki package.json 2.0.0 kalir. Guncelleyici bu numarayi karsilastirir.
+      - name: Surum numarasi
+        run: |
+          npm version --no-git-tag-version --allow-same-version "2.0.${{ github.run_number }}"
+          node -p "require('./package.json').version"
       - run: for f in *.js; do node --check "$f"; done
       # Birim testleri macOS'ta da (APFS, gercek tmp yollari /private/var/...)
       - run: npm test
@@ -205,5 +214,72 @@ jobs:
             n=$((n+1))
           done
           test "$n" -ge 1
+      # Guncelleme bilgisi: latest.json (surum, tarih, notlar, zip'lerin SHA-256 ve boyutu). Uygulama bunu
+      # https://github.com/maj834/Proje/releases/latest/download/latest.json adresinden okur.
+      - name: latest.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          V=$(node -p "require('./package.json').version")
+          for a in arm64 x64; do
+            for e in zip dmg; do test -f "dist/CemApp-$V-$a.$e" || { echo "eksik: dist/CemApp-$V-$a.$e"; ls dist; exit 1; }; done
+            # Guncelleyicinin yapacagi denetimin aynisi: ditto ile ac, tek .app, kimlik + surum
+            T=$(mktemp -d); /usr/bin/ditto -x -k "dist/CemApp-$V-$a.zip" "$T"
+            n=$(find "$T" -maxdepth 1 -name '*.app' -type d | wc -l | tr -d ' '); test "$n" -eq 1 || { echo "zip'te $n .app var"; exit 1; }
+            P=$(find "$T" -maxdepth 1 -name '*.app' -type d)/Contents/Info.plist
+            test "$(/usr/bin/plutil -extract CFBundleIdentifier raw -o - "$P")" = com.cem.app
+            test "$(/usr/bin/plutil -extract CFBundleShortVersionString raw -o - "$P")" = "$V"
+            rm -rf "$T"
+          done
+          PREV=$(git tag --list 'v2.0.*' --sort=-v:refname | grep -E '^v2\.0\.[0-9]+$' | grep -vx "v$V" | head -1 || true)
+          if [ -n "$PREV" ]; then git log --no-merges --format=%s -n 20 "$PREV..HEAD" > notes.txt; else git log --no-merges --format=%s -n 20 > notes.txt; fi
+          [ -s notes.txt ] || git log --format=%s -n 1 > notes.txt
+          V="$V" node - <<'JS'
+          const fs = require("fs"), crypto = require("crypto");
+          const v = process.env.V, repo = "maj834/Proje";
+          const notes = fs.readFileSync("notes.txt", "utf8").split("\n").map(s => s.trim()).filter(Boolean).slice(0, 20);
+          const info = (arch, ext) => {
+            const name = `CemApp-${v}-${arch}.${ext}`, buf = fs.readFileSync("dist/" + name);
+            return { arch, name, url: `https://github.com/${repo}/releases/download/v${v}/${name}`,
+              sha256: crypto.createHash("sha256").update(buf).digest("hex"), size: buf.length };
+          };
+          const m = { version: v, date: new Date().toISOString(), notes, files: ["arm64", "x64"].map(a => info(a, "zip")), dmg: ["arm64", "x64"].map(a => info(a, "dmg")) };
+          fs.writeFileSync("dist/latest.json", JSON.stringify(m, null, 2) + "\n");
+          // Uygulamadaki dogrulayicidan gecmeli
+          require("./updater.js").validateManifest(m);
+          const md = `Cem App ${v}\n\n` + notes.map(n => "- " + n).join("\n") + "\n\nİlk kurulum: DMG. Sonraki sürümler uygulama içinden otomatik güncellenir.\n";
+          fs.writeFileSync("release-notes.md", md);
+          JS
+          cat dist/latest.json
+      # Yalniz main / calisma dalina push: GitHub Release v<surum> (en son olarak isaretli). Ayni calisma yeniden calisirsa atlanir.
+      - name: GitHub Release
+        if: success() && github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/ccr-f251748e-ir45zy')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          V=$(node -p "require('./package.json').version")
+          if gh release view "v$V" >/dev/null 2>&1; then echo "v$V zaten var; atlaniyor"; exit 0; fi
+          gh release create "v$V" --target "$GITHUB_SHA" --title "Cem App $V" --notes-file release-notes.md --latest \
+            "dist/CemApp-$V-arm64.zip" "dist/CemApp-$V-x64.zip" "dist/CemApp-$V-arm64.dmg" "dist/CemApp-$V-x64.dmg" dist/latest.json
+      # Eski surumleri temizle: en yeni 10 surum kalir. Yalniz ^v2.0.N$ etiketlerine dokunulur.
+      - name: Eski surumleri sil
+        if: success() && github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/ccr-f251748e-ir45zy')
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh release list --limit 200 --json tagName --jq '.[].tagName' \
+            | grep -E '^v2\.0\.[0-9]+$' | sort -t. -k3,3nr | tail -n +11 > eski.txt || true
+          while IFS= read -r t; do
+            [[ "$t" =~ ^v2\.0\.[0-9]+$ ]] || continue
+            echo "siliniyor: $t"
+            gh release delete "$t" --cleanup-tag --yes
+          done < eski.txt
       - uses: actions/upload-artifact@v4
         with: {name: CemApp-dmg, path: dist/*.dmg}

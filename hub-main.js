@@ -41,6 +41,9 @@ function registerHub({ipcMain,app,BrowserWindow,path,cfg,save,name,actions}){
   ipcMain.handle('hub:open',(e,id)=>{if(ready.has(id)&&enabled(id)&&actions.open)actions.open(id);return view()});
   // Ajanlarin yazdigi moduller hazir olunca kaydolur
   const setReady=id=>{ready.add(id);push()};
-  return {open,enabled,setReady,push,MODULES};
+  // Merkez penceresine baska modullerden olay (or. guncelleme durumu)
+  const sendTo=(ch,d)=>{if(win&&!win.isDestroyed())win.webContents.send(ch,d)};
+  const isWin=e=>!!win&&!win.isDestroyed()&&e.sender===win.webContents;
+  return {open,enabled,setReady,push,sendTo,isWin,MODULES};
 }
 module.exports={registerHub,MODULES};
