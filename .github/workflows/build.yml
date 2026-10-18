@@ -25,6 +25,12 @@ jobs:
         with: {node-version: 20, cache: npm}
       - run: npm ci
       - run: for f in *.js; do node --check "$f"; done
+      # Birim testleri macOS'ta da (APFS, gercek tmp yollari /private/var/...)
+      - run: npm test
+      # macOS entegrasyon testleri: gercek chflags uchg, sert bag yedegi + onarim, ~/.Trash, 127.0.0.1 paylasim sunucusu.
+      # GUI/Touch ID/Anahtar Zinciri istemi yok. npm test'in test/*.test.js deseni bu klasoru kapsamaz.
+      - name: macOS entegrasyon testleri
+        run: node --test test/mac/*.test.js
       # Ses yardimcisi (Swift, arm64 + x64 tek dosya); calistigini dogrula
       - run: npm run ses
       - run: ./build/bin/ses-yardimcisi --version && lipo -info build/bin/ses-yardimcisi

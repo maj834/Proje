@@ -6,7 +6,7 @@ contextBridge.exposeInMainWorld('kilit',{
   touch:()=>i.invoke('kl:touch'),changePw:(o,n,n2)=>i.invoke('kl:changePw',o,n,n2),
   pick:()=>i.invoke('kl:pick'),drop:paths=>i.invoke('kl:drop',paths),
   open:id=>i.invoke('kl:open',id),save:id=>i.invoke('kl:save',id),unlock:id=>i.invoke('kl:unlock',id),
-  trash:id=>i.invoke('kl:trash',id),forget:id=>i.invoke('kl:forget',id),reveal:id=>i.invoke('kl:reveal',id),
+  trash:id=>i.invoke('kl:trash',id),repair:()=>i.invoke('kl:repair'),forget:id=>i.invoke('kl:forget',id),reveal:id=>i.invoke('kl:reveal',id),
   pathOf:f=>{try{return webUtils.getPathForFile(f)}catch(e){return null}},
   on:f=>i.on('kl:evt',(_,d)=>f(d))
 });

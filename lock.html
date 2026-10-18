@@ -30,11 +30,13 @@ input[type=password]:focus{outline:none;border-color:var(--acc)}
 .bar{height:3px;border-radius:2px;background:var(--line);overflow:hidden;margin-top:4px}.bar i{display:block;height:100%;background:var(--acc);width:0}
 details summary{cursor:pointer;color:var(--fg-2);font-size:12px}details[open] summary{margin-bottom:var(--s2)}
 .mono{font-family:var(--mono)}
+#rep{display:none}#rep.on{display:flex}
 </style></head><body><div class="w">
   <div class="row"><svg class="ico" viewBox="0 0 16 16"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5 7V5a3 3 0 0 1 6 0v2"/></svg>
     <div class="f1"><h1>Dosya Kilidi</h1><div class="m" id="sub"></div></div>
     <span class="m num" id="cd"></span><button class="btn" id="lockNow" style="display:none">Şimdi kilitle</button></div>
   <div class="err" id="err"></div><div class="ok" id="okm"></div>
+  <div class="ok row" id="rep" role="status"><span class="f1" id="repT"></span><button class="btn" id="repX" aria-label="Kapat">Tamam</button></div>
 
   <!-- ilk kurulum -->
   <div class="scr" id="sSetup">
@@ -65,7 +67,7 @@ details summary{cursor:pointer;color:var(--fg-2);font-size:12px}details[open] su
     <div id="prog"></div>
     <div><div class="t" id="lh">Kilitli dosyalar</div><div class="list" id="files"></div></div>
     <div class="note">Açılan dosyalar geçici, gizli bir kopyada açılır; kasa kilitlenince kopya silinir. Kopyada yaptığın değişiklikler yalnızca <b>Değişiklikleri kaydet ve yeniden kilitle</b> dersen kilitli dosyaya yazılır.</div>
-    <div class="note"><b>Silme koruması hakkında:</b> Kilitlenen dosyaya macOS "Kilitli" bayrağı konur; Finder silmeden önce sorar, Terminal'de <span class="mono">rm</span> başarısız olur. Ancak macOS, dosyanın sahibinin bu bayrağı kaldırmasını (Finder &gt; Bilgi Al &gt; Kilitli) engelleyemez; yani dosya %100 silinemez yapılamaz. İçerik ise her durumda şifreli kalır ve Touch ID ya da şifre olmadan okunamaz.</div>
+    <div class="note"><b>Silme koruması hakkında:</b> Kilitlenen dosyaya macOS "Kilitli" bayrağı konur; Finder silmeden önce sorar, Terminal'de <span class="mono">rm</span> başarısız olur. Ancak macOS, dosyanın sahibinin bu bayrağı kaldırmasını (Finder &gt; Bilgi Al &gt; Kilitli) engelleyemez. Bu yüzden her kilitli dosyanın uygulama klasöründe gizli bir <b>sert bağı</b> tutulur (aynı veri, ek disk alanı kaplamaz): dosya silinirse uygulama açılınca ya da kasa açılınca kendiliğinden geri getirilir. Dosya başka bir diskteyse bu yedek kurulamaz ("yedek yok" yazar). İçerik her durumda şifreli kalır ve Touch ID ya da şifre olmadan okunamaz.</div>
     <details class="card"><summary>Şifreyi değiştir</summary><div class="form">
       <input type="password" id="cp0" placeholder="Mevcut şifre" autocomplete="current-password">
       <input type="password" id="cp1" placeholder="Yeni şifre (en az 8 karakter)" autocomplete="new-password">
@@ -84,6 +86,7 @@ function msg(r){
   $('err').style.display='none';$('okm').style.display='none';
   if(r&&r.ok===false&&r.msg){$('err').textContent=r.msg;$('err').style.display='block'}
   else if(r&&r.done){$('okm').textContent=r.done;$('okm').style.display='block'}
+  if(r&&r.notice)notice(r.notice);
   if(r&&r.results){const bad=r.results.filter(x=>!x.ok),warn=r.results.filter(x=>x.ok&&x.msg);
     if(bad.length){$('err').textContent=bad.map(x=>x.msg).join('\n');$('err').style.display='block';$('err').style.whiteSpace='pre-line'}
     const good=r.results.filter(x=>x.ok).length;
@@ -91,6 +94,8 @@ function msg(r){
 }
 async function call(p){if(busy)return;busy=true;document.body.style.cursor='progress';
   try{const r=await p;if(r&&r.setup!=null)S=r;msg(r);render();return r}finally{busy=false;document.body.style.cursor=''}}
+function notice(t){$('repT').textContent=t;$('rep').classList.add('on')}
+$('repX').onclick=()=>$('rep').classList.remove('on');
 function render(){
   const scr=!S.setup?'sSetup':!S.unlocked?'sLocked':'sMain';
   for(const id of ['sSetup','sLocked','sMain'])$(id).classList.toggle('on',id===scr);
@@ -106,6 +111,7 @@ function render(){
 function item(f){
   const r=el('div','it'+(f.missing?' miss':'')),top=el('div','row'),n=el('span','n f1',f.name);n.title=f.folder+'/'+f.file;
   top.append(n);if(f.missing)top.append(el('span','tag','bulunamadı'));else if(f.opened)top.append(el('span','tag op','açık kopya var'));
+  if(!f.missing&&f.backup===false){const y=el('span','tag','yedek yok');y.title='Dosya uygulamayla aynı diskte olmadığı için silinmeye karşı yedek bağı kurulamadı.';top.append(y)}
   r.append(top,el('div','s',f.folder+' · '+human(f.size)+' · '+date(f.lockedAt)));
   const b=el('div','row'),B=(t,fn,c)=>{const x=el('button','btn'+(c?' '+c:''),t);x.onclick=fn;b.append(x);return x};
   if(f.missing){B('Listeden çıkar',()=>call(kilit.forget(f.id)));
@@ -122,6 +128,7 @@ let lastTouch=0;
 const act=()=>{if(!S.unlocked||Date.now()-lastTouch<20000)return;lastTouch=Date.now();kilit.touch().then(r=>{if(r&&r.setup!=null){S=r;end=Date.now()+(r.remainingMs||0)}})};
 for(const t of ['mousedown','keydown','wheel'])document.addEventListener(t,act,{passive:true});
 kilit.on(e=>{
+  if(e.type==='repaired'){notice(e.msg);if(!busy)kilit.state().then(r=>{if(r&&r.setup!=null){S=r;render()}})}
   if(e.type==='locked'){S.unlocked=false;S.files=[];render();
     if(e.reason==='idle'){$('err').style.display='none';$('okm').textContent='5 dakika işlem olmadığı için kasa kilitlendi; açık kopyalar silindi.';$('okm').style.display='block'}}
   if(e.type==='progress'){let p=document.getElementById('p-'+e.name);

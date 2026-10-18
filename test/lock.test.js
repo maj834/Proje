@@ -21,14 +21,16 @@ function fakeKeychain() {
 async function setup(t, extra = {}) {
   const root = tmpDir(), home = path.join(root, 'home'), vdir = path.join(root, 'vault'), tmpRoot = path.join(root, 'tmp');
   fs.mkdirSync(home); fs.mkdirSync(tmpRoot);
-  const flags = [], kc = fakeKeychain(), trashed = [];
-  const chflags = async (p, on) => { flags.push([p, on]); };
+  const flags = [], bflags = [], kc = fakeKeychain(), trashed = [];
+  // yedek baglarin bayraklari ayri tutulur (flags yalnizca gorunen dosyalar)
+  const bdir = path.join(vdir, 'yedek');
+  const chflags = async (p, on) => { (p.startsWith(bdir + path.sep) ? bflags : flags).push([p, on]); };
   const trash = async p => { const d = path.join(root, 'Trash'); fs.mkdirSync(d, { recursive: true }); fs.renameSync(p, path.join(d, path.basename(p))); trashed.push(p); };
   const V = L.createVault({ dir: vdir, home, chflags, trash, tmpRoot, chunk: 64 * KB, protect: kc.protect, unprotect: kc.unprotect, scryptN: 2 ** 15, ...extra });
   t.after(() => { V.lock(); fs.rmSync(root, { recursive: true, force: true }); });
   await V.setup(PW);
   const write = (name, data) => { const p = path.join(home, name); fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, data); return p; };
-  return { V, root, home, vdir, tmpRoot, flags, kc, trashed, write };
+  return { V, root, home, vdir, tmpRoot, flags, bflags, bdir, kc, trashed, write };
 }
 const sha = b => crypto.createHash('sha256').update(b).digest('hex');
 const leftovers = d => fs.readdirSync(d).filter(n => /\.(aciliyor|kilitleniyor|yenileniyor)$/.test(n));
@@ -313,7 +315,7 @@ test('Sil: bayrak kaldirilir, Cop Sepeti\'ne tasinir; kayit ve bulunamadi', asyn
   // dosya disarida silinirse "bulunamadi"
   fs.rmSync(b.path);
   const f = V.files(); assert.equal(f.length, 1); assert.equal(f[0].missing, true);
-  assert.equal(V.forget(f[0].id), true); assert.equal(V.files().length, 0);
+  assert.equal(await V.forget(f[0].id), true); assert.equal(V.files().length, 0);
   // kayitta icerik yok, yalnizca yol/ad/boyut/tarih
   const reg = JSON.parse(fs.readFileSync(path.join(path.dirname(path.dirname(a.path)), 'vault', 'registry.json')));
   assert.deepEqual(reg, []);
@@ -412,4 +414,198 @@ test('acilista onceki oturumdan kalan acik kopyalar ve yarim dosyalar silinir (F
   const vd = path.join(home, '..', 'v3'), V3 = L.createVault({ dir: vd, home, scryptN: 2 ** 15 }); t.after(() => V3.lock());
   await V3.setup(PW); const r3 = await V3.lockFile(write('e.txt', 'x'));
   assert.ok((await V3.openTemp(r3.path)).startsWith(path.join(vd, 'tmp') + path.sep));
+});
+
+// ---- Silinme kurtarma: kasa klasorunde sert bag yedegi ----
+const bak = (bdir, id) => path.join(bdir, id + '.kilitli');
+
+test('kilitlerken yedek sert bag kurulur: ayni inode, 0700 klasor, uchg yedege de konur', async (t) => {
+  const { V, write, bdir, flags, bflags } = await setup(t);
+  const data = crypto.randomBytes(150 * KB);
+  const r = await V.lockFile(write('foto.jpg', data));
+  assert.equal(r.backup, true); assert.equal(V.entry(r.id).backup, true);
+  const b = bak(bdir, r.id), sv = fs.statSync(r.path), sb = fs.statSync(b);
+  assert.equal(sv.ino, sb.ino); assert.equal(sv.dev, sb.dev); assert.equal(sv.nlink, 2);
+  assert.equal(fs.statSync(bdir).mode & 0o777, 0o700);
+  assert.deepEqual(flags, [[r.path, true]]); assert.deepEqual(bflags, [[b, true]]);
+  assert.deepEqual(V.check(), [{ id: r.id, name: 'foto.jpg', path: r.path, visible: true, backup: true, linked: true, recoverable: false }]);
+  // yedek ek yer kaplamaz: ayni inode (yukarida); repair hicbir sey yapmaz
+  assert.deepEqual(await V.repair(), { restored: [], failed: [], linked: 0, moved: [] });
+});
+
+test('gorunen dosya silinirse repair ayni yere geri baglar, icerik ayni ve aciliyor', async (t) => {
+  const events = [];
+  const { V, write, bdir, flags, home } = await setup(t, { onEvent: e => events.push(e) });
+  const data = crypto.randomBytes(300 * KB);
+  const r = await V.lockFile(write('d/rapor.pdf', data));
+  const before = fs.readFileSync(r.path);
+  fs.rmSync(r.path);                                   // sahibi "nouchg" + rm yapti
+  assert.equal(V.files()[0].missing, true); assert.equal(V.files()[0].recoverable, true);
+  assert.equal(V.check()[0].recoverable, true);
+  flags.length = 0;
+  const res = await V.repair();
+  assert.deepEqual(res.restored.map(x => [x.path, x.renamed, x.flagged]), [[r.path, false, true]]);
+  assert.deepEqual(flags, [[r.path, true]], 'geri gelen dosyaya uchg yeniden konur');
+  assert.ok(fs.readFileSync(r.path).equals(before));
+  assert.equal(fs.statSync(r.path).ino, fs.statSync(bak(bdir, r.id)).ino);
+  assert.equal(V.files()[0].missing, false);
+  assert.ok(events.some(e => e.type === 'restored' && e.files.length === 1));
+  const out = path.join(home, 'cikti.pdf'); await V.decryptTo(r.path, out);
+  assert.ok(fs.readFileSync(out).equals(data));
+  // kasa kilitliyken de calisir (anahtar gerekmez), yeni ornek de (acilis)
+  V.lock(); fs.rmSync(r.path);
+  const V2 = L.createVault({ dir: path.join(home, '..', 'vault'), home, tmpRoot: path.join(home, '..', 'tmp') });
+  assert.equal((await V2.repair()).restored.length, 1);
+  assert.ok(fs.readFileSync(r.path).equals(before));
+});
+
+test('repair: ad doluysa "(geri getirildi)" adiyla geri gelir, kayit yeni yola guncellenir', async (t) => {
+  const { V, write, home } = await setup(t);
+  const data = Buffer.from('cakisma icerigi');
+  const r = await V.lockFile(write('x.txt', data));
+  const r2 = await V.lockFile(write('y.txt', 'baska'));
+  fs.rmSync(r.path); fs.writeFileSync(r.path, 'kullanicinin yeni dosyasi');
+  // ilk aday da dolu
+  fs.writeFileSync(path.join(home, 'x.txt (geri getirildi).kilitli'), 'dolu');
+  assert.equal(V.check()[0].recoverable, true, 'yerinde baska dosya, yedegi tutan baska ad yok');
+  const res = await V.repair();
+  assert.equal(res.restored.length, 1);
+  const np = path.join(home, 'x.txt (geri getirildi 2).kilitli');
+  assert.equal(res.restored[0].path, np); assert.equal(res.restored[0].renamed, true);
+  assert.equal(fs.readFileSync(r.path, 'utf8'), 'kullanicinin yeni dosyasi');
+  assert.equal(V.entry(r.id).path, np);
+  const out = path.join(home, 'o.txt'); await V.decryptTo(np, out); assert.ok(fs.readFileSync(out).equals(data));
+  assert.equal(V.entry(r2.id).path, r2.path);
+  assert.deepEqual((await V.repair()).restored, []);
+});
+
+test('kilidi kaldir ve Cop Sepeti yedek bagi siler; forget de', async (t) => {
+  const { V, write, bdir, bflags } = await setup(t);
+  const a = await V.lockFile(write('a.txt', 'a')), b = await V.lockFile(write('b.txt', 'b')), c = await V.lockFile(write('c.txt', 'c'));
+  assert.equal(fs.readdirSync(bdir).length, 3);
+  bflags.length = 0;
+  await V.unlockFile(a.path);
+  assert.ok(!fs.existsSync(bak(bdir, a.id))); assert.deepEqual(bflags, [[bak(bdir, a.id), false]]);
+  await V.removeLocked(b.path);
+  assert.ok(!fs.existsSync(bak(bdir, b.id)));
+  fs.rmSync(c.path);
+  assert.equal(await V.forget(c.id), true);
+  assert.deepEqual(fs.readdirSync(bdir), []);
+  assert.deepEqual((await V.repair()).restored, [], 'silinen kayitlar geri getirilmez');
+});
+
+test('relock (kaydet ve yeniden kilitle) yedek bagi yeni dosyaya tasir', async (t) => {
+  const { V, write, bdir, bflags, home } = await setup(t);
+  const r = await V.lockFile(write('not.txt', 'ilk surum'));
+  const oldIno = fs.statSync(r.path).ino;
+  const from = write('yeni.txt', 'ikinci surum');
+  bflags.length = 0;
+  const s = await V.relock(r.path, from);
+  assert.equal(s.backup, true);
+  const b = bak(bdir, r.id);
+  assert.notEqual(fs.statSync(r.path).ino, oldIno);
+  assert.equal(fs.statSync(r.path).ino, fs.statSync(b).ino);
+  assert.equal(fs.statSync(r.path).nlink, 2);
+  assert.deepEqual(bflags, [[b, false], [b, true]]);
+  assert.deepEqual(fs.readdirSync(bdir), [r.id + '.kilitli'], 'gecici yedek bag kalmaz');
+  fs.rmSync(r.path); await V.repair();
+  const out = path.join(home, 'o.txt'); await V.decryptTo(r.path, out);
+  assert.equal(fs.readFileSync(out, 'utf8'), 'ikinci surum');
+});
+
+test('bag kurulamazsa (EXDEV) kopya alinmaz, backup:false; sonra kurulabilirse repair baglar', async (t) => {
+  let fail = true; const calls = [];
+  const link = (a, b) => { calls.push([a, b]); if (fail) throw Object.assign(new Error('cross-device link'), { code: 'EXDEV' }); return fs.linkSync(a, b); };
+  const copy = fs.copyFileSync;
+  fs.copyFileSync = p => { throw new Error('kopya alinmamali: ' + p); }; t.after(() => { fs.copyFileSync = copy; });
+  const { V, write, bdir, bflags } = await setup(t, { link });
+  const r = await V.lockFile(write('buyuk.bin', crypto.randomBytes(2 * 1024 * KB)));
+  fs.copyFileSync = copy;
+  assert.equal(r.backup, false); assert.equal(V.entry(r.id).backup, false);
+  assert.equal(calls.length, 1);
+  assert.deepEqual(fs.readdirSync(bdir), [], 'yedek klasorunde dosya yok (kopya da yok)');
+  assert.deepEqual(bflags, []); assert.equal(fs.statSync(r.path).nlink, 1);
+  assert.deepEqual(V.check()[0], { id: r.id, name: 'buyuk.bin', path: r.path, visible: true, backup: false, linked: false, recoverable: false });
+  // relock da kopya almaz
+  const s = await V.relock(r.path, write('b2.bin', 'kucuk'));
+  assert.equal(s.backup, false); assert.deepEqual(fs.readdirSync(bdir), []);
+  // bag kurulabilir hale gelince (or. eski kayit) repair yedegi kurar
+  fail = false;
+  const res = await V.repair();
+  assert.equal(res.linked, 1); assert.equal(V.entry(r.id).backup, true);
+  assert.equal(fs.statSync(r.path).ino, fs.statSync(bak(bdir, r.id)).ino);
+});
+
+test('eski kayit (yedeksiz) acilista yedeklenir; yarim yedek baglari silinir; bozuk kimlik yok sayilir', async (t) => {
+  const { V, write, vdir, bdir, home, tmpRoot } = await setup(t);
+  const r = await V.lockFile(write('eski.txt', 'eski surum dosyasi'));
+  // eski surum: yedek yok, kayitta backup alani yok
+  fs.rmSync(bak(bdir, r.id));
+  const reg = JSON.parse(fs.readFileSync(path.join(vdir, 'registry.json'))); delete reg[0].backup;
+  reg.push({ id: '../../x', path: path.join(home, 'yok.kilitli'), name: 'k', size: 1, lockedAt: 1 });
+  fs.writeFileSync(path.join(vdir, 'registry.json'), JSON.stringify(reg));
+  fs.writeFileSync(path.join(bdir, r.id + '.kilitli.0123abcd.tmp'), 'yarim');
+  fs.writeFileSync(path.join(bdir, 'baska.txt'), 'dokunma');
+  const V2 = L.createVault({ dir: vdir, home, tmpRoot });
+  assert.deepEqual(fs.readdirSync(bdir), ['baska.txt']);
+  const res = await V2.repair();
+  assert.equal(res.linked, 1); assert.deepEqual(res.restored, []);
+  assert.equal(fs.statSync(r.path).ino, fs.statSync(bak(bdir, r.id)).ino);
+  assert.equal(V2.entry(r.id).backup, true);
+  assert.ok(!fs.existsSync(path.join(home, 'yok.kilitli')));
+  // adopt edilen dosya da yedeklenir
+  await V2.unlockWithPassword(PW);
+  const moved = path.join(home, 'tasindi.kilitli'); fs.renameSync(r.path, moved);
+  const e = await V2.adopt(moved);
+  assert.equal(e.backup, true); assert.equal(fs.statSync(moved).ino, fs.statSync(bak(bdir, e.id)).ino);
+  V2.lock(); assert.ok(V);
+});
+
+test('lock-main: acilista silinen dosya geri getirilir ve pencereye bir kez bildirilir', async (t) => {
+  const root = tmpDir(), home = path.join(root, 'home'), ud = path.join(root, 'ud'), vdir = path.join(ud, 'kilit');
+  fs.mkdirSync(home); fs.mkdirSync(ud);
+  // macOS'ta lock-main gercek chflags kullanir: silmeden once bayraklari kaldir
+  t.after(() => { if (process.platform === 'darwin') try { require('child_process').execFileSync('/usr/bin/chflags', ['-R', 'nouchg', root]); } catch (e) {}
+    fs.rmSync(root, { recursive: true, force: true }); });
+  // kasa onceden kurulmus (hizli scrypt) ve bir dosya kilitlenmis
+  const V0 = L.createVault({ dir: vdir, home, scryptN: 2 ** 15 }); await V0.setup(PW);
+  const src = path.join(home, 'a.txt'); fs.writeFileSync(src, 'gizli');
+  const r = await V0.lockFile(src); V0.lock();
+  fs.rmSync(r.path);
+  delete require.cache[require.resolve('../lock-main.js')];
+  const { registerLock } = require('../lock-main.js');
+  const handlers = {}, sent = [], wc = { send: (ch, e) => sent.push(e), setWindowOpenHandler() {}, on() {} };
+  const win = { webContents: wc, isDestroyed: () => false, loadFile() {}, once() {}, on() {}, show() {}, focus() {} };
+  const ui = registerLock({ ipcMain: { handle: (ch, f) => { handlers[ch] = f; } }, dialog: {}, shell: {},
+    app: { getPath: k => k === 'home' ? home : ud, on() {} }, BrowserWindow: function () { return win; }, path,
+    systemPreferences: { canPromptTouchID: () => false }, safeStorage: { isEncryptionAvailable: () => false } });
+  t.after(() => ui.vault.lock());
+  const call = (ch, ...a) => handlers[ch]({ sender: wc }, ...a);
+  // pencere kapaliyken: bildirim bekletilir
+  assert.equal((await ui.ready).restored.length, 1);
+  assert.ok(fs.existsSync(r.path), 'acilista geri getirildi');
+  ui.open();
+  let s = await call('kl:state');
+  assert.equal(s.notice, '1 kilitli dosya silinmişti, geri getirildi.');
+  s = await call('kl:state'); assert.equal(s.notice, undefined, 'bildirim bir kez');
+  // kasa acilinca da calisir
+  fs.rmSync(r.path);
+  s = await call('kl:unlockPw', PW);
+  assert.equal(s.ok, true); assert.equal(s.unlocked, true);
+  // pencere acikken: olay olarak gider, durum yanitinda tekrar gelmez
+  assert.deepEqual(sent.filter(e => e.type === 'repaired').map(e => e.msg), ['1 kilitli dosya silinmişti, geri getirildi.']);
+  assert.equal(s.notice, undefined);
+  assert.deepEqual(s.files.map(f => [f.name, f.missing, f.backup]), [['a.txt', false, true]]);
+});
+
+test('tasinan kilitli dosya eski yerine geri getirilmez, tasindi diye bildirilir', async (t) => {
+  const { V, write, home } = await setup(t);
+  const r = await V.lockFile(write('belge.txt', 'gizli'));
+  const yeni = path.join(home, 'baska-yer.kilitli');
+  fs.renameSync(r.path, yeni);                          // Finder ile tasindi (ayni disk)
+  const res = await V.repair();
+  assert.deepEqual(res.restored, []); assert.deepEqual(res.moved.map(x => x.name), ['belge.txt']);
+  assert.ok(!fs.existsSync(r.path));
+  fs.rmSync(yeni);                                      // simdi gercekten silindi: geri gelir
+  assert.equal((await V.repair()).restored.length, 1);
 });

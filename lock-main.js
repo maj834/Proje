@@ -21,6 +21,28 @@ function registerLock({ipcMain,dialog,shell,app,BrowserWindow,path,systemPrefere
   // Dosya islemleri sirayla
   const run=f=>{const p=q.then(f);q=p.catch(()=>{});return p};
 
+  // Silinme kurtarma: gorunen .kilitli dosyasi silinmis ama kasadaki sert bag yedegi duruyorsa geri getir.
+  // Acilista ve kasa her acildiginda calisir (anahtar gerekmez); sonuc pencere acilinca bir kez gosterilir.
+  let notice=null;
+  function repairNow(){
+    return run(()=>vault.repair()).then(r=>{
+      const parts=[];
+      if(r.restored.length){
+        const renamed=r.restored.filter(x=>x.renamed);
+        parts.push(`${r.restored.length} kilitli dosya silinmişti, geri getirildi.`+
+          (renamed.length?' Aynı adda dosya olduğu için şu adla konuldu: '+renamed.map(x=>path.basename(x.path)).join(', ')+'.':''));
+      }
+      if(r.failed.length)parts.push(`${r.failed.length} dosya geri getirilemedi: `+r.failed.map(x=>x.name).join(', ')+'.');
+      if(parts.length){
+        const msg=[notice,...parts].filter(Boolean).join(' ');
+        // Pencere aciksa hemen olay olarak, degilse pencere acilinca ilk durum yanitiyla (bir kez)
+        if(win&&!win.isDestroyed()){notice=null;send({type:'repaired',msg})}else notice=msg;
+      }
+      return r;
+    }).catch(()=>({restored:[],failed:[],linked:0}));
+  }
+  const ready=repairNow();   // acilis onarimi (testler bekleyebilsin)
+
   function open(){
     if(win){win.show();win.focus();return}
     win=new BrowserWindow({width:420,height:640,minWidth:380,minHeight:520,title:'Dosya Kilidi',show:false,
@@ -32,12 +54,15 @@ function registerLock({ipcMain,dialog,shell,app,BrowserWindow,path,systemPrefere
   }
 
   const tilde=p=>p===home?'~':p.startsWith(home+path.sep)?'~'+p.slice(home.length):p;
-  const view=e=>({id:e.id,name:e.name,folder:tilde(path.dirname(e.path)),file:path.basename(e.path),size:e.size,lockedAt:e.lockedAt,missing:e.missing,opened:e.opened});
+  const view=e=>({id:e.id,name:e.name,folder:tilde(path.dirname(e.path)),file:path.basename(e.path),size:e.size,lockedAt:e.lockedAt,missing:e.missing,opened:e.opened,
+    backup:e.backup!==false,recoverable:!!e.recoverable});
   function state(extra){
     const unlocked=vault.isUnlocked();
     return {ok:true,setup:vault.hasPassword(),unlocked,touchId:canBio()&&keyOk()&&vault.hasBiometric(),canTouchId:canBio(),
-      remainingMs:vault.remainingMs(),idleMs:vault.idleMs,files:unlocked?vault.files().map(view):[],mac,...extra};
+      remainingMs:vault.remainingMs(),idleMs:vault.idleMs,files:unlocked?vault.files().map(view):[],mac,...takeNotice(),...extra};
   }
+  // Kurtarma bildirimi pencereye bir kez gider
+  function takeNotice(){if(!notice||!win)return {};const n=notice;notice=null;return {notice:n}}
   // Yalnizca kendi penceremizden gelen istekler; hatalar Turkce mesaj olarak doner
   const h=(ch,f)=>ipcMain.handle(ch,async(e,...a)=>{
     if(!win||e.sender!==win.webContents)return {ok:false,msg:'İzin yok.'};
@@ -54,8 +79,10 @@ function registerLock({ipcMain,dialog,shell,app,BrowserWindow,path,systemPrefere
     if(str(pw)!==str(pw2))throw new Error('Şifreler aynı değil.');
     await vault.setup(str(pw));
   });
-  h('kl:unlockPw',pw=>vault.unlockWithPassword(str(pw)).then(()=>{}));
-  h('kl:unlockBio',async()=>{if(!canBio())throw new Error('Touch ID bu Mac\'te kullanılamıyor; şifreyle aç.');await vault.unlockBiometric()});
+  h('kl:unlockPw',async pw=>{await vault.unlockWithPassword(str(pw));await repairNow()});
+  h('kl:unlockBio',async()=>{if(!canBio())throw new Error('Touch ID bu Mac\'te kullanılamıyor; şifreyle aç.');await vault.unlockBiometric();await repairNow()});
+  // Elle denetim/onarim (preload'a "repair" eklenirse pencereden de cagrilabilir)
+  h('kl:repair',async()=>{const r=await repairNow();return {done:r.restored.length?null:'Silinmiş kilitli dosya yok.'}});
   h('kl:lock',()=>{vault.lock('user')});
   h('kl:touch',()=>{vault.touch()});
   h('kl:changePw',async(old,nw,nw2)=>{
@@ -118,11 +145,11 @@ function registerLock({ipcMain,dialog,shell,app,BrowserWindow,path,systemPrefere
     await run(()=>vault.removeLocked(e.path));
     return {done:`"${e.name}" Çöp Sepeti'ne taşındı.`};
   });
-  h('kl:forget',id=>{need();vault.forget(str(id))});
+  h('kl:forget',async id=>{need();await run(()=>vault.forget(str(id)))});
   h('kl:reveal',id=>{const e=ent(id);if(!e.missing)shell.showItemInFolder(e.path)});
 
   app.on('will-quit',()=>vault.lock('quit'));
-  return {open,lock:()=>vault.lock('user'),vault};
+  return {open,lock:()=>vault.lock('user'),vault,ready};
 }
 
 module.exports={registerLock};
