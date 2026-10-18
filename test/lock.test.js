@@ -179,9 +179,10 @@ test('dogrulama basarisizsa orijinal korunur, yarim cikti silinir', async (t) =>
   // orijinal silinemezse kilitleme geri alinir (salt okunur klasor; root degilse)
   if (process.getuid && process.getuid() !== 0) {
     const ro = path.join(home, 'ro'); fs.mkdirSync(ro); const s2 = path.join(ro, 'a.txt'); fs.writeFileSync(s2, 'x');
-    fs.chmodSync(ro, 0o500); t.after(() => fs.chmodSync(ro, 0o700));
-    await assert.rejects(V.lockFile(s2));
-    assert.deepEqual(fs.readdirSync(ro), ['a.txt']);
+    // izin hemen geri verilir: t.after sirasi setup'in klasor silmesinden sonraya kalabilir
+    fs.chmodSync(ro, 0o500);
+    try { await assert.rejects(V.lockFile(s2)); assert.deepEqual(fs.readdirSync(ro), ['a.txt']); }
+    finally { fs.chmodSync(ro, 0o700); }
   }
 });
 
