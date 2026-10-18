@@ -20,8 +20,8 @@ func fail(_ msg: String, _ code: OSStatus = 0) { emit(["type": "error", "msg": m
 func addr(_ sel: AudioObjectPropertySelector, _ scope: AudioObjectPropertyScope = kAudioObjectPropertyScopeGlobal) -> AudioObjectPropertyAddress {
     AudioObjectPropertyAddress(mSelector: sel, mScope: scope, mElement: kAudioObjectPropertyElementMain)
 }
-func getIDs(_ obj: AudioObjectID, _ sel: AudioObjectPropertySelector) -> [AudioObjectID] {
-    var a = addr(sel); var size: UInt32 = 0
+func getIDs(_ obj: AudioObjectID, _ sel: AudioObjectPropertySelector, _ scope: AudioObjectPropertyScope = kAudioObjectPropertyScopeGlobal) -> [AudioObjectID] {
+    var a = addr(sel, scope); var size: UInt32 = 0
     guard AudioObjectGetPropertyDataSize(obj, &a, 0, nil, &size) == noErr, size > 0 else { return [] }
     var ids = [AudioObjectID](repeating: 0, count: Int(size) / MemoryLayout<AudioObjectID>.size)
     guard AudioObjectGetPropertyData(obj, &a, 0, nil, &size, &ids) == noErr else { return [] }
@@ -41,6 +41,34 @@ func getF64(_ obj: AudioObjectID, _ sel: AudioObjectPropertySelector) -> Float64
     return AudioObjectGetPropertyData(obj, &a, 0, nil, &size, &v) == noErr ? v : nil
 }
 let system = AudioObjectID(kAudioObjectSystemObject)
+
+// Aygitin toplam cikis kanali sayisi (kAudioDevicePropertyStreamConfiguration degisken boyutlu AudioBufferList dondurur)
+func outputChannels(_ dev: AudioObjectID) -> Int {
+    var a = addr(kAudioDevicePropertyStreamConfiguration, kAudioObjectPropertyScopeOutput); var size: UInt32 = 0
+    guard AudioObjectGetPropertyDataSize(dev, &a, 0, nil, &size) == noErr, size > 0 else { return 0 }
+    let raw = UnsafeMutableRawPointer.allocate(byteCount: Int(size), alignment: 16); defer { raw.deallocate() }
+    guard AudioObjectGetPropertyData(dev, &a, 0, nil, &size, raw) == noErr else { return 0 }
+    let list = UnsafeMutableAudioBufferListPointer(raw.bindMemory(to: AudioBufferList.self, capacity: 1))
+    var n = 0; for b in list { n += Int(b.mNumberChannels) }
+    return n
+}
+// Islemeyi etkileyen aygit durumu: ornekleme hizi, cikis kanal sayisi, aygit canli mi. Yalnizca bu imza
+// degisince yeniden kurulur (kendi kurdugumuz toplu aygitin tetikleyebilecegi bildirimler donguye girmesin).
+func outputSignature(_ dev: AudioObjectID) -> String {
+    "\(getF64(dev, kAudioDevicePropertyNominalSampleRate) ?? 0)/\(outputChannels(dev))/\(getU32(dev, kAudioDevicePropertyDeviceIsAlive) ?? 0)"
+}
+
+// Core Audio ozellik dinleyicisi. Bloklar motorun seri kuyrugunda (ana kuyruk) calisir. Kaldirmak icin
+// AudioObjectRemovePropertyListenerBlock'a ayni blok nesnesi ve ayni kuyruk verilmeli: ikisi de burada saklanir.
+final class Listener {
+    let obj: AudioObjectID; let addrs: [AudioObjectPropertyAddress]; let queue: DispatchQueue
+    let block: AudioObjectPropertyListenerBlock
+    init(_ obj: AudioObjectID, _ addrs: [AudioObjectPropertyAddress], _ queue: DispatchQueue, _ block: @escaping AudioObjectPropertyListenerBlock) {
+        self.obj = obj; self.addrs = addrs; self.queue = queue; self.block = block
+        for a0 in addrs { var a = a0; _ = AudioObjectAddPropertyListenerBlock(obj, &a, queue, self.block) }
+    }
+    func remove() { for a0 in addrs { var a = a0; _ = AudioObjectRemovePropertyListenerBlock(obj, &a, queue, block) } }
+}
 
 func defaultOutput() -> AudioObjectID? { getU32(system, kAudioHardwarePropertyDefaultOutputDevice) }
 
@@ -85,7 +113,21 @@ func setDefaultOutput(uid: String) {
 }
 
 // MARK: - Ses ureten uygulamalar
-struct AudioProc { let obj: AudioObjectID; let pid: pid_t; let bundle: String; let playing: Bool }
+// device: surecin gercekte caldigi cikis aygiti (bilinmiyorsa nil; bkz. processOutputDevice)
+struct AudioProc { let obj: AudioObjectID; let pid: pid_t; let bundle: String; let playing: Bool; let device: AudioObjectID? }
+
+// Surecin kullandigi cikis aygiti (kAudioProcessPropertyDevices, cikis kapsami; macOS 14.2+). Surec bosta iken
+// liste bos olabilir: nil doner, motor uygulamanin diger sureclerine / mevcut yakalamaya / varsayilan cikisa duser.
+// Tek surec birden cok aygita caliyorsa: varsayilan cikis listedeyse o, degilse ilki. (Tap surecin tum cikisini
+// tek bir stereo karisim olarak yakalar; tek surecin sesi aygitlara gore ayrilamaz.) Kendi toplu aygitlarimiz atlanir.
+@available(macOS 14.2, *)
+func processOutputDevice(_ obj: AudioObjectID, defaultID: AudioObjectID?) -> AudioObjectID? {
+    let ids = getIDs(obj, kAudioProcessPropertyDevices, kAudioObjectPropertyScopeOutput).filter { id in
+        id != kAudioObjectUnknown && !(getString(id, kAudioDevicePropertyDeviceUID) ?? "ses-yardimcisi").hasPrefix("ses-yardimcisi")
+    }
+    if let d = defaultID, ids.contains(d) { return d }
+    return ids.first
+}
 
 // Yardimci surecleri ana uygulamaya bagla (Chrome Helper -> Chrome). WebKit sureci Safari, Mail ve diger
 // web gorunumlerinde ortaktir: ayri bir "Web icerigi" kalemi olarak gosterilir.
@@ -96,14 +138,15 @@ func ownerBundle(_ bundle: String, pid: pid_t) -> String {
 }
 func audioProcesses() -> [AudioProc] {
     if #available(macOS 14.2, *) {
-        let me = getpid()
+        let me = getpid(), def = defaultOutput()
         return getIDs(system, kAudioHardwarePropertyProcessObjectList).compactMap { obj in
             guard let pidU = getU32(obj, kAudioProcessPropertyPID) else { return nil }
             let pid = pid_t(bitPattern: pidU); if pid == me { return nil }
             let raw = getString(obj, kAudioProcessPropertyBundleID) ?? ""
             let bundle = raw.isEmpty ? (NSRunningApplication(processIdentifier: pid)?.bundleIdentifier ?? "pid.\(pid)") : raw
             let playing = (getU32(obj, kAudioProcessPropertyIsRunningOutput) ?? 0) != 0
-            return AudioProc(obj: obj, pid: pid, bundle: ownerBundle(bundle, pid: pid), playing: playing)
+            return AudioProc(obj: obj, pid: pid, bundle: ownerBundle(bundle, pid: pid), playing: playing,
+                             device: processOutputDevice(obj, defaultID: def))
         }
     }
     return []
@@ -145,7 +188,7 @@ final class Processor {
     typealias K = (Float, Float, Float, Float, Float)
     struct Params { var gain: Float = 1; var low: K = (1, 0, 0, 0, 0); var high: K = (1, 0, 0, 0, 0) }
     static let maxCh = 64
-    var fs: Double = 48000
+    private(set) var fs: Double = 48000                         // cikis aygitinin guncel hizi (yalnizca ana dizi)
     private(set) var last = Settings()
     private let lock: UnsafeMutablePointer<os_unfair_lock> = { let p = UnsafeMutablePointer<os_unfair_lock>.allocate(capacity: 1); p.initialize(to: os_unfair_lock()); return p }()
     private var pending = Params(), live = Params()
@@ -161,6 +204,11 @@ final class Processor {
         if abs(s.bass) >= 0.1 { p.low = t(shelf(low: true, f0: 110, dB: Double(s.bass), fs: fs)) }
         if abs(s.treble) >= 0.1 { p.high = t(shelf(low: false, f0: 7000, dB: Double(s.treble), fs: fs)) }
         os_unfair_lock_lock(lock); pending = p; os_unfair_lock_unlock(lock)
+    }
+    // Ornekleme hizi degisti: raf filtresi katsayilari yeni hiza gore yeniden hesaplanip ayni yoldan aktarilir
+    func setRate(_ r: Double) {                                  // ana dizi
+        guard r > 0, r != fs else { return }
+        fs = r; update(last)
     }
     @inline(__always) private func bq(_ x: Float, _ k: K, _ st: UnsafeMutablePointer<Float>) -> Float {
         let y = k.0 * x + st[0]; st[0] = k.1 * x - k.3 * y + st[1]; st[1] = k.2 * x - k.4 * y; return y
@@ -225,11 +273,12 @@ func enableOnlyTapInput(_ agg: AudioObjectID, _ io: AudioDeviceIOProcID) {
 // MARK: - Uygulama basina yakalama (tap + toplu aygit)
 @available(macOS 14.2, *)
 final class AppTap {
-    let bundle: String; let objs: [AudioObjectID]; let proc = Processor(); let outputUID: String; let born = Date()
+    let bundle: String; let objs: [AudioObjectID]; let proc = Processor(); let outputUID: String; let outputID: AudioObjectID; let born = Date()
     var tapID = AudioObjectID(kAudioObjectUnknown), aggID = AudioObjectID(kAudioObjectUnknown)
     var ioProc: AudioDeviceIOProcID?
-    init?(bundle: String, objs: [AudioObjectID], outputUID: String, settings: Settings) {
-        self.bundle = bundle; self.objs = objs; self.outputUID = outputUID
+    // outputUID: surecin gercekte caldigi aygit (varsayilan cikis olmak zorunda degil); toplu aygitin ana alt aygiti
+    init?(bundle: String, objs: [AudioObjectID], outputUID: String, outputID: AudioObjectID, settings: Settings) {
+        self.bundle = bundle; self.objs = objs; self.outputUID = outputUID; self.outputID = outputID
         let desc = CATapDescription(stereoMixdownOfProcesses: objs)
         desc.uuid = UUID(); desc.name = "ses-yardimcisi \(bundle)"; desc.isPrivate = true
         desc.muteBehavior = CATapMuteBehavior.mutedWhenTapped
@@ -245,7 +294,9 @@ final class AppTap {
         ]
         err = AudioHardwareCreateAggregateDevice(dict as CFDictionary, &aggID)
         if err != noErr { AudioHardwareDestroyProcessTap(tapID); fail("Ses aygıtı oluşturulamadı.", err); return nil }
-        proc.fs = getF64(aggID, kAudioDevicePropertyNominalSampleRate) ?? 48000
+        // Filtre katsayilari sabit 48 kHz ile degil, toplu aygitin (= cikis aygitinin) guncel hiziyla hesaplanir
+        if let r = getF64(aggID, kAudioDevicePropertyNominalSampleRate), r > 0 { proc.setRate(r) }
+        else if outputID != kAudioObjectUnknown, let r = getF64(outputID, kAudioDevicePropertyNominalSampleRate), r > 0 { proc.setRate(r) }
         proc.update(settings)
         let p = proc
         err = AudioDeviceCreateIOProcIDWithBlock(&ioProc, aggID, nil) { _, inData, _, outData, _ in p.process(inData, outData) }
@@ -262,63 +313,172 @@ final class AppTap {
 }
 
 // MARK: - Yonetici
+// Yakalama anahtari: uygulama + cikis aygiti. Tap uygulamanin orijinal sesini susturdugu icin islenmis ses,
+// surecin gercekte caldigi aygita (or. varsayilan hoparlorken Muzik -> AirPods) gonderilmeli. Ayni uygulamanin
+// surecleri farkli aygitlara caliyorsa aygit basina ayri yakalama kurulur (cogunluk aygitini secmek azinliktaki
+// sureci yanlis aygita tasirdi). Bosta olan (aygiti bilinmeyen) surecler uygulamanin en cok kullanilan aygitina,
+// o da yoksa mevcut yakalamasinin aygitina, o da yoksa varsayilan cikisa katilir: tipik durumda tek yakalama kalir
+// ve calma duraklayinca yakalama gereksiz yere tasinmaz.
+struct TapKey: Hashable { let bundle: String; let uid: String }
+
 final class Engine {
+    let queue = DispatchQueue.main                              // motorun seri kuyrugu: tum durum yalnizca burada degisir
     var perApp: [String: Settings] = [:]; var global = Settings()
-    var taps: [String: AnyObject] = [:]; var lastOutput: String? = nil; var lastList = "", lastDev = ""
-    var failed: [String: (Date, String)] = [:]                 // kurulamayan yakalamayi her turda tekrar deneme
+    var taps: [TapKey: AnyObject] = [:]; var lastOutput: String? = nil; var lastList = "", lastDev = ""
+    var failed: [String: Date] = [:]                            // "bundle\nuid": kurulamayan yakalamayi 30 sn tekrar deneme
     var denied = Set<String>()                                  // izin verilmedi (surekli sessiz) uygulamalar
+    // Dinleyiciler: varsayilan cikis, yakalanan her surecin aygit listesi, kullanilan her cikis aygitinin hiz/yapisi
+    var sysL: Listener? = nil; var procL: [AudioObjectID: Listener] = [:]; var devL: [AudioObjectID: Listener] = [:]
+    var devSig: [AudioObjectID: String] = [:]
+    var staleDevs = Set<String>(); var pendingSync: DispatchWorkItem? = nil
     func effective(_ bundle: String) -> Settings {
         var s = perApp[bundle] ?? Settings()
         s.gain *= global.gain; s.bass += global.bass; s.treble += global.treble; s.mute = s.mute || global.mute
         s.gain = min(s.gain, 2); s.bass = max(-12, min(12, s.bass)); s.treble = max(-12, min(12, s.treble))
         return s
     }
+    func clearFailed(_ b: String) { failed = failed.filter { !$0.key.hasPrefix(b + "\n") } }
+    func listen() {
+        sysL = Listener(system, [addr(kAudioHardwarePropertyDefaultOutputDevice)], queue) { [weak self] _, _ in self?.scheduleSync() }
+    }
+    // Ust uste gelen bildirimler (hiz degisirken birkac kez gelir) 300 ms bekletilip tek yeniden kuruluma iner
+    func scheduleSync(stale uid: String? = nil) {
+        if let u = uid { staleDevs.insert(u) }
+        pendingSync?.cancel()
+        let w = DispatchWorkItem { [weak self] in self?.pendingSync = nil; self?.sync(rebuildStale: true) }
+        pendingSync = w; queue.asyncAfter(deadline: .now() + 0.3, execute: w)
+    }
+    // Cikis aygitinin hizi / kanal yapisi degisti: katsayilari hemen yeni hiza cek, yakalamayi gecikmeli yeniden kur
+    func deviceChanged(_ dev: AudioObjectID, _ uid: String) {
+        guard #available(macOS 14.2, *) else { return }
+        guard devL[dev] != nil else { return }                  // dinleyici kaldirildiktan sonra kuyrukta kalan bildirim
+        let sig = outputSignature(dev); if sig == devSig[dev] { return }
+        devSig[dev] = sig
+        if let fs = getF64(dev, kAudioDevicePropertyNominalSampleRate), fs > 0 {
+            for (k, t) in taps where k.uid == uid { (t as! AppTap).proc.setRate(fs) }
+        }
+        scheduleSync(stale: uid)
+    }
+    // Dinleyicileri mevcut yakalamalarla esitle: yakalanmayan surec / kullanilmayan aygit dinleyicisi kaldirilir
+    @available(macOS 14.2, *)
+    func updateListeners() {
+        var objs = Set<AudioObjectID>(), devs: [AudioObjectID: String] = [:]
+        for (k, t) in taps { let t = t as! AppTap
+            objs.formUnion(t.objs); if t.outputID != kAudioObjectUnknown { devs[t.outputID] = k.uid } }
+        for (o, l) in procL where !objs.contains(o) { l.remove(); procL[o] = nil }
+        for o in objs where procL[o] == nil {
+            procL[o] = Listener(o, [addr(kAudioProcessPropertyDevices, kAudioObjectPropertyScopeOutput)], queue) { [weak self] _, _ in self?.scheduleSync() }
+        }
+        for (d, l) in devL where devs[d] == nil { l.remove(); devL[d] = nil; devSig[d] = nil }
+        for (d, uid) in devs where devL[d] == nil {
+            devSig[d] = outputSignature(d)
+            devL[d] = Listener(d, [addr(kAudioDevicePropertyNominalSampleRate),
+                                   addr(kAudioDevicePropertyStreamConfiguration, kAudioObjectPropertyScopeOutput),
+                                   addr(kAudioDevicePropertyDeviceIsAlive)], queue) { [weak self] _, _ in self?.deviceChanged(d, uid) }
+        }
+    }
     // Ayari notr olmayan uygulamalar icin yakalama kur. Yalnizca genel efekt varsa sadece ses calan uygulamalar
-    // yakalanir (her ses istemcisine ayri aygit acilmasin). Surec kumesi degisince yenisi kurulup eskisi sonra
-    // kaldirilir: arada uygulama islenmemis (or. %20 yerine %100) calmaz.
-    func sync(force: Bool = false) {
+    // yakalanir (her ses istemcisine ayri aygit acilmasin). Surec kumesi ya da aygit degisince yenisi kurulup eskisi
+    // sonra kaldirilir: arada uygulama islenmemis (or. %20 yerine %100) calmaz. rebuildStale: hizi/yapisi degisen
+    // aygitlardaki yakalamalar da yeniden kurulur (yalnizca gecikmeli senkronda; duzenli kontrol bunu tuketmez).
+    func sync(force: Bool = false, rebuildStale: Bool = false) {
         guard #available(macOS 14.2, *) else { return }
         let procs = audioProcesses()
-        let outUID = defaultOutput().flatMap { getString($0, kAudioDevicePropertyDeviceUID) }
+        let defID = defaultOutput()
+        let outUID = defID.flatMap { getString($0, kAudioDevicePropertyDeviceUID) }
         let outChanged = outUID != lastOutput; lastOutput = outUID
         if outChanged || force { failed = [:] }
-        var byBundle: [String: [AudioObjectID]] = [:], playing = Set<String>()
-        for p in procs { byBundle[p.bundle, default: []].append(p.obj); if p.playing { playing.insert(p.bundle) } }
+        let devs = outputDevices()
+        var nameOf: [String: String] = [:], idOf: [String: AudioObjectID] = [:]
+        for d in devs { if let u = d["uid"] as? String {
+            nameOf[u] = (d["name"] as? String) ?? u; if let i = d["id"] as? Int { idOf[u] = AudioObjectID(i) } } }
+        let present = Set(nameOf.keys)
+        var current: [AudioObjectID: String] = [:]               // surec -> su anki yakalamasinin aygiti
+        for (k, t) in taps { let t = t as! AppTap
+            for o in t.objs { current[o] = k.uid }; if idOf[k.uid] == nil { idOf[k.uid] = t.outputID } }
+        if let d = defID, let o = outUID { idOf[o] = d }
+        var uidCache: [AudioObjectID: String] = [:]
+        func uidOf(_ id: AudioObjectID) -> String? {             // aygit listesinde olmayan (gizli) aygitlar icin de
+            if let u = uidCache[id] { return u }
+            guard let u = getString(id, kAudioDevicePropertyDeviceUID) else { return nil }
+            uidCache[id] = u; idOf[u] = id; if nameOf[u] == nil { nameOf[u] = getString(id, kAudioObjectPropertyName) ?? u }
+            return u
+        }
+        var byBundle: [String: [AudioProc]] = [:], playing = Set<String>(), playingObjs = Set<AudioObjectID>()
+        for p in procs { byBundle[p.bundle, default: []].append(p); if p.playing { playing.insert(p.bundle); playingObjs.insert(p.obj) } }
+        // Izin reddi: 3 sn'den uzun suredir yakalama hep sessiz ama yakaladigi surec ses caliyor
+        for (k, t) in taps { let t = t as! AppTap
+            if !denied.contains(k.bundle) && t.objs.contains(where: { playingObjs.contains($0) })
+                && t.proc.callbacks > 300 && t.proc.silent > 300 && Date().timeIntervalSince(t.born) > 3 {
+                denied.insert(k.bundle)
+                emit(["type": "error", "code": "tcc", "msg": "Uygulama sesine erişim izni yok. Sistem Ayarları › Gizlilik ve Güvenlik › Ekran ve Sistem Sesi Kaydı › Yalnızca Sistem Sesi Kaydı'nda Cem App'i aç."])
+            }
+        }
+        let tapped = Set(taps.keys.map { $0.bundle })
         let wanted: (String) -> Bool = { b in
             let e = self.effective(b); if e.neutral || self.denied.contains(b) { return false }
-            return self.perApp[b] != nil || playing.contains(b) || self.taps[b] != nil
+            return self.perApp[b] != nil || playing.contains(b) || tapped.contains(b)
         }
-        for (b, t) in taps { let t = t as! AppTap
-            if force || outChanged || !wanted(b) || byBundle[b] == nil { t.destroy(); taps[b] = nil; continue }
-            // Izin reddi: 3 sn'den uzun suredir yakalama hep sessiz ama uygulama ses caliyor
-            if playing.contains(b) && t.proc.callbacks > 300 && t.proc.silent > 300 && Date().timeIntervalSince(t.born) > 3 {
-                t.destroy(); taps[b] = nil; denied.insert(b)
-                emit(["type": "error", "code": "tcc", "msg": "Uygulama sesine erişim izni yok. Sistem Ayarları › Gizlilik ve Güvenlik › Ekran ve Sistem Sesi Kaydı › Yalnızca Sistem Sesi Kaydı'nda Cem App'i aç."])
-                continue
+        // Her surecin aygitini belirle, (uygulama, aygit) basina grupla
+        var want: [TapKey: [AudioObjectID]] = [:], shown: [String: [String]] = [:]
+        for (b, ps) in byBundle {
+            var own: [AudioObjectID: String] = [:], count: [String: Int] = [:]
+            for p in ps { if let d = p.device, let u = uidOf(d) {
+                own[p.obj] = u; count[u, default: 0] += 1
+                if !(shown[b] ?? []).contains(u) { shown[b, default: []].append(u) } } }
+            guard wanted(b) else { continue }
+            let major = count.max { ($0.value, $0.key) < ($1.value, $1.key) }?.key
+            for p in ps {
+                var u = own[p.obj] ?? major
+                if u == nil, let s = current[p.obj], present.contains(s) { u = s }
+                guard let uid = u ?? outUID else { continue }
+                want[TapKey(bundle: b, uid: uid), default: []].append(p.obj)
             }
-            let objs = byBundle[b]!
-            if Set(objs) != Set(t.objs), let out = outUID, let n = AppTap(bundle: b, objs: objs, outputUID: out, settings: effective(b)) {
-                taps[b] = n; t.destroy()                       // once yenisi, sonra eskisi
-            } else { t.proc.update(effective(b)) }
         }
-        guard let out = outUID else { return }
-        for (b, objs) in byBundle where taps[b] == nil && wanted(b) {
-            if let f = failed[b], f.1 == out, Date().timeIntervalSince(f.0) < 30 { continue }
-            if let t = AppTap(bundle: b, objs: objs, outputUID: out, settings: effective(b)) { taps[b] = t; failed[b] = nil }
-            else { failed[b] = (Date(), out) }
+        let stale = rebuildStale ? staleDevs : Set<String>()
+        if rebuildStale { staleDevs = [] }
+        var next: [TapKey: AnyObject] = [:], old: [(TapKey, AppTap)] = []
+        for (k, t) in taps { let t = t as! AppTap
+            if let objs = want[k], !force, !stale.contains(k.uid), Set(objs) == Set(t.objs) { t.proc.update(effective(k.bundle)); next[k] = t }
+            else { old.append((k, t)) }
         }
-        // Liste ya da aygitlar degistiyse arayuze bildir
+        // Once yeniler kurulur, eskiler sonra kaldirilir
+        for (k, objs) in want where next[k] == nil {
+            let fk = k.bundle + "\n" + k.uid
+            if let f = failed[fk], Date().timeIntervalSince(f) < 30 { continue }
+            if let t = AppTap(bundle: k.bundle, objs: objs, outputUID: k.uid, outputID: idOf[k.uid] ?? AudioObjectID(kAudioObjectUnknown), settings: effective(k.bundle)) {
+                next[k] = t; failed[fk] = nil
+            } else { failed[fk] = Date() }
+        }
+        for (k, t) in old {
+            // Ayni (uygulama, aygit) icin yenisi kurulamadiysa ve aygit hala varsa eskisi kalsin (islenmemis calmasin)
+            if next[k] == nil, want[k] != nil, present.contains(k.uid) { t.proc.update(effective(k.bundle)); next[k] = t }
+            else { t.destroy() }
+        }
+        taps = next
+        updateListeners()
+        // Liste ya da aygitlar degistiyse arayuze bildir (device: uygulamanin sesinin gittigi aygit adi)
         var seen = Set<String>(); var apps: [[String: Any]] = []
         for p in procs where !seen.contains(p.bundle) { seen.insert(p.bundle)
             var d = appInfo(p.bundle); d["playing"] = playing.contains(p.bundle)
-            d["active"] = taps[p.bundle] != nil; d["denied"] = denied.contains(p.bundle); apps.append(d) }
-        let key = apps.map { "\($0["bundle"]!)\($0["playing"]!)\($0["active"]!)" }.joined() + (outUID ?? "")
+            let via = taps.keys.filter { $0.bundle == p.bundle }.map { $0.uid }.sorted()
+            d["active"] = !via.isEmpty; d["denied"] = denied.contains(p.bundle)
+            let uids = via.isEmpty ? (shown[p.bundle] ?? []) : via
+            if !uids.isEmpty { d["device"] = uids.map { nameOf[$0] ?? $0 }.joined(separator: ", ") }
+            apps.append(d) }
+        let key = apps.map { "\($0["bundle"]!)\($0["playing"]!)\($0["active"]!)\($0["device"] ?? "")" }.joined() + (outUID ?? "")
         if key != lastList || force { lastList = key; emit(["type": "apps", "apps": apps]) }
-        let devs = outputDevices()
         let dkey = devs.map { "\($0["uid"] ?? "")\($0["default"] ?? "")\($0["volume"] ?? "")\($0["muted"] ?? "")" }.joined()
         if dkey != lastDev || force { lastDev = dkey; emit(["type": "devices", "devices": devs]) }
     }
-    func stopAll() { if #available(macOS 14.2, *) { for (_, t) in taps { (t as! AppTap).destroy() } }; taps = [:] }
+    // Kapanis: bekleyen senkron iptal, tum dinleyiciler ve yakalamalar kaldirilir (ses normale doner)
+    func stopAll() {
+        pendingSync?.cancel(); pendingSync = nil; staleDevs = []
+        sysL?.remove(); sysL = nil
+        for (_, l) in procL { l.remove() }; procL = [:]
+        for (_, l) in devL { l.remove() }; devL = [:]; devSig = [:]
+        if #available(macOS 14.2, *) { for (_, t) in taps { (t as! AppTap).destroy() } }; taps = [:]
+    }
 }
 
 func settingsFrom(_ o: [String: Any]) -> Settings {
@@ -336,7 +496,8 @@ var supported = false
 if #available(macOS 14.4, *) { supported = true }
 emit(["type": "hello", "supported": supported, "os": ProcessInfo.processInfo.operatingSystemVersionString])
 
-let q = DispatchQueue.main
+let q = engine.queue                             // motorun seri kuyrugu (Core Audio dinleyicileri de buraya)
+if supported { engine.listen() }
 func handle(_ line: String) {
     guard let data = line.data(using: .utf8), let o = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any], let cmd = o["cmd"] as? String else { return }
     switch cmd {
@@ -344,13 +505,15 @@ func handle(_ line: String) {
     case "set":
         guard let b = o["bundle"] as? String else { return }
         let s = settingsFrom(o); if s.neutral { engine.perApp[b] = nil } else { engine.perApp[b] = s }
-        engine.denied.remove(b); engine.failed[b] = nil
+        engine.denied.remove(b); engine.clearFailed(b)
         if supported { engine.sync() } else { emit(["type": "unsupported"]) }
     case "global": engine.global = settingsFrom(o); if supported { engine.sync() } else { emit(["type": "unsupported"]) }
     case "reset": engine.perApp = [:]; engine.global = Settings(); engine.sync(force: true)
     case "masterVolume": setMasterVolume(Float((o["value"] as? Double) ?? 0.5)); emit(["type": "devices", "devices": outputDevices()])
     case "masterMute": setMasterMute((o["value"] as? Bool) ?? false); emit(["type": "devices", "devices": outputDevices()])
-    case "device": if let u = o["uid"] as? String { setDefaultOutput(uid: u); engine.sync(force: true) }
+    // Varsayilani izleyen uygulamalar yeni aygita gecince surec aygit dinleyicisi yakalamayi tasir; diger aygitlara
+    // calan uygulamalarin yakalamasi bozulmaz (eskiden tumu yeniden kuruluyordu)
+    case "device": if let u = o["uid"] as? String { setDefaultOutput(uid: u); engine.lastList = ""; engine.lastDev = ""; engine.sync() }
     case "quit": engine.stopAll(); exit(0)
     default: break
     }

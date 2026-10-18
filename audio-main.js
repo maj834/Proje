@@ -8,6 +8,13 @@ const PRESETS={
   konusma:{gain:1.1,bass:-4,treble:4},tiz:{gain:1,bass:0,treble:6},yukselt:{gain:1.6,bass:2,treble:1},gece:{gain:0.8,bass:-3,treble:0}};
 const clampS=s=>({gain:Math.max(0,Math.min(2,+s.gain||0)),bass:Math.max(-12,Math.min(12,+s.bass||0)),treble:Math.max(-12,Math.min(12,+s.treble||0)),mute:!!s.mute});
 const neutral=s=>!s.mute&&Math.abs(s.gain-1)<0.005&&Math.abs(s.bass)<0.1&&Math.abs(s.treble)<0.1;
+// Yardimcidan gelen uygulama listesi: yalnizca bilinen alanlar arayuze gecer. device: uygulamanin sesinin gittigi
+// cikis aygitinin adi (or. "AirPods"); arayuzde uygulama adinin yaninda kucuk gosterilir.
+const cleanApps=list=>(Array.isArray(list)?list:[]).filter(a=>a&&typeof a.bundle==='string').map(a=>{
+  const o={bundle:a.bundle,name:typeof a.name==='string'?a.name:a.bundle,playing:!!a.playing,active:!!a.active,denied:!!a.denied};
+  if(typeof a.path==='string')o.path=a.path;
+  if(typeof a.device==='string'&&a.device.trim())o.device=a.device.trim().slice(0,120);
+  return o});
 
 function registerAudio({ipcMain,app,BrowserWindow,path,cfg,save,isOn=()=>true}){
   let child=null,win=null,buf='',restarts=0,state={supported:null,apps:[],devices:[],error:null},icons={};
@@ -23,7 +30,7 @@ function registerAudio({ipcMain,app,BrowserWindow,path,cfg,save,isOn=()=>true}){
   function onLine(line){
     let m;try{m=JSON.parse(line)}catch(e){return}
     if(m.type==='hello'){state.supported=!!m.supported;state.os=m.os;if(!m.supported)state.error='Uygulama başına ses ayarı macOS 14.4 (Sonoma) ve üstünü gerektirir. Bu Mac: '+m.os}
-    else if(m.type==='apps'){state.apps=m.apps||[];state.apps.forEach(icon);restarts=0;if(state.error&&!/macOS 14/.test(state.error))state.error=null}
+    else if(m.type==='apps'){state.apps=cleanApps(m.apps);state.apps.forEach(icon);restarts=0;if(state.error&&!/macOS 14/.test(state.error))state.error=null}
     else if(m.type==='devices')state.devices=m.devices||[];
     else if(m.type==='error')state.error=m.msg;
     else if(m.type==='unsupported')state.error='Bu macOS sürümü uygulama başına ses ayarını desteklemiyor (14.4+ gerekir).';
@@ -80,4 +87,4 @@ function registerAudio({ipcMain,app,BrowserWindow,path,cfg,save,isOn=()=>true}){
   app.on('will-quit',stop);
   return {open,start,stop,view};
 }
-module.exports={registerAudio,PRESETS,clampS,neutral};
+module.exports={registerAudio,PRESETS,clampS,neutral,cleanApps};
