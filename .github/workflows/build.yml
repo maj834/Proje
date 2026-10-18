@@ -211,7 +211,7 @@ jobs:
       # uygulama hazir olup birkac saniye hatasiz calisinca "CEM_SMOKE_OK" yazip 0 ile cikar. 60 sn icinde cikmazsa, 0 disi kodla
       # cikarsa ya da isaret yoksa adim (ve dolayisiyla Release) duser.
       - name: Paketlenmis uygulama acilis testi
-        timeout-minutes: 6
+        timeout-minutes: 12
         shell: bash
         run: |
           set -u
@@ -223,9 +223,11 @@ jobs:
             echo "::group::acilis testi: $app ($(lipo -archs "$APP" 2>/dev/null))"
             test -x "$APP" || { echo "yok: $APP"; ls -la dist; fail=1; echo "::endgroup::"; continue; }
             out="smoke-$(basename "$(dirname "$app")").txt"
+            # Rosetta ilk acilista tum Electron'u cevirir (CI'de 70-90 sn olculdu): x64 icin uzun sure
+            lim=90; case "$app" in dist/mac/*) lim=300 ;; esac
             CEM_SMOKE=1 ELECTRON_ENABLE_LOGGING=1 "$APP" > "$out" 2>&1 &
             pid=$!
-            ( sleep 90; kill -9 "$pid" 2>/dev/null && echo "ZAMAN ASIMI: uygulama 90 sn icinde cikmadi" >> "$out" ) & wd=$!
+            ( sleep "$lim"; kill -9 "$pid" 2>/dev/null && echo "ZAMAN ASIMI: uygulama $lim sn icinde cikmadi" >> "$out" ) & wd=$!
             rc=0; wait "$pid" || rc=$?
             pkill -P "$wd" 2>/dev/null || true; kill "$wd" 2>/dev/null || true
             cat "$out"

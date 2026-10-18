@@ -43,7 +43,9 @@ function registerUpdater({ ipcMain, app, path, Notification, shell, cfg, save, s
     if (!armed) return; armed = false;
     try { proc.removeListener('uncaughtExceptionMonitor', onStartErr); } catch (e) {}
   };
-  if (enabled()) { armed = true; proc.on('uncaughtExceptionMonitor', onStartErr); }
+  if (enabled()) { armed = true; proc.on('uncaughtExceptionMonitor', onStartErr);
+    // Baslatildi bilgisi (kurulum betigi cok kisa yasayip olen acilisi da gorsun); acilis isaretiyle birlikte silinir
+    try { fs.mkdirSync(dir(), { recursive: true }); fs.writeFileSync(startedFile(st.current) + '.run', String(process.pid)); } catch (e) {} }
   function markStarted() {
     disarm();
     if (!enabled()) return false;
@@ -168,7 +170,7 @@ function registerUpdater({ ipcMain, app, path, Notification, shell, cfg, save, s
       fs.writeFileSync(script, U.installScript({}), { mode: 0o700, flag: 'wx' });
       // Isaret her iki yolda: yeniden acilista betik hemen bekler; kapanista kurulumda kullanicinin ilk acilisini izler
       const marker = startedFile(ready.version);
-      for (const f of [startedFile(ready.version), startedFile(ready.version) + '.failed']) fs.rmSync(f, { force: true });
+      for (const x of ['', '.failed', '.bad', '.run']) fs.rmSync(startedFile(ready.version) + x, { force: true });
       const args = U.installArgs({ oldApp: old, newApp: ready.app, pid, backupDir: backupDir(), relaunch, delay: deps.delay ?? 10,
         marker, wait: deps.startedWait ?? STARTED_WAIT });
       const env = { HOME: process.env.HOME || os.homedir(), TMPDIR: process.env.TMPDIR || os.tmpdir(), LANG: 'en_US.UTF-8' };
@@ -232,7 +234,8 @@ function registerUpdater({ ipcMain, app, path, Notification, shell, cfg, save, s
     if (ctrl) try { ctrl.abort(); } catch (e) {}
     runScript(false);
   });
-  app.on('will-quit', () => { disarm(); for (const t of timers) clearTimeout(t), clearInterval(t); timers = []; if (ctrl) try { ctrl.abort(); } catch (e) {} });
+  // Hatasiz acilmis surum isaret yazilmadan (ilk ~3 sn) duzgunce kapatilirsa bu cokme sayilmasin
+  app.on('will-quit', () => { if (!startErr && !startedOk && armed) markStarted(); disarm(); for (const t of timers) clearTimeout(t), clearInterval(t); timers = []; if (ctrl) try { ctrl.abort(); } catch (e) {} });
 
   function start() {
     if (!enabled() || timers.length) return;

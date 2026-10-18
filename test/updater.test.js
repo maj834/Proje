@@ -462,6 +462,38 @@ test('installScript: yavas acilis (izin penceresi) geri alinmaz; cokme ve acilis
   assert.deepEqual(e.opened(), ['-n', e.oldApp]);
 });
 
+test('installScript: surec adi Info.plist\'ten, cok kisa yasayan acilis yakalanir, eski .bad kurulumu bozmaz, yarim silinen hedefe yedek tasinmaz', async (t) => {
+  const bin = e => path.join(e.d, 'bin');
+  const w = (e, n, body) => { fs.writeFileSync(path.join(bin(e), n), '#!/bin/sh\n' + body); fs.chmodSync(path.join(bin(e), n), 0o755); };
+  // 1) paket "Cem App.app" ama calistirilabilir ad farkli: pgrep yalnizca o ad ve -U ile eslesir; yavas acilis basarili
+  let e = scriptEnv(t);
+  w(e, 'plutil', 'echo "Gercek Ad"\n');
+  w(e, 'pgrep', 'u=0; for a; do [ "$a" = "-U" ] && u=1; last=$a; done\n[ "$u" = 1 ] && [ "$last" = "Gercek Ad" ]\n');
+  setTimeout(() => fs.writeFileSync(e.marker, ''), 3000);
+  let r = await e.run(deadPid(), true, { marker: e.marker, wait: 600 });
+  assert.equal(r.code, 0, r.err + e.log()); assert.equal(e.ver(), 'yeni');
+  // 2) kapanista kurulum: uygulama .run yazip aninda oldu (pgrep hic gormedi) -> geri alinir
+  e = scriptEnv(t, { pgrep: 1 });
+  setTimeout(() => fs.writeFileSync(e.marker + '.run', '1'), 1000);
+  r = await e.run(deadPid(), false, { marker: e.marker, wait: 600 });
+  assert.equal(r.code, 1, r.err + e.log()); assert.equal(e.ver(), 'eski'); assert.match(e.log(), /yazmadan kapandi/);
+  // 3) onceki denemeden kalmis .bad / .run kurulumda silinir: aninda geri alma olmaz
+  e = scriptEnv(t);
+  fs.writeFileSync(e.marker + '.bad', '1'); fs.writeFileSync(e.marker + '.run', '1');
+  setTimeout(() => fs.writeFileSync(e.marker, ''), 2500);
+  r = await e.run(deadPid(), true, { marker: e.marker, wait: 600 });
+  assert.equal(r.code, 0, r.err + e.log()); assert.equal(e.ver(), 'yeni');
+  // 4) geri almada hedef tamamen silinemezse yedek onun icine tasinmaz, yerinde kalir
+  e = scriptEnv(t);
+  w(e, 'rm', 'for a; do case "$a" in *"Cem App.app") /bin/rm "$@"; /bin/mkdir -p "$a"; exit 1;; esac; done\nexec /bin/rm "$@"\n');
+  setTimeout(() => fs.writeFileSync(e.marker + '.bad', '1'), 1000);
+  r = await e.run(deadPid(), true, { marker: e.marker, wait: 600 });
+  assert.equal(r.code, 1, r.err + e.log());
+  assert.ok(fs.existsSync(path.join(e.backupDir, 'onceki.app')), 'yedek yerinde kalmali');
+  assert.ok(!fs.existsSync(path.join(e.oldApp, 'onceki.app')), 'yedek hedefin icine tasinmamali');
+  assert.match(e.log(), /GERI YUKLENEMEDI/);
+});
+
 test('installScript: kapanista kurulumda ilk acilis izlenir; isaret gelirse yedek silinir, gelmezse eskiye donulur', async (t) => {
   const pg = (e, code) => { const f = path.join(e.d, 'bin', 'pgrep'); fs.writeFileSync(f, `#!/bin/sh\nexit ${code}\n`); fs.chmodSync(f, 0o755); };
   // 1) kullanici acti, yeni surum isareti yazdi: yedek silinir, hicbir sey acilmaz
@@ -518,6 +550,15 @@ test('registerUpdater: acilis isareti ready + 3 sn sonra yazilir; acilista hata 
   assert.equal(h2.ui.markStarted(), false); assert.ok(!fs.existsSync(path.join(h2.d, 'upd', 'started-2.0.5')));
   assert.ok(fs.existsSync(path.join(h2.d, 'upd', 'started-2.0.5.bad')), 'betik hemen geri alsin diye hata bildirilir');
   assert.equal(proc.listenerCount('uncaughtExceptionMonitor'), 0, 'dinleyici birakilir');
+});
+
+test('registerUpdater: baslarken .run yazilir; isaretten once duzgun kapanis (will-quit) basarili sayilir', async (t) => {
+  const h = harness(t);
+  const f = path.join(h.d, 'upd', 'started-2.0.5');
+  assert.ok(fs.existsSync(f + '.run'));
+  h.appEv['will-quit']();                                  // 3 sn dolmadan Cmd+Q
+  assert.ok(fs.existsSync(f), 'duzgun kapanis cokme sayilmamali');
+  assert.ok(!fs.existsSync(f + '.run'));
 });
 
 test('registerUpdater: acilista hata olduysa ilk denetim yedegi (onceki.app) silmez; isaret yazildiysa siler', async (t) => {

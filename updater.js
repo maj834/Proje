@@ -267,7 +267,7 @@ while kill -0 "$PID" 2>/dev/null; do
 done
 BAK="$BK/onceki.app"
 rm -rf -- "$BAK"
-[ -n "$MARK" ] && rm -f -- "$MARK"
+[ -n "$MARK" ] && rm -f -- "$MARK" "$MARK.bad" "$MARK.run"
 had_old=0
 if [ -e "$OLD" ]; then
   mv -f -- "$OLD" "$BAK" || fail "eski surum yedeklenemedi"
@@ -282,7 +282,8 @@ else
   log "yeni surum yerlestirilemedi; geri aliniyor"
   rm -rf -- "$OLD"
   if [ "$had_old" = 1 ]; then
-    if mv -- "$BAK" "$OLD"; then log "eski surum geri yuklendi"; else log "GERI YUKLENEMEDI, yedek: $BAK"; fi
+    # $OLD tamamen silinemediyse mv yedegi onun ICINE tasirdi: once yok oldugunu dogrula
+    if [ ! -e "$OLD" ] && mv -- "$BAK" "$OLD"; then log "eski surum geri yuklendi"; else log "GERI YUKLENEMEDI, yedek: $BAK"; fi
   fi
   [ "$RELAUNCH" = 1 ] && open -n "$OLD"
   exit 1
@@ -294,7 +295,7 @@ rollback() {
   [ -n "$MARK" ] && printf '%s\\n' "$(date '+%s')" > "$MARK.failed" 2>/dev/null
   if [ "$had_old" = 1 ]; then
     rm -rf -- "$OLD"
-    if mv -- "$BAK" "$OLD"; then log "eski surum geri yuklendi"; open -n "$OLD"; else log "GERI YUKLENEMEDI, yedek: $BAK"; fi
+    if [ ! -e "$OLD" ] && mv -- "$BAK" "$OLD"; then log "eski surum geri yuklendi"; open -n "$OLD"; else log "GERI YUKLENEMEDI, yedek: $BAK"; fi
   fi
   exit 1
 }
@@ -304,16 +305,23 @@ rollback() {
 #  - acik ama $WAIT sn boyunca isaret yazmadi (takildi). $WAIT uzun tutulur: imzasiz surumde macOS
 #    Anahtar Zinciri izni sorarken uygulama cevap beklenir; kullanici dusunurken saglam surum geri alinmasin.
 # $1: uygulama hic gorulmezse en fazla bu kadar sn beklenir. Donus: 0 basarili, 2 hic acilmadi (rollback cagirilirsa cikilir).
-NAME=$(basename -- "$OLD" .app)
+# Surec adi paket klasorunun adi degil calistirilabilir dosyanin adidir ("Cem App 2.app" icinde de "Cem App")
+NAME=$(plutil -extract CFBundleExecutable raw -o - "$OLD/Contents/Info.plist" 2>/dev/null) || NAME=""
+[ -n "$NAME" ] || NAME="Cem App"
+ME=$(id -u)
 await_start() {
   t=0; seen=-1; gone=0
   while :; do
     if [ -e "$MARK" ]; then rm -f -- "$MARK"; log "yeni surum basariyla acildi"; return 0; fi
     if [ -e "$MARK.bad" ]; then rm -f -- "$MARK.bad"; rollback "yeni surum acilista hata bildirdi"; fi
-    if pgrep -x -- "$NAME" >/dev/null 2>&1; then
+    # $MARK.run: uygulama baslar baslamaz yazar; yoklama araligindan kisa sure yasayip olen acilislar da yakalanir
+    run=0
+    if [ -e "$MARK.run" ]; then rm -f -- "$MARK.run"; run=1; fi
+    if pgrep -x -U "$ME" -- "$NAME" >/dev/null 2>&1; then
       if [ "$seen" -lt 0 ]; then seen=$t; log "yeni surum calisiyor; acilis isareti bekleniyor"; fi
       gone=0
-    elif [ "$seen" -ge 0 ]; then
+    elif [ "$run" = 1 ] || [ "$seen" -ge 0 ]; then
+      [ "$seen" -lt 0 ] && { seen=$t; log "yeni surum baslatildi; acilis isareti bekleniyor"; }
       gone=$((gone + 1))
       [ "$gone" -ge 3 ] && rollback "yeni surum acilis isareti yazmadan kapandi"
     fi
