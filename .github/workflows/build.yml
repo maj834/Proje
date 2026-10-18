@@ -35,6 +35,56 @@ jobs:
       - run: npm run ses
       - run: ./build/bin/ses-yardimcisi --version && lipo -info build/bin/ses-yardimcisi
       - run: '{ echo ''{"cmd":"list"}''; sleep 3; } | ./build/bin/ses-yardimcisi | head -5 || true'
+      # Sistem yardimcisi (CPU/GPU sicakligi, FPS, fan, pil...; Swift, arm64 + x64 tek dosya)
+      - run: npm run sistem
+      - run: ./build/bin/sistem-yardimcisi --version && lipo -info build/bin/sistem-yardimcisi
+      # Duman testi: cokme ya da bozuk JSON adimi dusurur. CI sanal makinesinde sensor yok: null degerler normal.
+      - name: sistem-yardimcisi duman testi
+        timeout-minutes: 2
+        shell: bash
+        run: |
+          set -o pipefail
+          { echo '{"cmd":"fps","on":true}'; echo '{"cmd":"once"}'; sleep 3; echo '{"cmd":"interval","ms":250}'; sleep 1; echo '{"cmd":"fps","on":false}'; echo '{"cmd":"quit"}'; } | ./build/bin/sistem-yardimcisi > sistem-cikti.txt
+          head -4 sistem-cikti.txt
+          node - <<'JS'
+          const fs = require("fs");
+          const fail = (m) => { console.error("HATA: " + m); process.exit(1); };
+          const lines = fs.readFileSync("sistem-cikti.txt", "utf8").split("\n").filter(Boolean);
+          const msgs = lines.map((l, i) => { try { return JSON.parse(l); } catch (e) { fail("bozuk JSON, satir " + (i + 1) + ": " + l); } });
+          const h = msgs[0];
+          if (!h || h.type !== "hello") fail("ilk satir hello degil");
+          if (h.version !== 1 || !["arm64", "x86_64"].includes(h.arch) || !(h.cores > 0) || !(h.memTotal > 0)) fail("hello alanlari: " + lines[0]);
+          for (const k of ["model", "chip"]) if (!(k in h)) fail("hello." + k + " yok");
+          const bad = msgs.filter(m => !["hello", "stats", "error"].includes(m.type));
+          if (bad.length) fail("bilinmeyen satir: " + JSON.stringify(bad[0]));
+          const stats = msgs.filter(m => m.type === "stats");
+          if (stats.length < 3) fail("stats satiri az: " + stats.length);
+          const has = (o, keys, where) => { if (!o || typeof o !== "object") fail(where + " nesne degil"); for (const k of keys) if (!(k in o)) fail(where + "." + k + " yok"); };
+          const isNum = (v) => typeof v === "number" && Number.isFinite(v);
+          const numOrNull = (v, where) => { if (v !== null && !isNum(v)) fail(where + " sayi/null degil: " + v); };
+          for (const s of stats) {
+            has(s, ["t", "cpu", "gpu", "mem", "fps", "fans", "battery", "net", "disk", "power", "thermal"], "stats");
+            if (!isNum(s.t)) fail("stats.t");
+            has(s.cpu, ["usage", "cores", "temp", "tempMax"], "cpu");
+            if (!isNum(s.cpu.usage) || s.cpu.usage < 0 || s.cpu.usage > 100) fail("cpu.usage: " + s.cpu.usage);
+            if (!Array.isArray(s.cpu.cores) || s.cpu.cores.length !== h.cores || !s.cpu.cores.every(isNum)) fail("cpu.cores");
+            numOrNull(s.cpu.temp, "cpu.temp"); numOrNull(s.cpu.tempMax, "cpu.tempMax");
+            has(s.gpu, ["usage", "temp"], "gpu"); numOrNull(s.gpu.usage, "gpu.usage"); numOrNull(s.gpu.temp, "gpu.temp");
+            has(s.mem, ["used", "total", "pressure", "swap"], "mem");
+            if (!(s.mem.total > 0) || !isNum(s.mem.swap)) fail("mem");
+            numOrNull(s.mem.used, "mem.used");
+            if (![null, "normal", "warn", "critical"].includes(s.mem.pressure)) fail("mem.pressure: " + s.mem.pressure);
+            has(s.fps, ["display", "screen"], "fps"); numOrNull(s.fps.display, "fps.display"); numOrNull(s.fps.screen, "fps.screen");
+            if (!Array.isArray(s.fans) || !s.fans.every(isNum)) fail("fans");
+            if (s.battery !== null) { has(s.battery, ["pct", "charging", "temp", "cycles", "watts"], "battery"); if (typeof s.battery.charging !== "boolean") fail("battery.charging"); }
+            has(s.net, ["down", "up"], "net"); if (!isNum(s.net.down) || !isNum(s.net.up)) fail("net");
+            has(s.disk, ["read", "write", "free"], "disk"); if (!isNum(s.disk.read) || !isNum(s.disk.write)) fail("disk"); numOrNull(s.disk.free, "disk.free");
+            numOrNull(s.power, "power");
+            if (!["nominal", "fair", "serious", "critical"].includes(s.thermal)) fail("thermal: " + s.thermal);
+          }
+          console.log("sistem-yardimcisi tamam: " + stats.length + " stats, " + msgs.filter(m => m.type === "error").length + " error satiri");
+          console.log(JSON.stringify(stats[stats.length - 1]));
+          JS
       # Secret tanimli degilse bos gelir -> imzasiz derleme. Tanimlanirsa electron-builder imzalar ve notarize eder.
       - name: electron-builder
         env:
@@ -48,5 +98,19 @@ jobs:
           if [ -z "${CSC_LINK:-}" ]; then export CSC_IDENTITY_AUTO_DISCOVERY=false; fi
           npx electron-builder --mac --publish never
       - run: ls -la dist/mac-arm64/*.app/Contents/Resources/bin/ && plutil -p dist/mac-arm64/*.app/Contents/Info.plist | grep -E 'NSAudioCapture|LSUIElement' || true
+      # Paketlenmis uygulamalarda (arm64 + x64) iki yardimci da var mi
+      - name: Paket icerigi (yardimcilar)
+        shell: bash
+        run: |
+          set -e
+          n=0
+          for app in dist/mac*/*.app; do
+            for b in ses-yardimcisi sistem-yardimcisi; do
+              test -x "$app/Contents/Resources/bin/$b" || { echo "eksik: $app/Contents/Resources/bin/$b"; exit 1; }
+              lipo -info "$app/Contents/Resources/bin/$b"
+            done
+            n=$((n+1))
+          done
+          test "$n" -ge 1
       - uses: actions/upload-artifact@v4
         with: {name: CemApp-dmg, path: dist/*.dmg}

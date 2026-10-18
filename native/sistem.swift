@@ -128,12 +128,12 @@ final class CPULoad {
             vm_deallocate(mach_task_self_, vm_address_t(bitPattern: arr), size)
         }
         let n = Int(cpuCount)
-        let stride = Int(CPU_STATE_MAX)
-        guard n > 0, Int(infoCount) >= n * stride else { return (nil, []) }
+        let per = Int(CPU_STATE_MAX)
+        guard n > 0, Int(infoCount) >= n * per else { return (nil, []) }
         var cur: [[UInt32]] = []
         cur.reserveCapacity(n)
         for i in 0..<n {
-            let base = i * stride
+            let base = i * per
             let user = UInt32(bitPattern: arr[base + Int(CPU_STATE_USER)])
             let sys = UInt32(bitPattern: arr[base + Int(CPU_STATE_SYSTEM)])
             let idle = UInt32(bitPattern: arr[base + Int(CPU_STATE_IDLE)])
@@ -311,7 +311,7 @@ final class SMC {
     private(set) var problem: String? = nil
 
     init() {
-        let L = MemoryLayout<SMCParam>.self
+        typealias L = MemoryLayout<SMCParam>
         guard L.size == 80, L.stride == 80,
               L.offset(of: \SMCParam.pLimitVersion) == 12,
               L.offset(of: \SMCParam.dataSize) == 28,
@@ -477,7 +477,8 @@ final class ScreenFPS {
         if let pKey = symbol(cgPath, "kCGDisplayStreamShowCursor"),
            let keyRaw = pKey.load(as: UnsafeRawPointer?.self) {
             let key: CFString = Unmanaged<CFString>.fromOpaque(keyRaw).takeUnretainedValue()
-            let d: [String: Any] = [key as String: false]
+            let ks: String = key as String
+            let d: [String: Any] = [ks: false]
             props = d as CFDictionary
         }
         let id: CGDirectDisplayID = CGMainDisplayID()
@@ -582,8 +583,9 @@ final class Monitor {
 
     // MARK: sicakliklar
     private static let smcCPUPrimary = ["TC0F", "TC0E", "TC0D", "TC0P", "TC0H"]
-    private static let smcCPUOther: [String] = (0..<16).map { "TC" + String($0, radix: 16, uppercase: true) + "C" } +
-        ["Tp01", "Tp05", "Tp09", "Tp0D", "Tp0H", "Tp0L", "Tp0P", "Tp0T", "Tp0X", "Tp0b", "Tp0f", "Tp0j",
+    private static let smcCPUCores: [String] = (0..<16).map { (i: Int) -> String in "TC" + String(i, radix: 16, uppercase: true) + "C" }
+    private static let smcCPUOther: [String] = smcCPUCores + [
+         "Tp01", "Tp05", "Tp09", "Tp0D", "Tp0H", "Tp0L", "Tp0P", "Tp0T", "Tp0X", "Tp0b", "Tp0f", "Tp0j",
          "Te05", "Te0L", "Te0P", "Te0S", "Tf04", "Tf09", "Tf0A", "Tf0B", "Tf0D", "Tf0E"]
     private static let smcGPU = ["TG0P", "TG0D", "TG0H", "Tg05", "Tg0D", "Tg0L", "Tg0T", "Tg0f", "Tg0j"]
 
@@ -891,7 +893,7 @@ timer.setEventHandler { emit(monitor.stats()) }
 schedule()
 timer.resume()
 
-func shutdown() {
+func finish() {
     timer.cancel()
     monitor.shutdown()
     exit(0)
@@ -914,7 +916,7 @@ func handle(_ line: String) {
     case "once":
         emit(monitor.stats())
     case "quit":
-        shutdown()
+        finish()
     default:
         break
     }
@@ -925,10 +927,10 @@ DispatchQueue.global().async {
     while let line = readLine() {
         DispatchQueue.main.async { handle(line) }
     }
-    DispatchQueue.main.async { shutdown() }
+    DispatchQueue.main.async { finish() }
 }
 signal(SIGTERM, SIG_IGN)
 let term = DispatchSource.makeSignalSource(signal: SIGTERM, queue: DispatchQueue.main)
-term.setEventHandler { shutdown() }
+term.setEventHandler { finish() }
 term.resume()
 RunLoop.main.run()
