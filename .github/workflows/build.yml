@@ -1,0 +1,52 @@
+name: build
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      # Electron ikili dosyasi testlerde gerekmez (zaten ilk calistirmada indirilir).
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: 20, cache: npm}
+      - run: npm ci
+      - run: for f in *.js; do node --check "$f"; done
+      - run: npm test
+  mac:
+    needs: test
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: 20, cache: npm}
+      - run: npm ci
+      - run: for f in *.js; do node --check "$f"; done
+      # Birim testleri macOS'ta da (APFS, gercek tmp yollari /private/var/...)
+      - run: npm test
+      # macOS entegrasyon testleri: gercek chflags uchg, sert bag yedegi + onarim, ~/.Trash, 127.0.0.1 paylasim sunucusu.
+      # GUI/Touch ID/Anahtar Zinciri istemi yok. npm test'in test/*.test.js deseni bu klasoru kapsamaz.
+      - name: macOS entegrasyon testleri
+        run: node --test test/mac/*.test.js
+      # Ses yardimcisi (Swift, arm64 + x64 tek dosya); calistigini dogrula
+      - run: npm run ses
+      - run: ./build/bin/ses-yardimcisi --version && lipo -info build/bin/ses-yardimcisi
+      - run: '{ echo ''{"cmd":"list"}''; sleep 3; } | ./build/bin/ses-yardimcisi | head -5 || true'
+      # Secret tanimli degilse bos gelir -> imzasiz derleme. Tanimlanirsa electron-builder imzalar ve notarize eder.
+      - name: electron-builder
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          for v in CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do [ -n "${!v}" ] || unset "$v"; done
+          if [ -z "${CSC_LINK:-}" ]; then export CSC_IDENTITY_AUTO_DISCOVERY=false; fi
+          npx electron-builder --mac --publish never
+      - run: ls -la dist/mac-arm64/*.app/Contents/Resources/bin/ && plutil -p dist/mac-arm64/*.app/Contents/Info.plist | grep -E 'NSAudioCapture|LSUIElement' || true
+      - uses: actions/upload-artifact@v4
+        with: {name: CemApp-dmg, path: dist/*.dmg}

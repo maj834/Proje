@@ -1,0 +1,196 @@
+'use strict';
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('fs'), path = require('path'), zlib = require('zlib');
+const DI = require('../depthimg.js');
+const D = require('../depth.js');
+
+// Kucuk PNG cozucu (8 bit, paletli/RGB/RGBA, taramasiz): fixture'i RGBA'ya cevirir.
+function decodePng(buf) {
+  let p = 8, w, h, type, pal, idat = [];
+  while (p < buf.length) {
+    const len = buf.readUInt32BE(p), t = buf.toString('ascii', p + 4, p + 8), d = buf.subarray(p + 8, p + 8 + len);
+    if (t === 'IHDR') { w = d.readUInt32BE(0); h = d.readUInt32BE(4); type = d[9]; assert.equal(d[8], 8); assert.equal(d[12], 0); }
+    else if (t === 'PLTE') pal = d;
+    else if (t === 'IDAT') idat.push(d);
+    p += 12 + len;
+  }
+  const bpp = { 3: 1, 2: 3, 6: 4, 0: 1 }[type], raw = zlib.inflateSync(Buffer.concat(idat)), stride = w * bpp;
+  const out = Buffer.alloc(w * h * 4), cur = Buffer.alloc(stride), prev = Buffer.alloc(stride);
+  for (let y = 0; y < h; y++) {
+    const f = raw[y * (stride + 1)], s = raw.subarray(y * (stride + 1) + 1, (y + 1) * (stride + 1));
+    for (let i = 0; i < stride; i++) {
+      const a = i >= bpp ? cur[i - bpp] : 0, b = prev[i], c = i >= bpp ? prev[i - bpp] : 0;
+      const pa = Math.abs(b - c), pb = Math.abs(a - c), pc = Math.abs(a + b - 2 * c);
+      cur[i] = (s[i] + [0, a, b, (a + b) >> 1, pa <= pb && pa <= pc ? a : pb <= pc ? b : c][f]) & 255;
+    }
+    for (let x = 0; x < w; x++) {
+      const o = (y * w + x) * 4;
+      if (type === 3) { const k = cur[x] * 3; out[o] = pal[k]; out[o + 1] = pal[k + 1]; out[o + 2] = pal[k + 2]; }
+      else if (type === 0) out[o] = out[o + 1] = out[o + 2] = cur[x];
+      else { out[o] = cur[x * bpp]; out[o + 1] = cur[x * bpp + 1]; out[o + 2] = cur[x * bpp + 2]; }
+      out[o + 3] = 255;
+    }
+    cur.copy(prev);
+  }
+  return { width: w, height: h, data: out };
+}
+
+const img = decodePng(fs.readFileSync(path.join(__dirname, 'fixtures', 'bopt-depth.png')));
+// BOPT ornegindeki alis tarafi (adet, fiyat); satis tarafi testte ayni satirlarin ters sirasidir.
+const BIDS = [[4342512, 12.13], [3, 12.12], [1, 12.08], [501, 12.06], [500, 12.05], [1001, 12.04], [100, 12.03], [1000, 12.01], [525, 12], [100, 11.98],
+  [200, 11.93], [1001, 11.9], [1, 11.89], [1250, 11.87], [2002, 11.86], [8790, 11.85], [201, 11.83], [1250, 11.82], [1, 11.81], [3501, 11.8],
+  [1000, 11.74], [4200, 11.7], [1, 11.69], [4000, 11.6], [6500, 11.56]];
+
+test('png: kodlayici cozucuyle geri okunur', () => {
+  const g = Buffer.from([0, 64, 128, 255, 10, 20]), r = decodePng(DI.png(3, 2, g));
+  assert.equal(r.width, 3); assert.equal(r.height, 2);
+  assert.deepEqual([...g], [0, 1, 2, 3, 4, 5].map(i => r.data[i * 4]));
+});
+
+test('segment: yesil alis ve kirmizi satis bloklarini bulur', () => {
+  const s = DI.segment(img);
+  assert.ok(s);
+  assert.ok(s.top > 250 && s.top < 290, 'top ' + s.top);
+  assert.ok(s.bid[1] < s.ask[0], 'alis solda');
+  assert.ok(Math.abs((s.bid[1] - s.bid[0]) - (s.ask[1] - s.ask[0])) < 20, 'bloklar esit genislikte');
+  // BGRA (Electron toBitmap) ayni sonucu verir
+  const bgra = Buffer.from(img.data); for (let i = 0; i < bgra.length; i += 4) { const t = bgra[i]; bgra[i] = bgra[i + 2]; bgra[i + 2] = t; }
+  assert.deepEqual(DI.segment({ ...img, data: bgra, bgra: true }).bid, s.bid);
+  assert.equal(DI.segment({ width: 20, height: 20, data: Buffer.alloc(1600) }), null);
+});
+
+test('priceOf / qtyOf / parseStats: OCR temizleme', () => {
+  assert.equal(DI.priceOf('12.13'), 12.13); assert.equal(DI.priceOf('1213'), 12.13); assert.equal(DI.priceOf('12,13'), 12.13);
+  assert.equal(DI.priceOf('11.08', 12.0), 11.08); assert.equal(DI.priceOf('1.98', 12.0), null);
+  assert.equal(DI.qtyOf('4.342.512'), 4342512); assert.equal(DI.qtyOf(''), null);
+  const st = DI.parseStats('TAdet Yuksek Tavan AOrt TleoFyz\n28.036.367 12.13 13.34 10.67 0.00\n\nG.Hacim Dusuk Taban OGunK GunFyz\n299.056.729 9.93 10.92 1213 9.97\n');
+  assert.deepEqual(st, { totalQty: 28036367, high: 12.13, ceiling: 13.34, avg: 10.67, theoPrice: 0, volume: 299056729, low: 9.93, floor: 10.92, prevClose: 12.13, dayChange: 9.97 });
+});
+
+test('depth.parseText: BOPT resim alt yazisi alis kademesi sanilmaz', () => {
+  const d = D.parseText('📈 PRZMA Piyasa Derinliği\n\n12.13 TL | 🟢+9.97%');
+  assert.equal(d.symbol, 'PRZMA'); assert.equal(d.last, 12.13); assert.equal(d.change, 9.97);
+  assert.equal(D.hasData(d), false);
+});
+
+test('read: sahte OCR ile hucre sirasi ve tutarlilik kontrolu', async () => {
+  // Her hucre icin sirayla sabit metin donduren OCR: tablo -> 4 hucre/satir (bos hucre atlanir), sonra istatistik
+  const calls = [];
+  const ocr = async (buf, mode) => { calls.push(mode); assert.equal(buf.readUInt32BE(0), 0x89504e47); return { text: mode === 'num' ? '12.13' : '', conf: 90 }; };
+  const d = await DI.read(img, { ocr, hint: { symbol: 'PRZMA' } });
+  assert.equal(d.symbol, 'PRZMA');
+  assert.equal(calls.filter(m => m === 'text').length, 1);
+  assert.equal(calls.filter(m => m === 'num').length, 100);
+  // Tum fiyatlar ayni -> sira bozuk, hepsi elenir
+  assert.equal(d.bids.length + d.asks.length, 0);
+});
+
+test('read: gercek OCR (tesseract) ile BOPT tablosu', { timeout: 120000 }, async (t) => {
+  try { require.resolve('tesseract.js'); } catch (e) { t.skip('tesseract.js kurulu degil'); return; }
+  try {
+    const d = await DI.read(img, { hint: { symbol: 'PRZMA' } });
+    assert.deepEqual(d.bids.map(b => [b.qty, b.price]), BIDS);
+    assert.deepEqual(d.asks.map(b => [b.qty, b.price]), [...BIDS].reverse());
+    assert.equal(d.stats.ceiling, 13.34); assert.equal(d.stats.floor, 10.92); assert.equal(d.ceiling, 13.34);
+    assert.equal(D.hasData(d), true);
+    const pr = D.pressure(d); assert.ok(pr);
+  } finally { await DI.close(); }
+});
+
+test('read: gercek BOPT HUBVC tablosu (alis + satis dolu)', { timeout: 120000 }, async (t) => {
+  try { require.resolve('tesseract.js'); } catch (e) { t.skip('tesseract.js kurulu degil'); return; }
+  const im = decodePng(fs.readFileSync(path.join(__dirname, 'fixtures', 'bopt-hubvc.png')));
+  try {
+    const d = await DI.read(im, { hint: { symbol: 'HUBVC' } });
+    assert.deepEqual(d.asks.map(b => [b.qty, b.price]), [[250, 2.33], [511, 2.34], [83389, 2.35], [143975, 2.36], [421364, 2.37], [295822, 2.38]]);
+    assert.equal(d.bids.length, 25);
+    assert.deepEqual(d.bids.slice(0, 3).map(b => [b.qty, b.price]), [[82490, 2.32], [25, 2.31], [540690, 2.3]]);
+    assert.deepEqual(d.bids.at(-1), { price: 2.03, qty: 200, orders: null });
+    assert.deepEqual(d.stats, { totalQty: 10698532, high: 2.37, ceiling: 2.55, avg: 2.21, theoPrice: 0, volume: 23690471, low: 1.96, floor: 2.09, prevClose: 2.32, dayChange: 6.91 });
+    const w = D.walls(d); assert.ok(w.some(x => x.side === 'bid' && x.price === 2.3), 'alis duvari 540.690 @ 2,30');
+  } finally { await DI.close(); }
+});
+
+test('parseAkd: OCR satirlari, maliyet duzeltme', () => {
+  const r = DI.parseAkd('Net Alicilar ilk 10: 1.696.075 Lot - 99.58%\nKURUM NET ALIS MALIYET ORAN\nBank Of America 711.393 15.848 41.77%\nGedik 21.224 156.742 1.25%\nUnlu 341.843 15920 20.07%\n', 16.15);
+  assert.deepEqual(r, [{ name: 'Bank Of America', net: 711393, cost: 15.848, pct: 41.77 }, { name: 'Gedik', net: 21224, cost: 15.742, pct: 1.25 }, { name: 'Unlu', net: 341843, cost: 15.92, pct: 20.07 }]);
+});
+
+test('readAkd: gercek BOPT AKD resmi (EKIM)', { timeout: 120000 }, async (t) => {
+  try { require.resolve('tesseract.js'); } catch (e) { t.skip('tesseract.js kurulu degil'); return; }
+  const im = decodePng(fs.readFileSync(path.join(__dirname, 'fixtures', 'bopt-akd.png')));
+  try {
+    const a = await DI.readAkd(im, { ref: 16.15 });
+    assert.equal(a.buyTotal, 1696075); assert.equal(a.sellTotal, 1641319);
+    assert.deepEqual(a.buyers.map(x => x.name), ['Bank Of America', 'Unlu', 'Yapi Kredi', 'Oyak', 'Garanti', 'Gedik', 'Halk', 'Tacirler', 'Marbas', 'Piramit', 'DIGER']);
+    assert.deepEqual(a.buyers.map(x => x.net), [711393, 341843, 300040, 229637, 38045, 21224, 18488, 17557, 12848, 5000, 6930]);
+    assert.deepEqual(a.buyers.map(x => x.cost), [15.848, 15.92, 15.897, 15.899, 15.524, 15.742, 15.49, 16.093, 16.089, 15.78, 15.745]);
+    // Oran yanlis okunursa lottan yeniden hesaplanir (yuvarlama farki olabilir)
+    [41.77, 20.07, 17.62].forEach((p, i) => assert.ok(Math.abs(a.buyers[i].pct - p) <= 0.05, a.buyers[i].name + ' ' + a.buyers[i].pct));
+    assert.equal(a.sellers.length, 11);
+    assert.deepEqual(a.sellers.map(x => x.net), [429973, 351849, 238336, 214953, 113588, 99680, 68139, 57879, 35093, 31829, 61686]);
+    assert.deepEqual(a.sellers.map(x => x.cost), [15.812, 15.734, 16.013, 15.811, 15.921, 15.785, 16.416, 16.079, 15.929, 15.978, 15.834]);
+    assert.equal(a.sellers[0].name, 'Vakif');
+    assert.equal(DI.segment(im), null, 'AKD resmi derinlik tablosu sanilmaz');
+  } finally { await DI.close(); }
+});
+
+test('parseTradeNums: saat, fiyat, adet, hacim; yapisik ve eksik okuma', () => {
+  assert.deepEqual(DI.parseTradeNums('18:09:49 16.15 500 8.075', 16.15), { time: '18:09:49', price: 16.15, qty: 500, vol: 8075 });
+  assert.deepEqual(DI.parseTradeNums('18:08:59 16.1516.147 260.774', 16.15), { time: '18:08:59', price: 16.15, qty: 16147, vol: 260774 });
+  assert.equal(DI.parseTradeNums('18:08:59 16.15 16.141 260.774', 16.15).qty, 16147, 'adet hacim/fiyattan duzeltilir');
+  assert.equal(DI.parseTradeNums('Saat Fiyat Adet Hacim', 16.15), null);
+  assert.equal(DI.parseTradeNums('18:08:59 99.15 10 991', 16.15), null, 'fiyat cok uzak');
+});
+
+test('readTrades: gercek BOPT islem resmi (EKIM)', { timeout: 120000 }, async (t) => {
+  try { require.resolve('tesseract.js'); } catch (e) { t.skip('tesseract.js kurulu degil'); return; }
+  const im = decodePng(fs.readFileSync(path.join(__dirname, 'fixtures', 'bopt-islem.png')));
+  try {
+    const r = await DI.readTrades(im, { ref: 16.15 });
+    const T = r.trades;
+    assert.equal(T.length, 21);
+    assert.deepEqual(T.map(x => x.qty), [500, 300, 5273, 1046, 2530, 5, 1146, 6954, 500, 200, 199, 16147, 30, 20, 40, 40, 13, 40, 6128, 15, 50]);
+    assert.ok(T.every(x => x.price === 16.15));
+    assert.deepEqual(T.map(x => x.side), [...Array(2).fill('buy'), 'sell', 'sell', ...Array(12).fill('buy'), ...Array(5).fill(null)]);
+    assert.deepEqual(T.slice(0, 5).map(x => [x.time, x.buyer.toLowerCase(), x.seller.toLowerCase()]), [['18:09:49', 'marbas', 'is yatirim'], ['18:09:41', 'marbas', 'is yatirim'], ['18:09:39', 'ak yatirim', 'is yatirim'], ['18:09:37', 'ak yatirim', 'vakif'], ['18:09:31', 'ak yatirim', 'qnb invest']]);
+    assert.equal(T[20].seller.toLowerCase(), 'phillipcapital');
+    const d = { bids: [{ price: 16.15, qty: 1000 }], asks: [{ price: 16.16, qty: 1000 }], trades: T, buyers: [], sellers: [] };
+    assert.ok(D.pressure(d), 'islemler baskiya katilir');
+    assert.equal(await DI.readTrades(img, { ref: 12.13 }), null, 'derinlik resmi islem sanilmaz');
+  } finally { await DI.close(); }
+});
+
+// Satir basina 4 hucre (adet, alis, satis, adet); ilk alis fiyati verilen metinle okunur.
+function fakeOcr(firstBid) {
+  let row = -1, k = 0;
+  return async (buf, mode) => {
+    if (mode !== 'num') return { text: '', conf: 0 };
+    const c = k++ % 4; if (c === 0) row++;
+    if (c === 0 || c === 3) return { text: '100', conf: 90 };
+    if (c === 1) return { text: row === 0 ? firstBid : (12.13 - row * 0.01).toFixed(2).replace('.', ','), conf: 90 };
+    return { text: (12.14 + row * 0.01).toFixed(2).replace('.', ','), conf: 90 };
+  };
+}
+
+test('read: ilk hucre yanlis okunursa tablo kaybolmaz (F6)', async () => {
+  const ok = await DI.read(img, { ocr: fakeOcr('12,13') });
+  const bad = await DI.read(img, { ocr: fakeOcr('121') });
+  assert.equal(bad.bids.length, ok.bids.length - 1);
+  assert.equal(bad.bids[0].price, 12.12);
+  assert.equal(bad.ocr.dropped, 1, 'referanstan reddedilen satir sayilir');
+  const h = await DI.read(img, { ocr: fakeOcr('121'), hint: { last: 12.13 } });
+  assert.equal(h.bids.length, ok.bids.length - 1);
+  assert.equal(h.ocr.dropped, 1);
+});
+
+test('parseTradeNums: binlik ayracli fiyat (F9)', () => {
+  assert.deepEqual(DI.parseTradeNums('10:15:01 1.234,50 100 123.450'), { time: '10:15:01', price: 1234.5, qty: 100, vol: 123450 });
+});
+
+test('parseStats: eksi gunluk degisim korunur (F11)', () => {
+  const st = DI.parseStats('G.Hacim Dusuk Taban OGunK GunFyz\n299.056.729 9.93 10.92 12.13 -1,20\n');
+  assert.equal(st.dayChange, -1.2);
+  assert.equal(st.low, 9.93);
+});

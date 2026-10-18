@@ -1,0 +1,216 @@
+<!doctype html><html lang="tr"><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; script-src 'self' 'unsafe-inline'">
+<title>Temizlik ve kopya dosyalar</title><link rel="stylesheet" href="theme.css">
+<style>
+html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font:400 13px/1.45 var(--font);-webkit-user-select:none;user-select:none}
+.w{display:flex;flex-direction:column;height:100%}
+header{padding:var(--s4) var(--s5) 0;display:flex;flex-direction:column;gap:var(--s3)}
+h1{font:600 15px var(--font);margin:0}.m{color:var(--fg-3);font-size:12px}.f1{flex:1;min-width:0}
+.tabs{display:flex;gap:var(--s1);border-bottom:1px solid var(--line)}
+.tab{border:0;background:none;color:var(--fg-2);font:500 13px var(--font);padding:7px 10px;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px}
+.tab:hover{color:var(--fg)}.tab.on{color:var(--fg);border-bottom-color:var(--acc)}
+main{flex:1;overflow:auto;padding:var(--s4) var(--s5)}
+section{display:none;flex-direction:column;gap:var(--s3)}section.on{display:flex}
+footer{display:none;border-top:1px solid var(--line);background:var(--surface);padding:var(--s3) var(--s5);align-items:center;gap:var(--s3)}footer.on{display:flex}
+.row{display:flex;align-items:center;gap:var(--s2);flex-wrap:wrap}
+.btn{border:1px solid var(--line-2);background:var(--surface);color:var(--fg);font:500 12px var(--font);padding:5px 10px;border-radius:5px;cursor:pointer;white-space:nowrap}
+.btn:hover{border-color:var(--fg-3)}.btn.pri{background:var(--acc);border-color:var(--acc);color:var(--acc-ink)}
+.btn:disabled{opacity:.45;cursor:default}.btn.sm{padding:2px 8px;font-size:11px}
+.link{border:0;background:none;color:var(--acc);font:500 12px var(--font);cursor:pointer;padding:0;text-decoration:underline;text-underline-offset:2px}
+.chip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line-2);border-radius:5px;padding:3px 8px;background:var(--surface);max-width:100%}
+.chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.x{border:0;background:none;color:var(--fg-3);cursor:pointer;font-size:14px;padding:0 2px;line-height:1}.x:hover{color:var(--fg)}
+input[type=checkbox]{accent-color:var(--acc);margin:0;flex:none}
+.info{padding:var(--s2) var(--s3);border:1px solid var(--line);border-radius:6px;background:var(--sunk);color:var(--fg-2);font-size:12px}
+.err{white-space:pre-line;padding:var(--s2) var(--s3);border-radius:6px;background:var(--dn-soft);color:var(--dn);font-size:12px}
+.ok{padding:var(--s2) var(--s3);border-radius:6px;background:var(--up-soft);color:var(--fg);font-size:12px}
+.prog{font:400 12px var(--mono);color:var(--fg-2)}
+.card{border:1px solid var(--line);border-radius:6px;background:var(--surface)}
+.gh{display:flex;align-items:baseline;gap:var(--s2);padding:8px 10px;border-bottom:1px solid var(--line)}
+.gh .n{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fr{display:flex;align-items:center;gap:var(--s2);padding:6px 10px;border-top:1px solid var(--line)}.fr:nth-child(2){border-top:0}
+.fr .t{flex:1;min-width:0}.fr .t div{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dir{font:400 11px var(--mono);color:var(--fg-3);direction:rtl;text-align:left}
+.d{font:400 11px var(--mono);color:var(--fg-3);white-space:nowrap}
+.tag{font:600 10px var(--font);letter-spacing:.06em;text-transform:uppercase;color:var(--acc);border:1px solid var(--acc);border-radius:4px;padding:1px 5px;flex:none}
+.cb{width:13px;display:flex;justify-content:center;flex:none}
+.cat{display:flex;gap:var(--s3);padding:10px 12px;align-items:flex-start}
+.cat .h{display:flex;align-items:baseline;gap:var(--s2)}.cat .h b{font-weight:600}
+.sz{font:500 12px var(--mono);white-space:nowrap}
+.items{border-top:1px solid var(--line);padding:6px 12px 8px 37px;display:none}.items.on{display:block}
+.it{display:flex;gap:var(--s2);padding:2px 0;font:400 11px var(--mono);color:var(--fg-2)}.it span:first-child{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;direction:rtl;text-align:left}
+.hide{display:none!important}
+</style></head><body><div class="w">
+<header>
+  <div><h1>Temizlik ve kopya dosyalar</h1><div class="m">Hiçbir şey sen seçip onaylamadan kaldırılmaz. Kendi dosyaların yalnızca Çöp Sepeti’ne taşınır.</div></div>
+  <div class="tabs"><button class="tab on" data-t="dup">Kopya dosyalar</button><button class="tab" data-t="junk">Sistem temizliği</button></div>
+</header>
+<main>
+  <section id="s-dup" class="on">
+    <div class="row" id="roots"></div>
+    <div class="row"><button class="btn" id="add">Klasör ekle</button><span class="f1"></span>
+      <button class="btn hide" id="dcancel">İptal</button><button class="btn pri" id="dscan">Tara</button></div>
+    <div class="prog hide" id="dprog"></div>
+    <div class="err hide" id="derr"></div>
+    <div class="ok hide" id="dres"></div>
+    <div class="info hide" id="dinfo">Seçtiğin kopyalar Çöp Sepeti’ne taşınır ve Finder’dan geri alınabilir. “Kalacak” olarak işaretli dosya her zaman yerinde kalır; taşımadan hemen önce her dosyanın içeriği yeniden doğrulanır.</div>
+    <div class="row hide" id="dtools"><span class="m f1" id="dsum"></span><button class="btn sm" id="dnone">Seçimi kaldır</button><button class="btn sm" id="dsel">Önerilenleri seç</button></div>
+    <div id="groups" style="display:flex;flex-direction:column;gap:var(--s2)"></div>
+    <button class="btn hide" id="dmore" style="align-self:center"></button>
+  </section>
+  <section id="s-junk">
+    <div class="row"><span class="m f1">Yalnızca yeniden oluşturulabilen önbellekler, eski günlükler ve senin seçtiğin öğeler temizlenir. Kişisel belgelerine dokunulmaz.</span><button class="btn pri" id="jscan">Tara</button></div>
+    <div class="prog hide" id="jprog"></div>
+    <div class="err hide" id="jerr"></div>
+    <div class="ok hide" id="jres"><span id="jrest"></span> <button class="link" id="jlog">Temizlik kaydını göster</button></div>
+    <div class="info hide" id="jfda"></div>
+    <div id="cats" style="display:flex;flex-direction:column;gap:var(--s2)"></div>
+  </section>
+</main>
+<footer id="f-dup" class="on"><span class="m f1">Dosyalar Çöp Sepeti’ne taşınır, geri alınabilir.</span><button class="btn pri" id="drm" disabled>Seçilenleri Çöp Sepeti’ne taşı</button></footer>
+<footer id="f-junk"><span class="m f1" id="jfoot">Önce tara.</span><button class="btn pri" id="jclean" disabled>Seçilenleri temizle</button></footer>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+const human=n=>{n=Math.max(0,+n||0);const f=v=>v.toFixed(1).replace('.',',');return n>=1024**4?f(n/1024**4)+' TB':n>=1024**3?f(n/1024**3)+' GB':n>=1024**2?f(n/1024**2)+' MB':n>=1024?Math.round(n/1024)+' KB':n+' B'};
+const el=(t,c,txt)=>{const e=document.createElement(t);if(c)e.className=c;if(txt!=null)e.textContent=txt;return e};
+const show=(id,on)=>$(id).classList.toggle('hide',!on);
+const msg=(id,t)=>{$(id).textContent=t||'';show(id,!!t)};
+const date=ms=>ms?new Date(ms).toLocaleDateString('tr-TR',{day:'numeric',month:'short',year:'numeric'}):'';
+let HOME='';
+const tilde=p=>HOME&&p.startsWith(HOME+'/')?'~'+p.slice(HOME.length):p;
+const base=p=>p.slice(p.lastIndexOf('/')+1),dirn=p=>p.slice(0,p.lastIndexOf('/'))||'/';
+// Sol-yon (rtl) kisaltmada yol sonu gorunsun diye yonu koru
+const ltr=s=>'‎'+s+'‎';
+
+// Sekmeler
+document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('on',x===b));
+  for(const t of ['dup','junk']){$('s-'+t).classList.toggle('on',b.dataset.t===t);$('f-'+t).classList.toggle('on',b.dataset.t===t)}
+});
+
+// ---------- Kopya dosyalar ----------
+let roots=[],groups=[],sel=new Set(),shown=0,scanning=false;
+const PAGE=100;
+function renderRoots(){
+  $('roots').replaceChildren(...roots.map((r,i)=>{const c=el('label','chip');const cb=el('input');cb.type='checkbox';cb.checked=r.on;
+    cb.onchange=()=>{r.on=cb.checked};c.title=r.path;c.append(cb,el('span','',r.name||tilde(r.path)));
+    if(r.custom){const x=el('button','x','×');x.title='Listeden çıkar';x.onclick=e=>{e.preventDefault();roots.splice(i,1);renderRoots()};c.append(x)}
+    return c}));
+}
+cleaner.roots().then(r=>{if(r&&r.ok){HOME=r.home;roots=r.roots.map(x=>({...x,on:true}));renderRoots()}});
+$('add').onclick=async()=>{const ps=await cleaner.pickFolder();if(!Array.isArray(ps))return;
+  for(const p of ps)if(!roots.some(r=>r.path===p))roots.push({path:p,name:tilde(p),on:true,custom:true});renderRoots()};
+
+const wasted=g=>g.size*(g.files.length-1);
+function updateFoot(){
+  let n=0,b=0;for(const g of groups)for(const f of g.files)if(sel.has(f.path)){n++;b+=g.size}
+  $('drm').disabled=!n||scanning;
+  $('drm').textContent=n?'Seçilenleri Çöp Sepeti’ne taşı ('+n+' dosya, '+human(b)+')':'Seçilenleri Çöp Sepeti’ne taşı';
+}
+function groupEl(g){
+  const c=el('div','card'),h=el('div','gh');
+  const keepName=base(g.keep);h.append(el('span','n f1',keepName),el('span','d',g.files.length+' kopya · her biri '+human(g.size)+' · fazlalık '+human(wasted(g))));
+  c.append(h);
+  const fl=[...g.files].sort((a,b)=>(b.path===g.keep)-(a.path===g.keep));
+  for(const f of fl){
+    const r=el('div','fr'),cbw=el('span','cb');
+    if(f.path===g.keep){r.append(el('span','tag','Kalacak'))}
+    else{const cb=el('input');cb.type='checkbox';cb.checked=sel.has(f.path);cb.dataset.p=f.path;
+      cb.onchange=()=>{cb.checked?sel.add(f.path):sel.delete(f.path);updateFoot()};cbw.append(cb);r.append(cbw)}
+    const t=el('div','t');const nm=el('div','',base(f.path));const dr=el('div','dir',ltr(tilde(dirn(f.path))));dr.title=f.path;t.append(nm,dr);
+    const gb=el('button','btn sm','Göster');gb.onclick=()=>cleaner.reveal(f.path);
+    r.append(t,el('span','d',date(f.birthtimeMs||f.mtimeMs)),gb);c.append(r);
+  }
+  return c;
+}
+function renderGroups(reset){
+  if(reset){$('groups').replaceChildren();shown=0}
+  const next=groups.slice(shown,shown+PAGE);$('groups').append(...next.map(groupEl));shown+=next.length;
+  const rest=groups.length-shown;$('dmore').textContent='Daha fazla göster ('+rest+' grup)';show('dmore',rest>0);
+  const tot=groups.reduce((s,g)=>s+wasted(g),0);
+  $('dsum').textContent=groups.length?groups.length+' kopya grubu · kazanılabilecek alan '+human(tot):'';
+  show('dtools',groups.length>0);show('dinfo',groups.length>0);updateFoot();
+}
+$('dmore').onclick=()=>renderGroups(false);
+// Yalnizca ekranda gosterilen gruplardaki onerilen kopyalari sec
+$('dsel').onclick=()=>{for(const g of groups.slice(0,shown))for(const f of g.files)if(f.path!==g.keep)sel.add(f.path);
+  document.querySelectorAll('#groups input[type=checkbox]').forEach(cb=>cb.checked=sel.has(cb.dataset.p));updateFoot()};
+$('dnone').onclick=()=>{sel.clear();document.querySelectorAll('#groups input[type=checkbox]').forEach(cb=>cb.checked=false);updateFoot()};
+
+function busyDup(on){scanning=on;$('dscan').disabled=on;show('dcancel',on);$('add').disabled=on;$('jscan').disabled=on;updateFoot()}
+$('dscan').onclick=async()=>{
+  const list=roots.filter(r=>r.on).map(r=>r.path);msg('derr','');msg('dres','');
+  if(!list.length)return msg('derr','En az bir klasör seç.');
+  groups=[];sel.clear();renderGroups(true);busyDup(true);msg('dprog','Taranıyor…');
+  const r=await cleaner.scanDuplicates(list);busyDup(false);msg('dprog','');
+  if(!r||!r.ok)return msg(r&&r.cancelled?'dres':'derr',r&&r.msg||'Tarama başarısız.');
+  HOME=r.home||HOME;groups=r.groups;renderGroups(true);
+  if(!groups.length)msg('dres','Kopya dosya bulunamadı.');
+};
+$('dcancel').onclick=()=>cleaner.cancel();
+$('drm').onclick=async()=>{
+  const paths=[...sel];if(!paths.length)return;msg('derr','');msg('dres','');
+  $('drm').disabled=true;
+  const r=await cleaner.removeDuplicates(paths);
+  if(!r||!r.ok){updateFoot();if(r&&!r.cancelled)msg('derr',r.msg||'Taşınamadı.');return}
+  const gone=new Set(r.removed);
+  for(const p of paths)sel.delete(p);
+  groups=groups.map(g=>({...g,files:g.files.filter(f=>!gone.has(f.path))})).filter(g=>g.files.length>1&&g.files.some(f=>f.path===g.keep));
+  renderGroups(true);
+  msg('dres',r.removed.length+' dosya Çöp Sepeti’ne taşındı, '+r.freedText+' boşaldı.'+(r.failed.length?' '+r.failed.length+' dosya taşınmadı.':''));
+  if(r.failed.length)msg('derr',r.failed.slice(0,5).map(f=>base(f.path)+': '+f.error).join('\n'));
+};
+
+// ---------- Sistem temizligi ----------
+let cats=[],csel=new Set();
+function updateJunk(){
+  const b=cats.filter(c=>csel.has(c.id)).reduce((s,c)=>s+c.size,0);
+  $('jclean').disabled=!csel.size||scanning;
+  $('jclean').textContent=csel.size?'Seçilenleri temizle ('+human(b)+')':'Seçilenleri temizle';
+  $('jfoot').textContent=cats.length?'Toplam bulunan '+human(cats.reduce((s,c)=>s+c.size,0))+'.':'Önce tara.';
+}
+function catEl(c){
+  const w=el('div','card'),r=el('div','cat');
+  const cb=el('input');cb.type='checkbox';cb.checked=csel.has(c.id);cb.disabled=!c.count;
+  cb.onchange=()=>{cb.checked?csel.add(c.id):csel.delete(c.id);updateJunk()};
+  const t=el('div','f1'),h=el('div','h');h.append(el('b','',c.title),el('span','m',c.count?c.count+' öğe':'boş'));
+  t.append(h,el('div','m',c.desc));if(c.note)t.append(el('div','m',c.note));
+  r.append(cb,t,el('span','sz',human(c.size)));
+  const list=el('div','items');
+  if(c.count){const b=el('button','btn sm','Ayrıntılar');b.onclick=()=>list.classList.toggle('on');r.append(b);
+    for(const it of c.items){const i=el('div','it');const p=el('span','',ltr(tilde(it.path)));p.title=it.path;i.append(p,el('span','',human(it.size)));list.append(i)}
+    if(c.count>c.items.length)list.append(el('div','it','… ve '+(c.count-c.items.length)+' öğe daha'));}
+  w.append(r,list);return w;
+}
+function renderCats(){$('cats').replaceChildren(...cats.map(catEl));updateJunk()}
+$('jscan').onclick=async()=>{
+  msg('jerr','');show('jres',false);msg('jfda','');cats=[];csel.clear();renderCats();
+  scanning=true;$('jscan').disabled=true;$('dscan').disabled=true;msg('jprog','İnceleniyor…');
+  const r=await cleaner.scanJunk();scanning=false;$('jscan').disabled=false;$('dscan').disabled=false;msg('jprog','');
+  if(!r||!r.ok)return msg('jerr',r&&r.msg||'Tarama başarısız.');
+  HOME=r.home||HOME;cats=r.categories;for(const c of cats)if(c.default&&c.count)csel.add(c.id);
+  if(r.skipped)msg('jfda','Bazı klasörler okunamadı ('+r.skipped+'). Tam sonuç için Sistem Ayarları › Gizlilik ve Güvenlik › Tam Disk Erişimi’nden bu uygulamaya izin verebilirsin.');
+  renderCats();
+};
+$('jclean').onclick=async()=>{
+  const ids=[...csel];if(!ids.length)return;msg('jerr','');show('jres',false);
+  $('jclean').disabled=true;$('jscan').disabled=true;
+  const r=await cleaner.clean(ids);$('jscan').disabled=false;msg('jprog','');
+  if(!r||!r.ok){updateJunk();if(r&&!r.cancelled)msg('jerr',r.msg||'Temizlenemedi.');return}
+  $('jrest').textContent=r.freedText+' boşaltıldı ('+r.count+' öğe).'+(r.failedCount?' '+r.failedCount+' öğe kaldırılamadı.':'')+' Güncel durum için yeniden tarayabilirsin.';
+  show('jres',true);
+  if(r.failed.length)msg('jerr',r.failed.slice(0,5).map(f=>tilde(f.path)+': '+f.error).join('\n'));
+  cats=[];csel.clear();renderCats();
+};
+$('jlog').onclick=async()=>{const r=await cleaner.openLog();if(r&&!r.ok)msg('jerr',r.msg)};
+
+// Ilerleme
+cleaner.on(e=>{
+  if(e.type!=='progress')return;
+  if(e.phase==='tara')msg('dprog','Taranıyor… '+e.files.toLocaleString('tr-TR')+' dosya ('+human(e.bytes)+')');
+  else if(e.phase==='karsilastir')msg('dprog','Karşılaştırılıyor… '+e.files.toLocaleString('tr-TR')+' / '+(e.total||0).toLocaleString('tr-TR')+' aday dosya');
+  else if(e.phase==='sistem')msg('jprog','İnceleniyor: '+e.title);
+  else if(e.phase==='temizle')msg('jprog','Temizleniyor: '+e.title);
+});
+</script></body></html>

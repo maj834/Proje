@@ -1,0 +1,42 @@
+/* Grafik Okuyucu tasarim sistemi
+ * Yon: "piyasa terminali" - hassas, yogun, sakin.
+ * - Yazi: IBM Plex Sans (arayuz) + IBM Plex Mono (fiyat, adet, saat). 1-2 aile.
+ * - Renk: soguk grafit notr skala, tek vurgu kehribar; yukselis/dusus icin ayarli yesil/kirmizi. Gradyan yok.
+ * - Yogunluk: siki, 4px olcek.  Kose: 4-6px.  Golge yok, 1px cizgi ile ayrim.
+ * - Ikon: ince cizgi (1.5px) SVG, emoji yok.  Hareket: sakin, 150ms, sadece durum degisimi.
+ */
+@font-face{font-family:'Plex Sans';font-style:normal;font-weight:400;font-display:block;src:url(assets/fonts/ibm-plex-sans-latin-400-normal.woff2) format('woff2');unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+@font-face{font-family:'Plex Sans';font-style:normal;font-weight:400;font-display:block;src:url(assets/fonts/ibm-plex-sans-latin-ext-400-normal.woff2) format('woff2');unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF}
+@font-face{font-family:'Plex Sans';font-style:normal;font-weight:500;font-display:block;src:url(assets/fonts/ibm-plex-sans-latin-500-normal.woff2) format('woff2');unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+@font-face{font-family:'Plex Sans';font-style:normal;font-weight:500;font-display:block;src:url(assets/fonts/ibm-plex-sans-latin-ext-500-normal.woff2) format('woff2');unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF}
+@font-face{font-family:'Plex Sans';font-style:normal;font-weight:600;font-display:block;src:url(assets/fonts/ibm-plex-sans-latin-600-normal.woff2) format('woff2');unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+@font-face{font-family:'Plex Sans';font-style:normal;font-weight:600;font-display:block;src:url(assets/fonts/ibm-plex-sans-latin-ext-600-normal.woff2) format('woff2');unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF}
+@font-face{font-family:'Plex Mono';font-style:normal;font-weight:400;font-display:block;src:url(assets/fonts/ibm-plex-mono-latin-400-normal.woff2) format('woff2');unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+@font-face{font-family:'Plex Mono';font-style:normal;font-weight:400;font-display:block;src:url(assets/fonts/ibm-plex-mono-latin-ext-400-normal.woff2) format('woff2');unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF}
+@font-face{font-family:'Plex Mono';font-style:normal;font-weight:500;font-display:block;src:url(assets/fonts/ibm-plex-mono-latin-500-normal.woff2) format('woff2');unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+@font-face{font-family:'Plex Mono';font-style:normal;font-weight:500;font-display:block;src:url(assets/fonts/ibm-plex-mono-latin-ext-500-normal.woff2) format('woff2');unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF}
+@font-face{font-family:'Plex Mono';font-style:normal;font-weight:600;font-display:block;src:url(assets/fonts/ibm-plex-mono-latin-600-normal.woff2) format('woff2');unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+@font-face{font-family:'Plex Mono';font-style:normal;font-weight:600;font-display:block;src:url(assets/fonts/ibm-plex-mono-latin-ext-600-normal.woff2) format('woff2');unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF}
+:root{
+  color-scheme:light dark;
+  --font:'Plex Sans',-apple-system,sans-serif;--mono:'Plex Mono',ui-monospace,Menlo,monospace;
+  --s1:4px;--s2:8px;--s3:12px;--s4:16px;--s5:20px;--s6:24px;
+  --r1:4px;--r2:6px;
+  /* acik tema */
+  --bg:oklch(97.5% 0.003 250);--surface:oklch(99.2% 0.002 250);--sunk:oklch(94.5% 0.004 250);
+  --line:oklch(89% 0.006 250);--line-2:oklch(82% 0.008 250);
+  --fg:oklch(23% 0.012 255);--fg-2:oklch(45% 0.012 255);--fg-3:oklch(60% 0.01 255);
+  --acc:oklch(70% 0.15 70);--acc-ink:oklch(28% 0.05 70);--acc-soft:oklch(70% 0.15 70 / .14);
+  --up:oklch(56% 0.14 152);--dn:oklch(56% 0.19 25);--up-soft:oklch(56% 0.14 152 / .12);--dn-soft:oklch(56% 0.19 25 / .12);
+  --info:oklch(58% 0.12 240);--warn:oklch(62% 0.14 70);
+}
+@media(prefers-color-scheme:dark){:root{
+  --bg:oklch(18.5% 0.008 255);--surface:oklch(21.5% 0.009 255);--sunk:oklch(16% 0.008 255);
+  --line:oklch(28% 0.01 255);--line-2:oklch(35% 0.012 255);
+  --fg:oklch(93% 0.006 250);--fg-2:oklch(72% 0.01 250);--fg-3:oklch(56% 0.012 250);
+  --acc:oklch(80% 0.14 75);--acc-ink:oklch(22% 0.04 75);--acc-soft:oklch(80% 0.14 75 / .14);
+  --up:oklch(74% 0.15 155);--dn:oklch(68% 0.18 25);--up-soft:oklch(74% 0.15 155 / .13);--dn-soft:oklch(68% 0.18 25 / .13);
+  --info:oklch(72% 0.11 240);--warn:oklch(80% 0.14 75);
+}}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+.ico{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}

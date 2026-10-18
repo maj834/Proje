@@ -1,0 +1,72 @@
+{
+  "name": "cem-app",
+  "version": "2.0.0",
+  "description": "Ekrandaki fiyat grafigini Claude ile okuyan macOS menu cubugu uygulamasi",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --mac",
+    "test": "node --test test/*.test.js",
+    "ses": "mkdir -p build/bin && swiftc -O -target arm64-apple-macos13 -o build/bin/ses-arm64 native/ses.swift && swiftc -O -target x86_64-apple-macos13 -o build/bin/ses-x64 native/ses.swift && lipo -create -output build/bin/ses-yardimcisi build/bin/ses-arm64 build/bin/ses-x64 && rm build/bin/ses-arm64 build/bin/ses-x64"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.135.0",
+    "@tesseract.js-data/eng": "^1.0.0",
+    "qrcode": "^1.5.4",
+    "telegram": "^2.26.22",
+    "tesseract.js": "^7.0.0"
+  },
+  "devDependencies": {
+    "electron": "^43.8.0",
+    "electron-builder": "^26.17.0"
+  },
+  "build": {
+    "appId": "com.cem.app",
+    "productName": "Cem App",
+    "files": [
+      "*.js",
+      "*.html",
+      "*.css",
+      "assets/**",
+      "!node_modules/@tesseract.js-data/eng/4.0.0/**",
+      "!node_modules/tesseract.js-core/tesseract-core.{js,wasm,wasm.js}",
+      "!node_modules/tesseract.js-core/tesseract-core-simd.{js,wasm,wasm.js}",
+      "!node_modules/tesseract.js-core/tesseract-core-relaxedsimd.{js,wasm,wasm.js}"
+    ],
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "hardenedRuntime": true,
+      "entitlements": "assets/entitlements.mac.plist",
+      "entitlementsInherit": "assets/entitlements.mac.plist",
+      "category": "public.app-category.finance",
+      "extendInfo": {
+        "LSUIElement": false,
+        "NSScreenCaptureUsageDescription": "Grafiği okumak için ekran görüntüsü gerekir",
+        "NSAudioCaptureUsageDescription": "Uygulama başına ses seviyesi ve bas/tiz ayarı için uygulamaların sesine erişmek gerekir"
+      },
+      "binaries": [
+        "Contents/Resources/bin/ses-yardimcisi"
+      ]
+    },
+    "asarUnpack": [
+      "node_modules/{tesseract.js,tesseract.js-core,@tesseract.js-data,bmp-js,idb-keyval,is-url,node-fetch,whatwg-url,tr46,webidl-conversions,opencollective-postinstall,regenerator-runtime,wasm-feature-detect,zlibjs}/**"
+    ],
+    "extraResources": [
+      {
+        "from": "build/bin",
+        "to": "bin",
+        "filter": [
+          "ses-yardimcisi"
+        ]
+      }
+    ]
+  }
+}
