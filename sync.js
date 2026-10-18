@@ -44,6 +44,8 @@ async function signIn({url,anon,email,password}){
   const prev=cfg;cfg={url:u,anon,refresh:null,access:null,exp:0,user:null};
   try{takeSession(await api('/auth/v1/token?grant_type=password',{method:'POST',body:{email,password}}))}
   catch(e){cfg=prev;throw new Error(e.status===400?'E-posta ya da şifre hatalı (ya da e-posta onaylanmamış).':e.message)}
+  // Baska hesaba/projeye gecildiyse eski hesabin bekleyen kayitlari yeni hesaba yazilmasin
+  if(prev.user&&(prev.user!==cfg.user||prev.url!==u)){queue=[];persist()}
   lastErr=null;backoff=0;schedule(500);
   return state();
 }

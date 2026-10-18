@@ -44,6 +44,9 @@ function buttonsOf(m){
     type:b.className==='KeyboardButtonUrl'?'url':/WebView/.test(b.className)?'webapp':b.className==='KeyboardButtonCallback'?'callback':'text',
     url:b.url||null})));
 }
+// Bot kimligi bir kez cozulur: her sorguda kullanici adi cozmek Telegram'da "flood" beklemesine yol acar
+const peers=new Map();let peersOf=null;
+async function peer(bot){if(peersOf!==client){peers.clear();peersOf=client}const k=String(bot).toLowerCase();if(!peers.has(k))peers.set(k,await client.getEntity(bot));return peers.get(k)}
 async function pack(m){
   const o={id:m.id,date:m.date,text:m.message||'',buttons:buttonsOf(m),photo:null};
   if(m.photo){try{const buf=await client.downloadMedia(m,{});if(buf)o.photo='data:image/jpeg;base64,'+Buffer.from(buf).toString('base64')}catch(e){}}
@@ -53,11 +56,14 @@ async function pack(m){
 // Bota mesaj gonder; bot susana kadar (quietMs) gelen ve duzenlenen mesajlari topla.
 async function query(bot,text,{timeoutMs=20000,quietMs=2500}={}){
   if(!client)throw new Error('Telegram bağlı değil.');
-  const entity=await client.getEntity(bot);
-  const got=new Map();let last=Date.now(),done;
+  const entity=await peer(bot);
+  const got=new Map(),pend=new Set();let last=Date.now(),done;
   const fin=new Promise(r=>done=r);
   const from=e=>{const m=e.message;return m&&String(m.senderId)===String(entity.id)};
-  const onMsg=async e=>{if(!from(e))return;last=Date.now();got.set(e.message.id,await pack(e.message))};
+  // Mesaj hemen sayilir; fotograf indirmesi bitmeden sonuc donmez (sessizlik suresi indirmeyle yarismasin)
+  const onMsg=e=>{if(!from(e))return;last=Date.now();const m=e.message;
+    if(!got.has(m.id))got.set(m.id,{id:m.id,date:m.date,text:m.message||'',buttons:buttonsOf(m),photo:null});
+    const p=pack(m).then(o=>{got.set(m.id,o);last=Date.now()}).catch(()=>{}).finally(()=>pend.delete(p));pend.add(p)};
   const ev1=new NewMessage({chats:[entity]}),ev2=new EditedMessage({chats:[entity]});
   client.addEventHandler(onMsg,ev1);client.addEventHandler(onMsg,ev2);
   const sent=await client.sendMessage(entity,{message:text});
@@ -65,13 +71,14 @@ async function query(bot,text,{timeoutMs=20000,quietMs=2500}={}){
   const tick=setInterval(()=>{const now=Date.now();if((got.size&&now-last>quietMs)||now-start>timeoutMs)done()},300);
   await fin;clearInterval(tick);
   client.removeEventHandler(onMsg,ev1);client.removeEventHandler(onMsg,ev2);
+  await Promise.race([Promise.all([...pend]),new Promise(s=>setTimeout(s,15000))]);
   // Olaylar kacmis olabilir: gonderilenden sonraki son mesajlari da oku.
   if(!got.size){const hist=await client.getMessages(entity,{limit:5,minId:sent.id});for(const m of hist)if(String(m.senderId)===String(entity.id))got.set(m.id,await pack(m))}
   return [...got.values()].sort((a,b)=>a.id-b.id);
 }
 
 async function click(bot,msgId,i,j){
-  const entity=await client.getEntity(bot);
+  const entity=await peer(bot);
   const [m]=await client.getMessages(entity,{ids:[msgId]});
   if(!m)throw new Error('Mesaj bulunamadı.');
   const btn=m.replyMarkup&&m.replyMarkup.rows[i]&&m.replyMarkup.rows[i].buttons[j];
@@ -84,14 +91,14 @@ async function click(bot,msgId,i,j){
 
 // Botun web uygulamasini (mini app) kullanicinin oturumuyla acilabilir bir adrese cevir.
 async function webAppUrl(bot,url){
-  const entity=await client.getEntity(bot);
+  const entity=await peer(bot);
   const r=await client.invoke(new Api.messages.RequestWebView({peer:entity,bot:entity,url,platform:'macos',fromBotMenu:false}));
   return r.url;
 }
 
 // Botun sohbet menusundeki web uygulamasi (ör. BOPT "Canli Veri"). Yoksa alt klavyedeki web uygulamasi butonu.
 async function menuApp(bot){
-  const entity=await client.getEntity(bot);
+  const entity=await peer(bot);
   const full=await client.invoke(new Api.users.GetFullUser({id:entity}));
   const mb=full&&full.fullUser&&full.fullUser.botInfo&&full.fullUser.botInfo.menuButton;
   if(mb&&mb.url){

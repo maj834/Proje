@@ -553,7 +553,9 @@ function akdSummary(rows){
 async function scorecard(days=30){
   if(!sync.state().configured)return {ok:false,msg:'Supabase bağlı değil.'};
   try{
-    const rows=await sync.get('/rest/v1/signals?select=dir,source,why,ret_1h,ret_1d,ret_5d&ret_1d=not.is.null&ts=gte.'+encodeURIComponent(new Date(Date.now()-days*86400000).toISOString())+'&limit=2000')||[];
+    // Supabase tek seferde en fazla 1000 satir verir: yeniden eskiye 1000'lik sayfalar, en fazla 5000
+    const q='/rest/v1/signals?select=dir,source,why,ret_1h,ret_1d,ret_5d&ret_1d=not.is.null&ts=gte.'+encodeURIComponent(new Date(Date.now()-days*86400000).toISOString())+'&order=ts.desc,id.desc&limit=1000&offset=';
+    const rows=[];for(let off=0;off<5000;off+=1000){const p=await sync.get(q+off)||[];rows.push(...p);if(p.length<1000)break}
     const stat=xs=>{const h=k=>{const v=xs.filter(r=>r[k]!=null);return v.length?{n:v.length,hit:Math.round(v.filter(r=>r[k]*r.dir>0).length/v.length*100),avg:+(v.reduce((s,r)=>s+r[k]*r.dir,0)/v.length).toFixed(2)}:null};
       return {n:xs.length,h1:h('ret_1h'),d1:h('ret_1d'),d5:h('ret_5d')}};
     const rule=w=>String(w||'').replace(/%\s*\d+(?:[.,]\d+)?|[+-]?\d+(?:[.,]\d+)?\s*%|[+-]\d+(?:[.,]\d+)?/g,'').replace(/\s+/g,' ').trim().slice(0,40);
@@ -783,16 +785,18 @@ app.whenReady().then(()=>{
   ipcMain.handle('shareOpen',()=>{if(modOn('paylas'))openShare();pop.hide()});
   ipcMain.handle('sesOpen',()=>{if(modOn('ses'))audioUi.open();pop.hide()});
   ipcMain.handle('hubOpen',()=>{hubUi.open();pop.hide()});
-  ipcMain.handle('shareStart',async()=>{try{
+  // Paylasim komutlari yalniz paylasim penceresinden kabul edilir (baska pencere dosya ekleyip ag'a acamasin)
+  const fromShare=e=>!!shareWin&&!shareWin.isDestroyed()&&e.sender===shareWin.webContents&&modOn('paylas');
+  ipcMain.handle('shareStart',async e=>{if(!fromShare(e))return {ok:false,msg:'İzin yok'};try{
     if(!shareSess||!shareSess.info().running){shareSess=shareLib.createShare({downloadsDir:app.getPath('downloads'),ask:shareAsk,onEvent:shareEvt,host:process.env.GRAFIK_SHARE_HOST||undefined});await shareSess.start()}
     return shareState()}catch(err){shareSess=null;return {ok:false,msg:err.message}}});
-  ipcMain.handle('shareStop',()=>{if(shareSess)shareSess.stop('user');return shareState()});
-  ipcMain.handle('sharePick',async()=>{if(!shareSess)return null;const r=await dialog.showOpenDialog(shareWin||undefined,{properties:['openFile','multiSelections'],title:'Telefona gönderilecek dosyalar'});
+  ipcMain.handle('shareStop',e=>{if(!fromShare(e))return shareState();if(shareSess)shareSess.stop('user');return shareState()});
+  ipcMain.handle('sharePick',async e=>{if(!shareSess||!fromShare(e))return null;const r=await dialog.showOpenDialog(shareWin||undefined,{properties:['openFile','multiSelections'],title:'Telefona gönderilecek dosyalar'});
     if(!r.canceled)shareSess.add(r.filePaths);return shareState()});
-  ipcMain.handle('shareAdd',(e,paths)=>{if(shareSess&&Array.isArray(paths))shareSess.add(paths.filter(p=>typeof p==='string'&&path.isAbsolute(p)).slice(0,500));return shareState()});
-  ipcMain.handle('shareRemove',(e,id)=>{if(shareSess)shareSess.remove(String(id));return shareState()});
+  ipcMain.handle('shareAdd',(e,paths)=>{if(shareSess&&fromShare(e)&&Array.isArray(paths))shareSess.add(paths.filter(p=>typeof p==='string'&&path.isAbsolute(p)).slice(0,500));return shareState()});
+  ipcMain.handle('shareRemove',(e,id)=>{if(shareSess&&fromShare(e))shareSess.remove(String(id));return shareState()});
   // Yalnizca bu oturumda telefondan gelen dosyalar Finder'da gosterilir
-  ipcMain.handle('shareReveal',(e,p)=>{if(shareSess&&shareSess.info().received.some(r=>r.path===p))shell.showItemInFolder(p)});
+  ipcMain.handle('shareReveal',(e,p)=>{if(shareSess&&fromShare(e)&&shareSess.info().received.some(r=>r.path===p))shell.showItemInFolder(p)});
   ipcMain.handle('testNotify',()=>{if(!Notification.isSupported())return false;new Notification({title:APP_NAME,body:'Test bildirimi: bildirimler çalışıyor.'}).show();return true});
   ipcMain.handle('parseTest',(e,t)=>parseTest(t));
   ipcMain.handle('scSet',(e,o)=>setShortcut(o&&o.name,o&&o.acc));

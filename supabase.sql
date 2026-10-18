@@ -61,7 +61,7 @@ begin
     execute format('alter table public.%I enable row level security', t);
     execute format('drop policy if exists "own rows" on public.%I', t);
     execute format('create policy "own rows" on public.%I for all to authenticated using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()))', t);
-    execute format('revoke all on public.%I from anon', t);
+    execute format('revoke all on public.%I from anon, authenticated', t);
     execute format('grant select, insert, delete on public.%I to authenticated', t);
   end loop;
 end $$;
@@ -99,7 +99,7 @@ drop policy if exists "own rows" on public.news;
 drop policy if exists "own rows" on public.watchlist;
 create policy "own rows" on public.news for all to authenticated using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
 create policy "own rows" on public.watchlist for all to authenticated using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
-revoke all on public.news, public.watchlist from anon;
+revoke all on public.news, public.watchlist from anon, authenticated;
 grant select, insert, delete on public.news to authenticated;
 grant select, insert, update, delete on public.watchlist to authenticated;
 
@@ -137,7 +137,7 @@ drop policy if exists "own rows" on public.akd_daily;
 drop policy if exists "own rows" on public.calendar_events;
 create policy "own rows" on public.akd_daily for all to authenticated using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
 create policy "own rows" on public.calendar_events for all to authenticated using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
-revoke all on public.akd_daily, public.calendar_events from anon;
+revoke all on public.akd_daily, public.calendar_events from anon, authenticated;
 grant select, insert, update, delete on public.akd_daily to authenticated;
 grant select, insert, delete on public.calendar_events to authenticated;
 
