@@ -3,6 +3,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
+const vm = require('vm');
 const { tmpDir } = require('./helpers/util.js');
 const S = require('../sistem-main.js');
 
@@ -39,7 +40,7 @@ test('clean: menu cubugu en fazla 4 bilinen deger, esik sinirli', () => {
 
 // Sahte yardimci + sahte Electron: tus, panel, olcum hizi, gonderen kontrolu ve kapatma
 test('registerSystem: menu cubugu yazisi, panel acilinca 1 sn + FPS, kapaninca 2 sn, modul kapatilinca durur', async (t) => {
-  const d = tmpDir(); t.after(() => fs.rmSync(d, { recursive: true, force: true }));
+  const d = tmpDir(); t.after(() => fs.rmSync(d, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }));
   const log = path.join(d, 'cmd.log'), bin = path.join(d, 'yardimci.js');
   fs.writeFileSync(bin, `#!${process.execPath}
 const fs=require('fs');process.stdout.write(JSON.stringify({type:'hello',version:1,arch:'arm64',chip:'Apple M2',model:'Mac14,2',cores:8,memTotal:16e9})+'\\n');
@@ -60,8 +61,8 @@ require('readline').createInterface({input:process.stdin}).on('line',l=>{fs.appe
     BrowserWindow: Win, Tray, nativeImage: { createEmpty: () => ({}) }, screen: { getDisplayNearestPoint: () => ({ workArea: { x: 0, y: 0, width: 1440, height: 900 } }) },
     path, Notification: Object.assign(function (o) { return { show() { notes.push(o); } }; }, { isSupported: () => true }),
     cfg: () => ({ system: conf }), save: o => { conf = o.system; }, isOn: () => on });
-  const wait = async (f, ms = 3000) => { const e = Date.now() + ms; while (!f()) { if (Date.now() > e) throw new Error('zaman asimi'); await new Promise(r => setTimeout(r, 20)); } };
-  const cmds = () => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8').trim().split('\n').map(JSON.parse) : []);
+  const wait = async (f, ms = 15000) => { const e = Date.now() + ms; while (!f()) { if (Date.now() > e) throw new Error('zaman asimi'); await new Promise(r => setTimeout(r, 20)); } };
+  const cmds = () => { if (!fs.existsSync(log)) return []; const s = fs.readFileSync(log, 'utf8'); return s.slice(0, s.lastIndexOf('\n') + 1).split('\n').filter(Boolean).map(JSON.parse); }; // yalnizca tamamlanmis satirlar (yardimci yazarken okunabilir)
   onReady();
   await wait(() => titles.includes('62°  CPU 23%'));
   assert.deepEqual(cmds().slice(0, 3), [{ cmd: 'interval', ms: 2000 }, { cmd: 'fps', on: false }, { cmd: 'once' }]);
@@ -87,7 +88,7 @@ require('readline').createInterface({input:process.stdin}).on('line',l=>{fs.appe
 });
 
 test('isinma bildirimi: esik ya da macOS sicak durumu, 10 dakikada bir', async (t) => {
-  const d = tmpDir(); t.after(() => fs.rmSync(d, { recursive: true, force: true }));
+  const d = tmpDir(); t.after(() => fs.rmSync(d, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }));
   const bin = path.join(d, 'y.js');
   fs.writeFileSync(bin, `#!${process.execPath}
 for(const s of [${JSON.stringify(stats({ cpu: { usage: 90, cores: [], temp: 97, tempMax: 99 } }))},${JSON.stringify(stats({ thermal: 'critical' }))}])process.stdout.write(JSON.stringify(s)+'\\n');
@@ -104,4 +105,67 @@ process.stdin.resume();process.stdin.on('end',()=>process.exit(0));`);
   await new Promise(r => setTimeout(r, 200));
   assert.equal(notes.length, 1); assert.match(notes[0].body, /99°C/);
   ui.disable();
+});
+
+// Sahte Electron (tus + panel) ile registerSystem; bin: sahte yardimci betigi
+function sysHarness(t, script, conf = {}) {
+  const d = tmpDir(); t.after(() => fs.rmSync(d, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }));
+  const bin = path.join(d, 'y.js');
+  fs.writeFileSync(bin, `#!${process.execPath}\n${script}`); fs.chmodSync(bin, 0o755);
+  process.env.CEM_SISTEM_BIN = bin; t.after(() => { delete process.env.CEM_SISTEM_BIN; });
+  let visible = false, onReady, trayClick; const winEv = {}, sent = [];
+  const wc = { send: (ch, m) => sent.push([ch, m]), setWindowOpenHandler() {}, on() {}, isDevToolsOpened: () => false };
+  function Win() { return { webContents: wc, loadFile() {}, isDestroyed: () => false, isVisible: () => visible, getSize: () => [340, 520],
+    setPosition() {}, show() { visible = true; winEv.show && winEv.show(); }, hide() { visible = false; winEv.hide && winEv.hide(); }, focus() {},
+    close() { visible = false; }, on(e, f) { winEv[e] = f; } }; }
+  function Tray() { return { setToolTip() {}, setTitle() {}, on: (e, f) => { if (e === 'click') trayClick = f; },
+    getBounds: () => ({ x: 500, y: 0, width: 40, height: 24 }), destroy() {} }; }
+  const ui = S.registerSystem({ ipcMain: { handle() {} }, app: { isPackaged: false, whenReady: () => ({ then: f => { onReady = f; } }), on() {} },
+    BrowserWindow: Win, Tray, nativeImage: { createEmpty: () => ({}) }, screen: { getDisplayNearestPoint: () => ({ workArea: { x: 0, y: 0, width: 1440, height: 900 } }) },
+    path, Notification: null, cfg: () => ({ system: conf }), save() {}, isOn: () => true });
+  t.after(() => ui.disable());
+  onReady();
+  const wait = async (f, ms = 15000) => { const e = Date.now() + ms; while (!f()) { if (Date.now() > e) throw new Error('zaman asimi'); await new Promise(r => setTimeout(r, 20)); } };
+  return { ui, click: () => trayClick(), wait, sent };
+}
+
+test('ekran kaydi izni hatasi panel her acildiginda yeniden gorunur (M1)', async (t) => {
+  // sistem.swift gibi: hatalar tekillestirilir, ama FPS acilinca izin hatasinin tekillestirmesi sifirlanir
+  const { ui, click, wait } = sysHarness(t, `
+const w = o => process.stdout.write(JSON.stringify(o) + '\\n'), reported = new Set(), NP = 'Ekran kaydı izni yok';
+const report = m => { if (!reported.has(m)) { reported.add(m); w({ type: 'error', msg: m }) } };
+let on = false; w({ type: 'hello', chip: 'M1', cores: 8 });
+require('readline').createInterface({ input: process.stdin }).on('line', l => { const m = JSON.parse(l);
+  if (m.cmd === 'fps' && !!m.on !== on) { on = !!m.on; if (on) { reported.delete(NP); report(NP) } }
+  if (m.cmd === 'once') w(${JSON.stringify(stats({ fps: { display: 60, screen: null } }))});
+  if (m.cmd === 'quit') process.exit(0) }).on('close', () => process.exit(0));`);
+  click();
+  await wait(() => ui.view().error === 'Ekran kaydı izni yok');
+  click();                                                  // panel kapandi: FPS kapali, hata silinir
+  await wait(() => ui.view().error === null);
+  click();                                                  // yeniden acildi: hata yeniden bildirilir
+  await wait(() => ui.view().error === 'Ekran kaydı izni yok');
+});
+
+test('sistem.html: olcum kalmayinca (last=null) kutular "—" olur, eski degerler kalmaz (L3)', async () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'sistem.html'), 'utf8');
+  const code = html.match(/<script>([\s\S]*)<\/script>/)[1];
+  const els = {};
+  const mk = () => ({ style: {}, textContent: '', innerHTML: '', className: '', children: [], setAttribute() {},
+    replaceChildren(...c) { this.children = c; }, append(...c) { this.children.push(...c); } });
+  const document = { getElementById: id => (els[id] = els[id] || mk()), createElement: mk, addEventListener() {} };
+  let push; const last = S.sanitize(stats());
+  const state = { supported: true, hello: { chip: 'Apple M2', cores: 8 }, last, hist: [last, last], error: null, conf: { bar: ['temp'] }, bars: [{ id: 'temp', name: 'Sıcaklık' }] };
+  const sys = { on: f => { push = f; }, state: () => Promise.resolve(state), set: async () => null, hide() {} };
+  vm.runInNewContext(code, { document, sys, Math, Promise });
+  await new Promise(r => setImmediate(r));
+  assert.equal(els.temp.textContent, '62°C');
+  assert.match(els.down.textContent, /MB\/s/); assert.ok(els.cores.children.length > 0); assert.ok(els.fans.children.length > 0);
+  push({ last: null, hello: null, hist: [], error: 'Sistem yardımcısı yeniden başlatılıyor…' });
+  for (const id of ['temp', 'cpu', 'fps', 'gpu', 'mem', 'press', 'swap', 'power', 'bat', 'btemp', 'bwatt', 'cyc', 'down', 'up', 'dr', 'dw', 'free'])
+    assert.equal(els[id].textContent, '—', id);
+  for (const id of ['temps', 'cpus', 'fpss', 'gpus']) assert.equal(els[id].textContent, '', id);
+  assert.equal(els.cores.children.length, 0); assert.equal(els.fans.children.length, 0); assert.equal(els.memb.style.width, '0%');
+  assert.equal(els.th.style.display, 'none');
+  assert.equal(els.err.textContent, 'Sistem yardımcısı yeniden başlatılıyor…');
 });

@@ -252,3 +252,16 @@ test('mergeTape: saatsiz islemler sirayla eslenir, gercek tekrar kaybolmaz', () 
   u = D.mergeTape(u, P([a, b, c], 2));
   assert.equal(u.length, 3);
 });
+
+test('mergeTape: eski (sirasi karismis) saatsiz pencere tekrar sayilmaz, son pencere bozulmaz', () => {
+  const P = (lines, m) => D.parseText('Islemler\n' + lines.join('\n'), { now: Date.UTC(2026, 9, 20, 7, m, 0) }).trades;
+  const L = i => '🟢 52,' + String(10 + i).padStart(2, '0') + ' ' + (100 + i) + ' Ak Is';
+  const all = [...Array(14)].map((_, i) => L(i));
+  const w1 = all.slice(0, 10).reverse(), w2 = all.slice(4, 14).reverse();
+  let t = D.mergeTape([], P(w1, 1)); t = D.mergeTape(t, P(w2, 2));
+  assert.equal(t.length, 14);
+  t = D.mergeTape(t, P(w1, 3));                       // eski pencere geldi
+  assert.equal(t.length, 14);
+  t = D.mergeTape(t, P(all.slice(5, 14).concat([L(14)].map(x => x)).reverse(), 4));
+  assert.equal(t.length, 15);
+});

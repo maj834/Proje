@@ -3,6 +3,9 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+# Varsayilan: yalniz okuma. Yazma izni yalniz Release olusturan mac isinde.
+permissions:
+  contents: read
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -11,6 +14,7 @@ jobs:
       ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
     steps:
       - uses: actions/checkout@v4
+        with: {persist-credentials: false}
       - uses: actions/setup-node@v4
         with: {node-version: 20, cache: npm}
       - run: npm ci
@@ -22,9 +26,14 @@ jobs:
     # GitHub Release olusturmak / eskileri silmek icin (yalniz push'ta kullanilir)
     permissions:
       contents: write
+    # Release'ler sirayla: ayni depoda iki calisma ayni anda "latest" isaretlemesin / eskileri silmesin (iptal yok, kuyruk)
+    concurrency:
+      group: release-${{ github.repository }}
+      cancel-in-progress: false
     steps:
+      # fetch-depth 0: surum notlari icin onceki etiketler ve gecmis. git push yok -> kimlik bilgisi .git/config'e yazilmaz (gh GH_TOKEN kullanir)
       - uses: actions/checkout@v4
-        with: {fetch-depth: 0}   # surum notlari icin onceki etiket ve gecmis
+        with: {fetch-depth: 0, persist-credentials: false}
       - uses: actions/setup-node@v4
         with: {node-version: 20, cache: npm}
       - run: npm ci
@@ -196,6 +205,25 @@ jobs:
           for v in CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do [ -n "${!v}" ] || unset "$v"; done
           if [ -z "${CSC_LINK:-}" ]; then export CSC_IDENTITY_AUTO_DISCOVERY=false; fi
           npx electron-builder --mac --publish never
+      # Paketlenmis uygulama gercekten aciliyor mu (arm64; runner Apple Silicon). CEM_SMOKE=1: main.js en basta smoke.js'i cagirir;
+      # uygulama hazir olup birkac saniye hatasiz calisinca "CEM_SMOKE_OK" yazip 0 ile cikar. 60 sn icinde cikmazsa, 0 disi kodla
+      # cikarsa ya da isaret yoksa adim (ve dolayisiyla Release) duser.
+      - name: Paketlenmis uygulama acilis testi
+        timeout-minutes: 3
+        shell: bash
+        run: |
+          set -u
+          APP="dist/mac-arm64/Cem App.app/Contents/MacOS/Cem App"
+          test -x "$APP" || { echo "yok: $APP"; ls -la dist; exit 1; }
+          CEM_SMOKE=1 ELECTRON_ENABLE_LOGGING=1 "$APP" > smoke.txt 2>&1 &
+          pid=$!
+          ( sleep 60; kill -9 "$pid" 2>/dev/null && echo "ZAMAN ASIMI: uygulama 60 sn icinde cikmadi" >> smoke.txt ) & wd=$!
+          rc=0; wait "$pid" || rc=$?
+          pkill -P "$wd" 2>/dev/null || true; kill "$wd" 2>/dev/null || true
+          cat smoke.txt
+          test "$rc" -eq 0 || { echo "uygulama cikis kodu $rc"; exit 1; }
+          grep -q '^CEM_SMOKE_OK' smoke.txt || { echo "CEM_SMOKE_OK isareti yok"; exit 1; }
+          echo "acilis testi tamam"
       - run: ls -la dist/mac-arm64/*.app/Contents/Resources/bin/ && plutil -p dist/mac-arm64/*.app/Contents/Info.plist | grep -E 'NSAudioCapture|NSMicrophone|NSSpeechRecognition|LSUIElement' || true
       # Paketlenmis uygulamalarda (arm64 + x64) tum yardimcilar ve Neo izin aciklamalari var mi
       - name: Paket icerigi (yardimcilar)
@@ -251,9 +279,11 @@ jobs:
           fs.writeFileSync("release-notes.md", md);
           JS
           cat dist/latest.json
-      # Yalniz main / calisma dalina push: GitHub Release v<surum> (en son olarak isaretli). Ayni calisma yeniden calisirsa atlanir.
+      # Yalniz calisma dalina push (tek kod hatti: surum numarasi run_number'dan; main ayri hat olarak Release yayinlamaz).
+      # "latest" yalniz yeni surum mevcut en son v2.0.N'den buyukse: eski bir calisma sonradan biterse latest geri gitmez.
+      # Ayni calisma yeniden calisirsa atlanir.
       - name: GitHub Release
-        if: success() && github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/ccr-f251748e-ir45zy')
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/ccr-f251748e-ir45zy'
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -262,11 +292,17 @@ jobs:
           set -euo pipefail
           V=$(node -p "require('./package.json').version")
           if gh release view "v$V" >/dev/null 2>&1; then echo "v$V zaten var; atlaniyor"; exit 0; fi
-          gh release create "v$V" --target "$GITHUB_SHA" --title "Cem App $V" --notes-file release-notes.md --latest \
+          N=${V##*.}
+          # Mevcut "latest" Release'in etiketi (yoksa bos). Sayisal karsilastirma: v2.0.10 > v2.0.9
+          CUR=$(gh api "repos/$GH_REPO/releases/latest" --jq .tag_name 2>/dev/null || true)
+          LATEST=true
+          if [[ "$CUR" =~ ^v2\.0\.([0-9]+)$ ]] && [ "${BASH_REMATCH[1]}" -ge "$N" ]; then LATEST=false; fi
+          echo "mevcut latest: ${CUR:-yok}; v$V latest=$LATEST"
+          gh release create "v$V" --target "$GITHUB_SHA" --title "Cem App $V" --notes-file release-notes.md --latest="$LATEST" \
             "dist/CemApp-$V-arm64.zip" "dist/CemApp-$V-x64.zip" "dist/CemApp-$V-arm64.dmg" "dist/CemApp-$V-x64.dmg" dist/latest.json
       # Eski surumleri temizle: en yeni 10 surum kalir. Yalniz ^v2.0.N$ etiketlerine dokunulur.
       - name: Eski surumleri sil
-        if: success() && github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/ccr-f251748e-ir45zy')
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/ccr-f251748e-ir45zy'
         continue-on-error: true
         shell: bash
         env:

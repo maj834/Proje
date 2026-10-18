@@ -32,7 +32,7 @@ function clip() {
 }
 
 function setup(t, o = {}) {
-  const d = o.dir || tmpDir(); if (!o.dir) t.after(() => fs.rmSync(d, { recursive: true, force: true }));
+  const d = o.dir || tmpDir(); if (!o.dir) t.after(() => fs.rmSync(d, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }));
   const cb = o.clip || clip(), handlers = {}, reg = {}, sent = [];
   let visible = false, onReady;
   const wc = { send: (ch, m) => sent.push([ch, m]), setWindowOpenHandler() {}, on() {}, isDevToolsOpened: () => false };
@@ -202,7 +202,7 @@ test('registerPano: resim kaydi (onizleme + dosya), dosya kopyasi, silince dosya
 });
 
 test('registerPano: kalicilik (duz JSON 0600, atomik) ve bozuk dosyadan kurtarma', (t) => {
-  const d = tmpDir(); t.after(() => fs.rmSync(d, { recursive: true, force: true }));
+  const d = tmpDir(); t.after(() => fs.rmSync(d, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }));
   const t1 = { after: (f) => t.after(f) };
   const a = setup(t1, { dir: d });
   a.cb.set({ text: 'kalıcı' }); a.ui.tick(); a.cb.set({ text: 'ikinci' }); a.ui.tick();

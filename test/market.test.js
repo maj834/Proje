@@ -10,7 +10,7 @@ const DAY = '2026-10-20';
 function setup(t) {
   t.mock.timers.enable({ apis: ['Date'], now: NOW });
   const dir = tmpDir();
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }));
   const M = fresh('market.js');
   M.init(dir);
   return { M, dir };
@@ -118,7 +118,7 @@ test('load: ikinci cagri onbellekten gelir (fetch yok), dosyaya yazilir', async 
 
 test('load: cevrimdisi iken eski onbellek "stale" olarak doner', async t => {
   const dir = tmpDir();
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }));
   t.mock.timers.enable({ apis: ['Date'], now: NOW });
   const old = { at: NOW - 3 * 3600 * 1000, v: { source: 'yahoo', symbol: 'THYAO.IS', tf: '1g', rows: [{ t: 1, o: 1, h: 2, l: 0.5, c: 1.5, v: 10 }], quote: { price: 1.5 } } };
   fs.writeFileSync(path.join(dir, 'market-cache.json'), JSON.stringify({ 'yc:THYAO.IS:1g': old }));
@@ -210,7 +210,7 @@ test('Alpha Vantage: "Information" sinir mesaji hata olarak doner', async t => {
 
 test('Alpha Vantage: gunluk 25 istek dolunca istek atilmaz; ertesi gun sifirlanir', async t => {
   const dir = tmpDir();
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }));
   t.mock.timers.enable({ apis: ['Date'], now: NOW });
   fs.writeFileSync(path.join(dir, 'av-usage.json'), JSON.stringify({ day: DAY, n: 24 }));
   const M = fresh('market.js');
@@ -241,4 +241,16 @@ test('candles: Yahoo bos quote nesnesi TypeError vermez (F12)', async t => {
   const c = await M.candles('GARAN');
   assert.deepEqual(c.rows, []);
   assert.equal(c.quote.price, 10);
+});
+
+test('prev: chartPreviousClose (araligin basi) degil, bir onceki gunun kapanisi; regularMarketPreviousClose oncelikli', async (t) => {
+  const body = yahooChart('THYAO.IS'); body.chart.result[0].meta.chartPreviousClose = 200;   // bir yil onceki kapanis
+  const M = fresh('market.js'); M.init({ dir: tmpDir() });
+  mockFetch(t, [[isChart, () => ({ body })], [isNews, () => ({ body: yahooNews() })]]);
+  const out = await M.load('THYAO', { news: false });
+  assert.equal(out.chart.quote.prev, 339, 'dunun kapanisi (mumlardan)');
+  const b2 = yahooChart('ASELS.IS'); b2.chart.result[0].meta.regularMarketPreviousClose = 338.5;
+  const M2 = fresh('market.js'); M2.init({ dir: tmpDir() });
+  mockFetch(t, [[isChart, () => ({ body: b2 })]]);
+  assert.equal((await M2.load('ASELS', { news: false })).chart.quote.prev, 338.5);
 });

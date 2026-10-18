@@ -25,8 +25,8 @@ body.app{background:var(--bg)}
 .row{display:flex;align-items:center;gap:10px;padding:4px 0}.row .f{flex:1}.row .d{font-size:11.5px;color:var(--fg-3)}
 .btn{border:1px solid var(--line-2);background:var(--bg);color:var(--fg);font:500 12.5px var(--font);padding:6px 12px;border-radius:7px;cursor:pointer}
 .btn.pri{background:var(--fg);color:var(--bg);border-color:var(--fg)}
-input[type=text],select{font:13px var(--font);color:var(--fg);background:var(--bg);border:1px solid var(--line-2);border-radius:7px;padding:7px 9px;-webkit-user-select:text;user-select:text}
-input[type=text]{flex:1}
+input[type=text],input[type=password],select{font:13px var(--font);color:var(--fg);background:var(--bg);border:1px solid var(--line-2);border-radius:7px;padding:7px 9px;-webkit-user-select:text;user-select:text}
+input[type=text],input[type=password]{flex:1}
 .log{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:8px}
 .q{align-self:flex-end;background:var(--acc-soft);border-radius:12px 12px 2px 12px;padding:7px 10px;max-width:85%;-webkit-user-select:text;user-select:text}
 .a{align-self:flex-start;background:var(--surface);border:1px solid var(--line);border-radius:12px 12px 12px 2px;padding:7px 10px;max-width:85%;-webkit-user-select:text;user-select:text}
@@ -58,7 +58,7 @@ if(ORB){
     <div class="row"><div class="f">Konuşmak için kısayol<div class="d">Uyandırma kelimesi demeden dinler; konuşurken basarsan susar.</div></div><kbd id="hk"></kbd></div>
     <div class="row"><div class="f">Ses</div><select id="voice" aria-label="Neo'nun sesi"></select></div>
     <div class="row"><div class="f">Beyin<div class="d" id="bd"></div></div><select id="brain" aria-label="Neo'nun beyni"><option value="groq">Groq (ücretsiz)</option><option value="claude">Claude (API anahtarı)</option></select></div>
-    <div class="row"><input type="text" id="key" placeholder="" aria-label="API anahtarı" autocomplete="off" spellcheck="false"><button class="btn" id="ks">Kaydet</button><button class="btn" id="kl">Anahtar al</button></div>
+    <div class="row"><input type="password" id="key" placeholder="" aria-label="API anahtarı" autocomplete="off" spellcheck="false"><button class="btn" id="ks">Kaydet</button><button class="btn" id="kd">Sil</button><button class="btn" id="kl">Anahtar al</button></div>
     <div class="err" id="err" role="status"></div>
   </div>
   <div class="log" id="log" aria-live="polite"></div>
@@ -76,7 +76,7 @@ if(ORB){
     $('brain').value=c.brain;const g=c.brain==='groq';
     $('bd').textContent=g?'Ücretsiz, çok hızlı. Günlük ücretsiz sınırı var.':'En akıllısı; kullandıkça ücretli (claude.ai aboneliği bunu kapsamaz).';
     $('key').placeholder=(S.keys[c.brain]?'Kayıtlı · değiştirmek için yeni anahtarı yapıştır':g?'gsk_… Groq anahtarı':'sk-ant-… Claude API anahtarı');
-    $('kl').style.display=g?'':'none';
+    $('kl').style.display=g?'':'none';$('kd').style.display=S.keys[c.brain]?'':'none';
     $('err').textContent=(S.keyError?S.keyError+' ':'')+(!S.hasKey?(g?'Groq anahtarı yok: "Anahtar al" → giriş yap → Create API Key → buraya yapıştır. ':'Claude API anahtarı yok. '):'')+(S.error||'')+(S.supported?'':' Neo yalnızca Mac\'te çalışır.');
     $('wd').textContent+=S.warning?' Not: '+S.warning:'';
     const L=$('log');L.replaceChildren(...[...S.log].reverse().flatMap(x=>{const a=el('div','a',x.a);if(x.tools&&x.tools.length)a.append(el('small',null,x.tools.map(t=>TOOL[t]||t).join(' · ')));return [el('div','q',x.q),a]}));L.scrollTop=L.scrollHeight}
@@ -87,7 +87,9 @@ if(ORB){
   $('go').onclick=ask;$('q').onkeydown=e=>{if(e.key==='Enter')ask()};$('mic').onclick=()=>neo.talk();
   $('fg').onclick=async()=>{S=await neo.forget()||S;render()};
   $('brain').onchange=async()=>{S=await neo.set({brain:$('brain').value})||S;render()};
-  $('ks').onclick=async()=>{const k=$('key').value.trim();S=await neo.key(S.conf.brain,k)||S;if(!S.keyError)$('key').value='';render()};
+  // Bos alanla "Kaydet" bir sey yapmaz; silmek icin acik "Sil" (onayli)
+  $('ks').onclick=async()=>{const k=$('key').value.trim();if(!k){$('key').focus();return}S=await neo.key(S.conf.brain,k)||S;if(!S.keyError)$('key').value='';render()};
+  $('kd').onclick=async()=>{const p=S.conf.brain;if(!confirm((p==='groq'?'Groq':'Claude')+' anahtarı silinsin mi?'))return;S=await neo.key(p,null)||S;$('key').value='';render()};
   $('kl').onclick=()=>neo.link();
 }
 </script></body></html>

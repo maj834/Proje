@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const http = require('http');
 const crypto = require('crypto');
+const { EventEmitter } = require('events');
 const { spawn, spawnSync } = require('child_process');
 const { tmpDir } = require('./helpers/util.js');
 const U = require('../updater.js');
@@ -113,7 +114,7 @@ async function server(t, handler) {
 }
 
 test('download: akisli indirme, SHA ve boyut dogru -> .zip; tekrar indirmez', async (t) => {
-  const d = tmpDir(); t.after(() => fs.rmSync(d, { recursive: true, force: true }));
+  const d = tmpDir(); t.after(() => fs.rmSync(d, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }));
   const body = crypto.randomBytes(300 * 1024); let hits = 0;
   const f = await server(t, (req, res) => {
     if (req.url === '/github.com/maj834/Proje/releases/download/v2.0.10/CemApp-2.0.10-arm64.zip') { res.writeHead(302, { location: 'https://objects.githubusercontent.com/blob/1' }); return res.end(); }
@@ -129,7 +130,7 @@ test('download: akisli indirme, SHA ve boyut dogru -> .zip; tekrar indirmez', as
 });
 
 test('download: SHA uyusmazligi, boyut uyusmazligi, kotu yonlendirme -> silinir ve hata', async (t) => {
-  const d = tmpDir(); t.after(() => fs.rmSync(d, { recursive: true, force: true }));
+  const d = tmpDir(); t.after(() => fs.rmSync(d, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }));
   const body = crypto.randomBytes(64 * 1024);
   const f = await server(t, (req, res) => {
     if (req.url.endsWith('/v2.0.10/CemApp-2.0.10-arm64.zip')) { res.writeHead(200, { 'content-length': body.length }); return res.end(body); }
@@ -150,7 +151,7 @@ test('download: SHA uyusmazligi, boyut uyusmazligi, kotu yonlendirme -> silinir 
 });
 
 test('download: iptal (AbortSignal) -> .part silinir', async (t) => {
-  const d = tmpDir(); t.after(() => fs.rmSync(d, { recursive: true, force: true }));
+  const d = tmpDir(); t.after(() => fs.rmSync(d, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }));
   const body = crypto.randomBytes(256 * 1024);
   const f = await server(t, (req, res) => {
     res.writeHead(200, { 'content-length': body.length }); res.write(body.subarray(0, 1024));
@@ -186,7 +187,7 @@ function fakeExec({ id = 'com.cem.app', version = '2.0.10', apps = ['Cem App.app
 }
 
 test('prepare: dogru paket -> .app yolu; karantina kaldirilir; imzasiz uygulamada codesign atlanir', async (t) => {
-  const d = tmpDir(); t.after(() => fs.rmSync(d, { recursive: true, force: true }));
+  const d = tmpDir(); t.after(() => fs.rmSync(d, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }));
   const zip = path.join(d, 'CemApp-2.0.10.zip'); fs.writeFileSync(zip, 'x'); const log = [];
   const app = await U.prepare(zip, { exec: fakeExec({}, log), version: '2.0.10', signed: { signed: false } });
   assert.match(app, /hazirla-[^/]+\/Cem App\.app$/); assert.ok(fs.existsSync(app));
@@ -199,7 +200,7 @@ test('prepare: dogru paket -> .app yolu; karantina kaldirilir; imzasiz uygulamad
 });
 
 test('prepare: kimlik / surum uyusmazligi, uygulama yok, birden fazla -> red ve gecici klasor silinir', async (t) => {
-  const d = tmpDir(); t.after(() => fs.rmSync(d, { recursive: true, force: true }));
+  const d = tmpDir(); t.after(() => fs.rmSync(d, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }));
   const zip = path.join(d, 'z.zip'); fs.writeFileSync(zip, 'x');
   const cases = [[{ id: 'com.evil.app' }, /başka bir uygulamaya/], [{ version: '2.0.9' }, /sürümü uyuşmuyor/], [{ apps: [] }, /bulunamadı/],
     [{ apps: ['A.app', 'B.app'] }, /birden fazla/], [{ plist: false }, /Info\.plist/]];
@@ -216,7 +217,7 @@ test('signInfo: imzasiz / ad-hoc -> signed:false; ekip kimligi okunur', async ()
 });
 
 test('canInstall: DMG, App Translocation, .app degil, yazma izni', (t) => {
-  const d = tmpDir(); t.after(() => fs.rmSync(d, { recursive: true, force: true }));
+  const d = tmpDir(); t.after(() => fs.rmSync(d, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }));
   const app = path.join(d, 'Cem App.app'); fs.mkdirSync(app);
   assert.deepEqual(U.canInstall(app), { ok: true, reason: null });
   for (const [p, re] of [['/Volumes/Cem App/Cem App.app', /DMG/],
@@ -231,13 +232,17 @@ test('canInstall: DMG, App Translocation, .app degil, yazma izni', (t) => {
 });
 
 // --- kurulum betigi: gercekten calistirilir (open/mv/ditto PATH ile taklit) ---
-function scriptEnv(t, { failNew = false, failOpen = false } = {}) {
-  const d = tmpDir(); t.after(() => fs.rmSync(d, { recursive: true, force: true }));
+function scriptEnv(t, { failNew = false, failOpen = false, writeMarker = false, lsofPid = 0 } = {}) {
+  const d = tmpDir(); t.after(() => fs.rmSync(d, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }));
   const weird = path.join(d, `Uyg "tırnak" 'tek' $(touch PWNED) \`touch PWNED2\` ; x`);
   const bin = path.join(d, 'bin'), openLog = path.join(d, 'open.log');
   fs.mkdirSync(bin); fs.mkdirSync(weird);
   const sh = (n, s) => { fs.writeFileSync(path.join(bin, n), '#!/bin/sh\n' + s); fs.chmodSync(path.join(bin, n), 0o755); };
-  sh('open', `printf '%s\\n' "$@" >> ${JSON.stringify(openLog)}\nexit ${failOpen ? 1 : 0}\n`);
+  const marker = path.join(d, 'isaret "x" y', 'started-2.0.10'); fs.mkdirSync(path.dirname(marker));
+  // open taklidi: istenirse yeni surum gibi acilis isaretini yazar (yalniz ilk acilista)
+  sh('open', `printf '%s\\n' "$@" >> ${JSON.stringify(openLog)}\n` +
+    (writeMarker ? `[ -e ${JSON.stringify(openLog + '.1')} ] || { : > ${JSON.stringify(openLog + '.1')}; : > ${JSON.stringify(marker)}; }\n` : '') + `exit ${failOpen ? 1 : 0}\n`);
+  if (lsofPid) sh('lsof', `echo ${lsofPid}\n`);
   if (failNew) {
     sh('mv', 'for a; do case "$a" in *YENI*) exit 1;; esac; done\nexec /bin/mv "$@"\n');
     sh('ditto', 'exit 1\n');
@@ -246,16 +251,16 @@ function scriptEnv(t, { failNew = false, failOpen = false } = {}) {
   const backupDir = path.join(weird, 'yedek $HOME');
   for (const [a, m] of [[oldApp, 'eski'], [newApp, 'yeni']]) { fs.mkdirSync(path.join(a, 'Contents'), { recursive: true }); fs.writeFileSync(path.join(a, 'Contents', 'surum'), m); }
   const script = path.join(d, 'kur.sh'); fs.writeFileSync(script, U.installScript({ oldApp, newApp, backupDir }), { mode: 0o700 });
-  const run = (pid, relaunch = true) => new Promise(res => {
-    const c = spawn('/bin/sh', [script, ...U.installArgs({ oldApp, newApp, pid, backupDir, relaunch, delay: 0 })],
+  const run = (pid, relaunch = true, o = {}) => new Promise(res => {
+    const c = spawn('/bin/sh', [script, ...U.installArgs({ oldApp, newApp, pid, backupDir, relaunch, delay: 0, ...o })],
       { cwd: d, env: { HOME: d, PATH: '/usr/bin:/bin', CEM_UPDATE_PATH: bin }, stdio: ['ignore', 'pipe', 'pipe'] });
     let err = ''; c.stderr.on('data', x => { err += x; });
     c.on('exit', code => res({ code, err }));
   });
   const opened = () => (fs.existsSync(openLog) ? fs.readFileSync(openLog, 'utf8').split('\n').filter(Boolean) : []);
-  const pwned = () => ['PWNED', 'PWNED2', 'PWNED3'].some(n => fs.existsSync(path.join(d, n)) || fs.existsSync(path.join(weird, n)) || fs.existsSync(n));
+  const pwned = () => ['PWNED', 'PWNED2', 'PWNED3', 'PWNED4'].some(n => fs.existsSync(path.join(d, n)) || fs.existsSync(path.join(weird, n)) || fs.existsSync(n));
   const ver = () => fs.readFileSync(path.join(oldApp, 'Contents', 'surum'), 'utf8');
-  return { d, script, oldApp, newApp, backupDir, run, opened, pwned, ver, log: () => fs.readFileSync(path.join(backupDir, 'guncelleme.log'), 'utf8') };
+  return { d, script, oldApp, newApp, backupDir, run, opened, pwned, ver, marker, log: () => fs.readFileSync(path.join(backupDir, 'guncelleme.log'), 'utf8') };
 }
 const deadPid = () => { const r = spawnSync(process.execPath, ['-e', 'console.log(process.pid)']); return +String(r.stdout).trim(); };
 
@@ -314,7 +319,7 @@ test('installScript: gecersiz argumanlarda hicbir sey tasinmaz', async (t) => {
 
 // --- registerUpdater: sahte Electron + sahte fetch/exec/spawn ---
 function harness(t, { current = '2.0.5', m, body = Buffer.from('ZIPDATA'), conf = {}, testEnv = true, deps = {} } = {}) {
-  const d = tmpDir(); t.after(() => fs.rmSync(d, { recursive: true, force: true }));
+  const d = tmpDir(); t.after(() => fs.rmSync(d, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }));
   const prev = process.env.CEM_UPDATE_TEST;
   if (testEnv) process.env.CEM_UPDATE_TEST = '1'; else delete process.env.CEM_UPDATE_TEST;
   t.after(() => { if (prev === undefined) delete process.env.CEM_UPDATE_TEST; else process.env.CEM_UPDATE_TEST = prev; });
@@ -331,7 +336,7 @@ function harness(t, { current = '2.0.5', m, body = Buffer.from('ZIPDATA'), conf 
     Notification: Object.assign(function (o) { return { show() { notes.push(o); } }; }, { isSupported: () => true }),
     shell: { openExternal() {} }, cfg: () => C, save: o => { C = { ...C, ...o }; }, send: (ch, s) => sent.push([ch, s]),
     deps: { fetch: fakeFetch(routes, fetchCalls), exec: fakeExec({ version: m.version }), arch: 'arm64', pid: 4242, dir: path.join(d, 'upd'), appPath,
-      spawn: (cmd, args, opts) => { spawned.push({ cmd, args, opts }); return { on() {}, unref() {} }; },
+      spawn: (cmd, args, opts) => { spawned.push({ cmd, args, opts }); return { on() {}, unref() {} }; }, proc: new EventEmitter(),
       setTimeout: (f, ms) => { timers.push({ f, ms }); return 1; }, setInterval: (f, ms) => { timers.push({ f, ms }); return 2; }, ...deps } });
   return { ui, d, appPath, handlers, appEv, sent, notes, spawned, timers, fetchCalls, quits: () => quits, ready: () => onReady(), conf: () => C };
 }
@@ -339,7 +344,7 @@ function harness(t, { current = '2.0.5', m, body = Buffer.from('ZIPDATA'), conf 
 test('registerUpdater: 30 sn + 6 saat; denetle -> indir -> hazir -> bildirim -> kur (betik + quit)', async (t) => {
   const h = harness(t);
   h.ready();
-  assert.deepEqual(h.timers.map(x => x.ms), [30000, 6 * 3600 * 1000]);
+  assert.deepEqual(h.timers.map(x => x.ms), [30000, 6 * 3600 * 1000, 3000]);
   await h.timers[0].f();
   let s = h.ui.state();
   assert.equal(s.phase, 'ready'); assert.equal(s.latest, '2.0.10'); assert.equal(s.current, '2.0.5'); assert.equal(s.progress, 1);
@@ -355,9 +360,10 @@ test('registerUpdater: 30 sn + 6 saat; denetle -> indir -> hazir -> bildirim -> 
   assert.equal(h.spawned.length, 1);
   const sp = h.spawned[0];
   assert.equal(sp.cmd, '/bin/sh'); assert.equal(sp.opts.detached, true); assert.equal(sp.opts.stdio, 'ignore');
-  const [script, oldApp, newApp, pid, backupDir, relaunch, delay] = sp.args;
+  const [script, oldApp, newApp, pid, backupDir, relaunch, delay, marker, wait] = sp.args;
   assert.equal(oldApp, h.appPath); assert.match(newApp, /Cem App\.app$/); assert.ok(fs.existsSync(newApp));
   assert.equal(pid, '4242'); assert.equal(backupDir, path.join(h.d, 'upd', 'yedek')); assert.equal(relaunch, '1'); assert.equal(delay, '10');
+  assert.equal(marker, path.join(h.d, 'upd', 'started-2.0.10')); assert.equal(wait, '60');
   assert.equal(fs.statSync(script).mode & 0o777, 0o700); assert.equal(fs.readFileSync(script, 'utf8'), U.installScript({}));
   await new Promise(r => setImmediate(r));
   assert.equal(h.quits(), 1);
@@ -420,4 +426,127 @@ test('registerUpdater: uygulama klasorune yazilamiyorsa kurmaz, sebep Turkce', a
   const s = await h.ui.install();
   assert.equal(s.phase, 'error'); assert.match(s.error, /yazma izni/); assert.equal(h.spawned.length, 0);
   await new Promise(r => setImmediate(r)); assert.equal(h.quits(), 0);
+});
+
+// --- acilis isareti, hazir surumun korunmasi, atlama, cift tiklama ---
+test('installScript: yeni surum acilis isaretini yazarsa yedek silinir, isaret temizlenir', async (t) => {
+  const e = scriptEnv(t, { writeMarker: true });
+  const r = await e.run(deadPid(), true, { marker: e.marker, wait: 5 });
+  assert.equal(r.code, 0, r.err + e.log());
+  assert.equal(e.ver(), 'yeni'); assert.ok(!fs.existsSync(path.join(e.backupDir, 'onceki.app'))); assert.ok(!fs.existsSync(e.marker));
+  assert.deepEqual(e.opened(), ['-n', e.oldApp]); assert.match(e.log(), /basariyla acildi/); assert.equal(e.pwned(), false);
+});
+
+test('installScript: acilis isareti gelmezse yeni surum kapatilir, eskiye donulur, .failed yazilir', async (t) => {
+  const hung = spawn('/bin/sleep', ['30']); t.after(() => { try { hung.kill('SIGKILL'); } catch (x) {} });
+  const gone = new Promise(r => hung.on('exit', r));
+  const e = scriptEnv(t, { lsofPid: hung.pid });
+  const t0 = Date.now();
+  const r = await e.run(deadPid(), true, { marker: e.marker, wait: 1 });
+  assert.equal(r.code, 1, r.err + e.log());
+  assert.ok(Date.now() - t0 >= 900, 'beklemeden geri aldi');
+  assert.equal(e.ver(), 'eski'); assert.ok(fs.existsSync(e.marker + '.failed'));
+  assert.deepEqual(e.opened(), ['-n', e.oldApp, '-n', e.oldApp]);
+  assert.match(e.log(), /acilis isareti yazmadi/); assert.match(e.log(), /geri yuklendi/); assert.match(e.log(), new RegExp('kapatiliyor: ' + hung.pid));
+  await gone; assert.equal(e.pwned(), false);
+  assert.throws(() => U.installArgs({ oldApp: '/a.app', newApp: '/b.app', pid: 5, backupDir: '/b', marker: 'goreli' }), /marker/);
+  assert.throws(() => U.installArgs({ oldApp: '/a.app', newApp: '/b.app', pid: 5, backupDir: '/b', wait: 0 }), /bekleme/);
+});
+
+test('registerUpdater: acilis isareti ready + 3 sn sonra yazilir; acilista hata olursa yazilmaz', async (t) => {
+  const h = harness(t);
+  h.ready();
+  const dir = path.join(h.d, 'upd');
+  fs.mkdirSync(dir, { recursive: true });
+  for (const n of ['started-2.0.4', 'started-2.0.4.failed', 'started-2.0.5.failed', 'started-2.0.9.failed']) fs.writeFileSync(path.join(dir, n), '');
+  h.timers.find(x => x.ms === 3000).f();
+  assert.deepEqual(fs.readdirSync(dir).sort(), ['started-2.0.5', 'started-2.0.9.failed']);
+  const proc = new EventEmitter();
+  const h2 = harness(t, { deps: { proc } });
+  h2.ready();
+  assert.equal(proc.listenerCount('unhandledRejection'), 0, 'promise reddi acilisi basarisiz saymaz');
+  proc.emit('uncaughtExceptionMonitor', new Error('acilis hatasi'));
+  assert.equal(h2.ui.markStarted(), false); assert.ok(!fs.existsSync(path.join(h2.d, 'upd', 'started-2.0.5')));
+  assert.equal(proc.listenerCount('uncaughtExceptionMonitor'), 0, 'dinleyici birakilir');
+});
+
+test('registerUpdater: acilamayan surum (.failed) otomatik denetimde indirilmez, elle denetimde indirilir', async (t) => {
+  const h = harness(t);
+  fs.mkdirSync(path.join(h.d, 'upd'), { recursive: true }); fs.writeFileSync(path.join(h.d, 'upd', 'started-2.0.10.failed'), '');
+  await h.ui.check(false);
+  assert.equal(h.ui.state().phase, 'idle'); assert.match(h.ui.state().error, /açılamadı/); assert.equal(h.fetchCalls.filter(u => u.endsWith('.zip')).length, 0);
+  await h.ui.check(true); assert.equal(h.ui.state().phase, 'ready');
+  await h.ui.install(); assert.ok(!fs.existsSync(path.join(h.d, 'upd', 'started-2.0.10.failed')), 'yeniden denemede silinir');
+});
+
+// Ayni harness'ta manifesti degistirebilmek icin: surum -> manifest yonlendirmesi degisken
+function liveHarness(t, versions, o = {}) {
+  const body = Buffer.from('ZIPDATA');
+  let cur = versions[0];
+  const ms = Object.fromEntries(versions.map(v => [v, manifest(v, body)]));
+  const routes = {};
+  for (const v of versions) { for (const f of ms[v].files) routes[f.url] = o.zip ? o.zip(v, body) : () => new Response(body, { status: 200, headers: { 'content-length': String(body.length) } }); }
+  routes[MURL] = () => json(ms[cur])();
+  const fetchCalls = [];
+  let execVersion = versions[0];
+  const ex = async (cmd, args) => fakeExec({ version: execVersion })(cmd, args);
+  const h = harness(t, { m: ms[versions[0]], deps: { fetch: fakeFetch(routes, fetchCalls), exec: ex, ...(o.deps || {}) }, conf: o.conf || {} });
+  return { ...h, fetchCalls, publish: v => { cur = v; execVersion = v; } };
+}
+
+test('registerUpdater: daha yeni surum hazirlanirken onceki hazir surum korunur; basarisizlikta geri gelir; eski klasor silinir', async (t) => {
+  // basarili: 2.0.10 hazir -> 2.0.11 yayinlandi -> indirme sirasinda 2.0.10 hala kurulabilir, sonra 2.0.10 klasoru silinir
+  let seen = null;
+  const h = liveHarness(t, ['2.0.10', '2.0.11']);
+  await h.ui.check(false);
+  const first = h.ui.state(); assert.equal(first.phase, 'ready', first.error); assert.equal(first.ready, '2.0.10');
+  const spawnedBefore = h.spawned.length;
+  h.publish('2.0.11');
+  const sent0 = h.sent.length;
+  await h.ui.check(false);
+  seen = h.sent.slice(sent0).filter(x => x[1].phase === 'downloading').map(x => x[1].ready);
+  assert.ok(seen.length > 0 && seen.every(v => v === '2.0.10'), 'indirme sirasinda eski hazir surum korunmali: ' + seen);
+  const s = h.ui.state(); assert.equal(s.phase, 'ready'); assert.equal(s.ready, '2.0.11'); assert.equal(s.latest, '2.0.11');
+  const dl = path.join(h.d, 'upd', 'indirme');
+  assert.equal(fs.readdirSync(dl).filter(n => n.startsWith('hazirla-')).length, 1, 'eski hazirlanan klasor silinmeli');
+  assert.equal(h.spawned.length, spawnedBefore);
+
+  // basarisiz: 2.0.11 paketi bozuk -> 2.0.10 hazir kalir, kapanista 2.0.10 kurulur
+  const h2 = liveHarness(t, ['2.0.10', '2.0.11'], { zip: (v, body) => () => new Response(v === '2.0.11' ? Buffer.from('BOZUKVER') : body, { status: 200 }) });
+  await h2.ui.check(false); assert.equal(h2.ui.state().phase, 'ready');
+  h2.publish('2.0.11');
+  await h2.ui.check(false);
+  const s2 = h2.ui.state(); assert.equal(s2.phase, 'ready'); assert.equal(s2.ready, '2.0.10'); assert.equal(s2.latest, '2.0.10');
+  h2.appEv['before-quit']();
+  assert.equal(h2.spawned.length, 1); assert.match(h2.spawned[0].args[2], /Cem App\.app$/); assert.ok(fs.existsSync(h2.spawned[0].args[2]));
+});
+
+test('registerUpdater: hazir durumda "Bu surumu atla" hazir surumu birakir, kapanista kurulmaz (A5)', async (t) => {
+  const h = harness(t);
+  await h.ui.check(false);
+  const app = h.ui.state().phase === 'ready' && fs.readdirSync(path.join(h.d, 'upd', 'indirme')).find(n => n.startsWith('hazirla-'));
+  assert.ok(app);
+  const s = h.handlers['upd:set']({}, { skip: '2.0.10' });
+  assert.equal(s.phase, 'idle'); assert.equal(s.ready, null); assert.equal(s.conf.skip, '2.0.10');
+  assert.ok(!fs.existsSync(path.join(h.d, 'upd', 'indirme', app)), 'atlanan surumun klasoru silinir');
+  h.appEv['before-quit'](); assert.equal(h.spawned.length, 0, 'atlanan surum kapanista kurulmamali');
+  await h.ui.install(); assert.equal(h.spawned.length, 0);
+  assert.equal(h.ui.status(), null);
+  // sonraki otomatik denetim de indirmez
+  const n = h.fetchCalls.filter(u => u.endsWith('.zip')).length;
+  await h.ui.check(false); assert.equal(h.ui.state().phase, 'idle'); assert.equal(h.fetchCalls.filter(u => u.endsWith('.zip')).length, n);
+});
+
+test('registerUpdater: art arda "Indir ve kur" tek indirme + tek betik (A5b)', async (t) => {
+  const h = harness(t, { conf: { auto: false } });
+  await h.ui.check(false);
+  assert.equal(h.ui.state().phase, 'available');
+  const n0 = h.fetchCalls.length;
+  const p1 = h.handlers['upd:install']({}), p2 = h.handlers['upd:install']({});
+  assert.equal(p1, p2, 'ayni soz donmeli');
+  const [s1, s2] = await Promise.all([p1, p2]);
+  assert.equal(s1.phase, 'installing'); assert.equal(s2.phase, 'installing'); assert.equal(s2.error, null);
+  assert.equal(h.fetchCalls.slice(n0).filter(u => u.endsWith('.zip')).length, 1);
+  assert.equal(h.spawned.length, 1);
+  await new Promise(r => setImmediate(r)); assert.equal(h.quits(), 1);
 });

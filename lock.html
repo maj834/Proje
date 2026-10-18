@@ -49,6 +49,15 @@ details summary{cursor:pointer;color:var(--fg-2);font-size:12px}details[open] su
     </div>
   </div>
 
+  <!-- kasa dosyasi bozuk: ilk kurulum GOSTERILMEZ (eski dosyalar acilamaz hale gelirdi) -->
+  <div class="scr" id="sCorrupt">
+    <div class="card form">
+      <div><b>Kasa dosyası okunamıyor</b></div>
+      <div class="m">Kasa dosyası (vault.json) bozuk ya da okunamıyor. Kilitli dosyalarının açılamaz hale gelmemesi için yeni şifre belirlenmez.</div>
+      <div class="m">Uygulama klasöründeki <span class="mono">kilit</span> klasörünü Time Machine ya da başka bir yedekten geri yükleyip uygulamayı yeniden aç. Kilitli dosyalarına dokunma; içerikleri şifreli ve güvende.</div>
+    </div>
+  </div>
+
   <!-- kilitli kasa -->
   <div class="scr" id="sLocked">
     <button class="btn pri big" id="bio" style="display:none"><svg class="ico" viewBox="0 0 16 16"><path d="M4.5 13.5c.8-1.5 1-3 1-5a2.5 2.5 0 0 1 5 0c0 1.2-.1 2.4-.4 3.5"/><path d="M8 8.5c0 2-.4 3.8-1.3 5.5"/><path d="M2.5 11c.4-.9.5-1.8.5-2.5a5 5 0 0 1 10 0c0 .8 0 1.6-.2 2.4"/></svg>Touch ID ile aç</button>
@@ -97,9 +106,9 @@ async function call(p){if(busy)return;busy=true;document.body.style.cursor='prog
 function notice(t){$('repT').textContent=t;$('rep').classList.add('on')}
 $('repX').onclick=()=>$('rep').classList.remove('on');
 function render(){
-  const scr=!S.setup?'sSetup':!S.unlocked?'sLocked':'sMain';
-  for(const id of ['sSetup','sLocked','sMain'])$(id).classList.toggle('on',id===scr);
-  $('sub').textContent=!S.setup?'İlk kullanım':!S.unlocked?'Kasa kilitli':'Kasa açık';
+  const scr=S.corrupt?'sCorrupt':!S.setup?'sSetup':!S.unlocked?'sLocked':'sMain';
+  for(const id of ['sCorrupt','sSetup','sLocked','sMain'])$(id).classList.toggle('on',id===scr);
+  $('sub').textContent=S.corrupt?'Kasa dosyası bozuk':!S.setup?'İlk kullanım':!S.unlocked?'Kasa kilitli':'Kasa açık';
   $('lockNow').style.display=S.unlocked?'':'none';
   $('bio').style.display=S.touchId?'':'none';$('pwLbl').textContent=S.touchId?'ya da kasa şifresiyle aç':'Kasa şifresiyle aç';
   $('cpBio').style.display=S.canTouchId?'':'none';

@@ -105,31 +105,51 @@ function parseStats(text){
   return st;
 }
 
-let worker=null,workerP=null;
+// gen: close() her cagrildiginda artar; kapatma sirasinda acilmakta olan isci de sonlandirilir.
+let worker=null,workerP=null,gen=0;
 async function tesseract(){
   if(worker)return worker;
-  if(!workerP)workerP=(async()=>{
-    const T=require('tesseract.js'),path=require('path');
-    // Paketlenmis uygulamada bu dosyalar app.asar.unpacked altindadir (package.json asarUnpack).
-    const un=p=>p.replace(/app\.asar(?!\.unpacked)/,'app.asar.unpacked');
-    const langPath=un(path.join(path.dirname(require.resolve('@tesseract.js-data/eng/package.json')),'4.0.0_best_int'));
-    const workerPath=un(path.join(path.dirname(require.resolve('tesseract.js/package.json')),'src','worker-script','node','index.js'));
-    const w=await T.createWorker('eng',1,{langPath,workerPath,cacheMethod:'none',gzip:true});
-    worker=w;return w;
-  })();
-  try{return await workerP}catch(e){workerP=null;throw e}
+  if(!workerP){
+    const g=gen;
+    const p=(async()=>{
+      const T=require('tesseract.js'),path=require('path');
+      // Paketlenmis uygulamada bu dosyalar app.asar.unpacked altindadir (package.json asarUnpack).
+      const un=p=>p.replace(/app\.asar(?!\.unpacked)/,'app.asar.unpacked');
+      const langPath=un(path.join(path.dirname(require.resolve('@tesseract.js-data/eng/package.json')),'4.0.0_best_int'));
+      const workerPath=un(path.join(path.dirname(require.resolve('tesseract.js/package.json')),'src','worker-script','node','index.js'));
+      // errorHandler: tesseract.js hatada ana surecte yakalanmamis istisna atmasin; istek yine de reddedilir.
+      const w=await T.createWorker('eng',1,{langPath,workerPath,cacheMethod:'none',gzip:true,errorHandler:()=>{}});
+      if(g!==gen){try{await w.terminate()}catch(e){}throw new Error('OCR kapatıldı.')}
+      worker=w;return w;
+    })();
+    workerP=p;
+    p.catch(()=>{if(workerP===p)workerP=null});
+  }
+  return workerP;
 }
+// Tek isci paylasilir: setParameters + recognize ciftleri birbirine karismasin diye isler sirayla calisir.
+let queue=Promise.resolve();
+function serial(job){const r=queue.then(job);queue=r.catch(()=>{});return r}
 // Varsayilan OCR: 'num' tek satir rakam, 'trade' saat + rakam, 'line' tek satir metin, 'text' blok metin
-async function defaultOcr(buf,mode){
-  const w=await tesseract();
-  await w.setParameters(mode==='num'?{tessedit_pageseg_mode:'7',tessedit_char_whitelist:'0123456789.,'}
-    :mode==='trade'?{tessedit_pageseg_mode:'7',tessedit_char_whitelist:'0123456789.,: '}
-    :mode==='line'?{tessedit_pageseg_mode:'7',tessedit_char_whitelist:''}
-    :{tessedit_pageseg_mode:'6',tessedit_char_whitelist:''});
-  const {data}=await w.recognize(buf);
-  return {text:data.text||'',conf:data.confidence||0};
+function defaultOcr(buf,mode){
+  const g=gen;
+  return serial(async()=>{
+    // close() sonrasina kalmis isler yeni isci acmasin.
+    if(g!==gen)throw new Error('OCR kapatıldı.');
+    const w=await tesseract();
+    await w.setParameters(mode==='num'?{tessedit_pageseg_mode:'7',tessedit_char_whitelist:'0123456789.,'}
+      :mode==='trade'?{tessedit_pageseg_mode:'7',tessedit_char_whitelist:'0123456789.,: '}
+      :mode==='line'?{tessedit_pageseg_mode:'7',tessedit_char_whitelist:''}
+      :{tessedit_pageseg_mode:'6',tessedit_char_whitelist:''});
+    const {data}=await w.recognize(buf);
+    return {text:data.text||'',conf:data.confidence||0};
+  });
 }
-async function close(){const w=worker;worker=null;workerP=null;if(w)try{await w.terminate()}catch(e){}}
+async function close(){
+  gen++;const w=worker,p=workerP;worker=null;workerP=null;
+  if(w)try{await w.terminate()}catch(e){}
+  else if(p)try{await p}catch(e){} // acilmakta olan isci kendini sonlandirir (gen degisti)
+}
 
 // Ana giris. Donus: depth modeli (depth.parseText ile ayni bicim) + stats + ocr bilgisi. Tablo bulunamazsa null.
 async function read(img,{ocr=defaultOcr,hint={}}={}){
@@ -267,4 +287,4 @@ async function readTrades(img,{ocr=defaultOcr,ref=null}={}){
   return out.length?{trades:out,ocr:{rows:out.length,ms:Date.now()-t0}}:null;
 }
 
-module.exports={read,readAkd,parseAkd,readTrades,parseTradeNums,segment,parseStats,priceOf,qtyOf,png,close};
+module.exports={read,readAkd,parseAkd,readTrades,parseTradeNums,segment,parseStats,priceOf,qtyOf,png,close,defaultOcr};

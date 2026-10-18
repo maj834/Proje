@@ -10,32 +10,36 @@ process.env.GRAFIK_SB_ALLOW_LOCAL = '1';
 
 const ANON = 'eyJhbGciOiJIUzI1NiJ9.' + Buffer.from(JSON.stringify({ role: 'anon', iss: 'supabase' })).toString('base64url') + '.c2ln';
 const SERVICE = 'eyJhbGciOiJIUzI1NiJ9.' + Buffer.from(JSON.stringify({ role: 'service_role', iss: 'supabase' })).toString('base64url') + '.c2ln';
-const EMAIL = 'kullanici@example.com', PASSWORD = 'Gizli-Sifre-123';
+const EMAIL = 'kullanici@example.com', EMAIL2 = 'ikinci@example.com', PASSWORD = 'Gizli-Sifre-123';
 
 // Sahte Supabase: /auth/v1/token (password, refresh_token) ve /rest/v1/<tablo>.
-function startServer() {
-  const s = { requests: [], inserts: {}, tokenN: 0, valid: new Set(), fail401Once: false, failTable: {} };
+function startServer(port = 0) {
+  const s = { requests: [], inserts: {}, tokenN: 0, valid: new Set(), fail401Once: false, failTable: {}, owner: {}, badRow: null, gate: null };
   const send = (res, status, body) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(body == null ? '' : JSON.stringify(body)); };
-  const issue = () => { const n = ++s.tokenN, at = 'access-' + n; s.valid.add(at); return { access_token: at, refresh_token: 'refresh-' + n, expires_in: 3600, token_type: 'bearer', user: { email: EMAIL } }; };
+  const issue = (email = EMAIL) => { const n = ++s.tokenN, at = 'access-' + n; s.valid.add(at); s.owner[at] = s.owner['refresh-' + n] = email; return { access_token: at, refresh_token: 'refresh-' + n, expires_in: 3600, token_type: 'bearer', user: { email } }; };
   s.server = http.createServer((req, res) => {
     let raw = '';
     req.on('data', c => raw += c);
-    req.on('end', () => {
+    req.on('end', async () => {
       const u = new URL(req.url, 'http://x'), body = raw ? JSON.parse(raw) : null;
       s.requests.push({ method: req.method, path: u.pathname, query: u.search, headers: req.headers, body });
       if (req.headers.apikey !== ANON) return send(res, 401, { message: 'Invalid API key' });
       if (u.pathname === '/auth/v1/token') {
         const g = u.searchParams.get('grant_type');
-        if (g === 'password') return body.email === EMAIL && body.password === PASSWORD ? send(res, 200, issue()) : send(res, 400, { error: 'invalid_grant', error_description: 'Invalid login credentials' });
-        if (g === 'refresh_token') return /^refresh-\d+$/.test(body.refresh_token) ? send(res, 200, issue()) : send(res, 400, { error_description: 'Invalid Refresh Token' });
+        if (g === 'password') return [EMAIL, EMAIL2].includes(body.email) && body.password === PASSWORD ? send(res, 200, issue(body.email)) : send(res, 400, { error: 'invalid_grant', error_description: 'Invalid login credentials' });
+        if (g === 'refresh_token') return /^refresh-\d+$/.test(body.refresh_token) ? send(res, 200, issue(s.owner[body.refresh_token])) : send(res, 400, { error_description: 'Invalid Refresh Token' });
       }
       const m = /^\/rest\/v1\/(\w+)$/.exec(u.pathname);
       if (m && req.method === 'POST') {
         const tok = (req.headers.authorization || '').replace(/^Bearer /, '');
         if (s.fail401Once) { s.fail401Once = false; s.valid.delete(tok); }
         if (!s.valid.has(tok)) return send(res, 401, { message: 'JWT expired' });
+        if (s.gate) await s.gate(body, tok);
         if (s.failTable[m[1]]) return send(res, s.failTable[m[1]], { code: '42501', message: 'new row violates row-level security policy' });
+        // PostgREST: tek bir satir kisiti ihlal ederse butun ifade (paket) reddedilir
+        if (s.badRow && body.some(s.badRow)) return send(res, 400, { code: '23502', message: 'null value in column "score" violates not-null constraint' });
         (s.inserts[m[1]] = s.inserts[m[1]] || []).push(body);
+        (s.byUser = s.byUser || []).push({ user: s.owner[tok], table: m[1], rows: body });
         res.writeHead(201); return res.end();
       }
       if (m && req.method === 'GET') {
@@ -47,7 +51,7 @@ function startServer() {
       send(res, 404, { message: 'not found' });
     });
   });
-  return new Promise(r => s.server.listen(0, '127.0.0.1', () => { s.url = 'http://127.0.0.1:' + s.server.address().port; r(s); }));
+  return new Promise(r => s.server.listen(port, '127.0.0.1', () => { s.url = 'http://127.0.0.1:' + s.server.address().port; r(s); }));
 }
 
 // sync.js arka plan gonderimini setTimeout(flush) ile planlar. Testlerde zamanlayici
@@ -66,7 +70,7 @@ async function setup(t, { signIn = true } = {}) {
   const srv = await startServer();
   t.after(() => new Promise(r => { srv.server.closeAllConnections && srv.server.closeAllConnections(); srv.server.close(r); }));
   const dir = tmpDir();
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }));
   const S = fresh('sync.js');
   const scheduled = quietTimers(t, S);
   const tokens = [];
@@ -168,7 +172,7 @@ test('flush: kalici 4xx paketi atilir ve sayilir, diger tablolar gider', async t
   const st = await S.flush();
   assert.equal(st.pending, 0);
   assert.equal(st.sent, 1);
-  assert.equal(st.dropped, 1); // tek paket (2 satir)
+  assert.equal(st.dropped, 2); // satir sayisi (paket degil)
   assert.match(st.lastDrop, /^flow_log: new row violates row-level security policy/);
   assert.equal(srv.inserts.signals.length, 1);
   assert.equal(srv.inserts.flow_log, undefined);
@@ -193,10 +197,11 @@ test('cevrimdisi: satirlar kuyrukta kalir, diske yazilir ve yeniden yuklenir', a
   assert.equal(st.pending, 2);
   assert.equal(st.error, 'Bağlantı yok; internet gelince gönderilecek.');
   const q = JSON.parse(fs.readFileSync(path.join(dir, 'sb-queue.json'), 'utf8'));
-  assert.deepEqual(q, [{ t: 'signals', r: { symbol: 'A', ts: '2026-10-20T09:00:00.000Z' } }, { t: 'alarms', r: { symbol: 'B', ts: '2026-10-20T09:00:00.000Z' } }]);
+  const A = srv.url + '|' + EMAIL;
+  assert.deepEqual(q, [{ t: 'signals', r: { symbol: 'A', ts: '2026-10-20T09:00:00.000Z' }, a: A }, { t: 'alarms', r: { symbol: 'B', ts: '2026-10-20T09:00:00.000Z' }, a: A }]);
   if (process.platform !== 'win32') assert.equal(fs.statSync(path.join(dir, 'sb-queue.json')).mode & 0o777, 0o600);
   // Yeniden baslatma: kuyruk diskten gelir, restore + flush ile gonderilir.
-  const srv2 = await startServer();
+  const srv2 = await startServer(+new URL(srv.url).port); // ayni proje adresi
   t.after(() => new Promise(r => srv2.server.close(r)));
   const S2 = fresh('sync.js');
   quietTimers(t, S2);
@@ -248,4 +253,136 @@ test('get ve upsert: haber okuma, takip listesi, 401 sonrasi yenileme', async (t
 test('get: oturum yoksa null', async (t) => {
   const { S } = await setup(t, { signIn: false });
   assert.equal(await S.get('/rest/v1/news'), null);
+});
+
+// --- Regresyon: hesap degisimi, satir-duzeyi hatalar, baska hesabin kuyrugu ---
+
+test('flush: gonderim surerken hesap degisirse yeni hesabin satirlari eski belirtecle gitmez', async t => {
+  const { S, srv } = await setup(t);
+  for (let i = 0; i < 60; i++) S.enqueue('signals', { symbol: 'A' + i });
+  let release, first = true;
+  const inFlight = new Promise(r => {
+    srv.gate = () => { if (!first) return; first = false; r(); return new Promise(g => { release = g; }); };
+  });
+  const f = S.flush();
+  await inFlight; // A0..A49 sunucuda bekliyor
+  S.signOut();
+  await S.signIn({ url: srv.url, anon: ANON, email: EMAIL2, password: PASSWORD });
+  S.enqueue('signals', { symbol: 'B-ozel' });
+  release();
+  const st = await f;
+  assert.equal(st.error, null, 'eski oturumun durmasi hata sayilmaz');
+  // Eski flush yalnizca ilk (A) paketini gonderdi ve durdu
+  assert.deepEqual(srv.byUser.map(x => [x.user, x.rows.length]), [[EMAIL, 50]]);
+  assert.equal(S.state().pending, 1);
+  const st2 = await S.flush();
+  assert.equal(st2.pending, 0);
+  for (const x of srv.byUser) for (const r of x.rows) assert.equal(r.symbol.startsWith('B'), x.user === EMAIL2, JSON.stringify(x));
+  assert.deepEqual(srv.byUser.at(-1), { user: EMAIL2, table: 'signals', rows: [srv.byUser.at(-1).rows[0]] });
+  assert.equal(srv.byUser.at(-1).rows[0].symbol, 'B-ozel');
+});
+
+test('flush: belirtec yenileme surerken hesap degisirse yeni oturum ezilmez', async t => {
+  const { S, srv } = await setup(t);
+  S.enqueue('signals', { symbol: 'A' });
+  srv.fail401Once = true; // ilk POST 401 -> yenileme
+  let release;
+  const orig = global.fetch;
+  t.after(() => { global.fetch = orig; });
+  let hit;
+  const refreshing = new Promise(r => { hit = r; });
+  global.fetch = async (url, init) => {
+    if (String(url).includes('grant_type=refresh_token')) { hit(); await new Promise(g => { release = g; }); }
+    return orig(url, init);
+  };
+  const f = S.flush();
+  await refreshing;
+  global.fetch = orig;
+  await S.signIn({ url: srv.url, anon: ANON, email: EMAIL2, password: PASSWORD });
+  release();
+  await f;
+  assert.equal(S.state().user, EMAIL2);
+  assert.equal(S.tokens().user, EMAIL2);
+  assert.equal(srv.owner[S.tokens().refresh], EMAIL2);
+  assert.equal(S.state().pending, 0, 'A satirlari B hesabinda bekletilmez');
+  assert.ok(!(srv.byUser || []).some(x => x.user === EMAIL2), 'A satiri B hesabina yazilmaz');
+});
+
+test('flush: 400 ile tek bozuk satir yalnizca kendisini dusurur (paketi degil)', async t => {
+  const { S, srv } = await setup(t);
+  srv.badRow = r => 'score' in r && r.score == null;
+  for (let i = 0; i < 50; i++) S.enqueue('pressure_log', { symbol: 'S' + i, score: i === 7 ? null : i });
+  S.enqueue('pressure_log', { symbol: 'X', score: null });
+  for (let i = 0; i < 3; i++) S.enqueue('signals', { symbol: 'G' + i });
+  const st = await S.flush();
+  assert.equal(st.pending, 0);
+  assert.equal(st.dropped, 2, 'yalnizca 2 hatali satir');
+  assert.equal(st.sent, 52);
+  const stored = srv.inserts.pressure_log.flat().map(r => r.symbol);
+  assert.equal(stored.length, 49);
+  assert.ok(!stored.includes('S7'));
+  assert.match(st.lastDrop, /^pressure_log: null value/);
+  assert.equal(srv.inserts.signals.flat().length, 3);
+});
+
+test('flush: 409/422 de bolunur; 429 ve 5xx kuyrukta kalir', async t => {
+  const { S, srv } = await setup(t);
+  srv.failTable.alarms = 429;
+  S.enqueue('alarms', { symbol: 'A' });
+  S.enqueue('alarms', { symbol: 'B' });
+  let st = await S.flush();
+  assert.equal(st.pending, 2);
+  assert.equal(st.dropped, 0);
+  assert.ok(st.error);
+  delete srv.failTable.alarms;
+  srv.failTable.flow_log = 422;
+  st = await S.flush();
+  assert.equal(st.pending, 0);
+  S.enqueue('flow_log', { symbol: 'F1' }); S.enqueue('flow_log', { symbol: 'F2' }); S.enqueue('flow_log', { symbol: 'F3' });
+  st = await S.flush();
+  assert.equal(st.pending, 0);
+  assert.equal(st.dropped, 3);
+  // 3 satir -> [2,1] -> [1,1]: hepsi tek tek denendi
+  assert.equal(srv.requests.filter(r => r.path === '/rest/v1/flow_log').length, 5);
+});
+
+test('kuyruk: restore atlanmissa eski (etiketsiz) ve baska hesabin satirlari girisle gonderilmez', async t => {
+  const srv = await startServer();
+  t.after(() => new Promise(r => srv.server.close(r)));
+  const dir = tmpDir();
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }));
+  const qf = path.join(dir, 'sb-queue.json');
+  const ts = '2026-10-20T09:00:00.000Z';
+  fs.writeFileSync(qf, JSON.stringify([
+    { t: 'alarms', r: { symbol: 'eski-bicim', ts } },
+    { t: 'alarms', r: { symbol: 'A-ozel', ts }, a: srv.url + '|' + EMAIL },
+    { t: 'alarms', r: { symbol: 'B-kendi', ts }, a: srv.url + '|' + EMAIL2 },
+  ]));
+  const S = fresh('sync.js');
+  quietTimers(t, S);
+  S.init({ dir }); // uygulama acildi, restore() atlandi (or. sifre cozulemedi)
+  await S.signIn({ url: srv.url, anon: ANON, email: EMAIL2, password: PASSWORD });
+  assert.equal(S.state().pending, 1);
+  assert.deepEqual(JSON.parse(fs.readFileSync(qf, 'utf8')).map(x => x.r.symbol), ['B-kendi']);
+  await S.flush();
+  assert.deepEqual(srv.byUser.map(x => [x.user, x.rows.map(r => r.symbol)]), [[EMAIL2, ['B-kendi']]]);
+});
+
+test('kuyruk: restore etiketsiz eski satirlari geri yuklenen hesaba baglar, baskasininkileri atar', async t => {
+  const srv = await startServer();
+  t.after(() => new Promise(r => srv.server.close(r)));
+  const dir = tmpDir();
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }));
+  const ts = '2026-10-20T09:00:00.000Z';
+  fs.writeFileSync(path.join(dir, 'sb-queue.json'), JSON.stringify([
+    { t: 'signals', r: { symbol: 'eski-bicim', ts } },
+    { t: 'signals', r: { symbol: 'B-ozel', ts }, a: srv.url + '|' + EMAIL2 },
+  ]));
+  const S = fresh('sync.js');
+  quietTimers(t, S);
+  S.init({ dir });
+  S.restore({ url: srv.url, anon: ANON, refresh: 'refresh-0', user: EMAIL });
+  assert.equal(S.state().pending, 1);
+  await S.flush();
+  assert.deepEqual(srv.byUser.map(x => [x.user, x.rows.map(r => r.symbol)]), [[EMAIL, ['eski-bicim']]]);
 });

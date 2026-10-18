@@ -449,23 +449,27 @@ final class ScreenFPS {
     private var stream: UnsafeMutableRawPointer? = nil
     private var display: CGDirectDisplayID = 0
     private var since: TimeInterval = 0
+    private var lastTry: TimeInterval = 0                    // son baslatma denemesi (izin sonradan verilirse yeniden dene)
     private(set) var on = false
+    static let noPermission = "Ekran kaydı izni yok"
 
     // Acik ise son cagridan beri saniyedeki ekran guncellemesi; kapali / izin yok ise nil
     func setOn(_ v: Bool) {
         on = v
-        if v { start() } else { stop() }
+        // Ana surec panel kapaninca bu hatayi siler: FPS her acildiginda izin hatasi yeniden bildirilebilsin
+        if v { reportedErrors.remove(ScreenFPS.noPermission); start() } else { stop() }
     }
 
     private func start() {
         stop()
+        lastTry = ProcessInfo.processInfo.systemUptime
         guard let pPre = symbol(cgPath, "CGPreflightScreenCaptureAccess"),
               let pCreate = symbol(cgPath, "CGDisplayStreamCreateWithDispatchQueue"),
               let pStart = symbol(cgPath, "CGDisplayStreamStart") else {
             report("Ekran FPS ölçümü bu macOS sürümünde kullanılamıyor"); return
         }
         let preflight = unsafeBitCast(pPre, to: PreflightFn.self)
-        guard preflight() else { report("Ekran kaydı izni yok"); return }
+        guard preflight() else { report(ScreenFPS.noPermission); return }
         let create = unsafeBitCast(pCreate, to: CreateFn.self)
         let startFn = unsafeBitCast(pStart, to: StartStopFn.self)
         let c = counter
@@ -491,7 +495,7 @@ final class ScreenFPS {
         } else {
             created = create(id, 64, 40, Int32(0x42475241), nil, qPtr, handler)
         }
-        guard let s = created else { report("Ekran kaydı izni yok"); return }
+        guard let s = created else { report(ScreenFPS.noPermission); return }
         if startFn(s) != 0 {
             Unmanaged<AnyObject>.fromOpaque(UnsafeRawPointer(s)).release()
             report("Ekran FPS ölçümü başlatılamadı"); return
@@ -526,6 +530,8 @@ final class ScreenFPS {
     func measure() -> Double? {
         guard on else { return nil }
         if stream != nil && CGMainDisplayID() != display { start() }   // ana ekran degisti
+        // Baslatilamadi (or. izin yok): 10 sn'de bir yeniden dene; izin sonradan verilirse yeniden baslatma gerekmez
+        else if stream == nil && ProcessInfo.processInfo.systemUptime - lastTry >= 10 { start() }
         guard stream != nil else { return nil }
         let now = ProcessInfo.processInfo.systemUptime
         let dt = now - since
@@ -770,10 +776,14 @@ final class Monitor {
         let now = ProcessInfo.processInfo.systemUptime
         let dt = now - netTime
         var down: UInt64 = 0, up: UInt64 = 0
+        // Sayac sifirlanirsa (arayuz yeniden basladi) sarma farki dev bir sicrama olur: arayuz basina
+        // ~1,25 GB/s (10 Gbit) ustu fark o olcumde 0 sayilir
+        let maxDelta: Double = 1.25e9 * max(dt, 0.05)
         for (name, v) in cur {
             guard let pv = netPrev[name] else { continue }
-            down += UInt64(v.0 &- pv.0)                        // 32 bit sayac tasmasi
-            up += UInt64(v.1 &- pv.1)
+            let dd = UInt64(v.0 &- pv.0), du = UInt64(v.1 &- pv.1)   // 32 bit sayac tasmasi
+            if Double(dd) <= maxDelta { down += dd }
+            if Double(du) <= maxDelta { up += du }
         }
         let hadPrev = !netPrev.isEmpty
         netPrev = cur

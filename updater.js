@@ -200,8 +200,10 @@ async function prepare(zipPath, { exec = defaultExec, version, signed = null, wo
   } catch (e) { fs.rmSync(tmp, { recursive: true, force: true }); throw e; }
 }
 
-// Kurulum betigi (POSIX sh). Yollar betige YAZILMAZ: $1..$6 konum argumanlari.
+// Kurulum betigi (POSIX sh). Yollar betige YAZILMAZ: $1..$8 konum argumanlari.
 // $1 eski .app  $2 yeni .app  $3 beklenecek pid  $4 yedek klasoru  $5 yeniden ac (1/0, varsayilan 1)  $6 yedek silme gecikmesi sn (varsayilan 10)
+// $7 acilis isareti dosyasi (bos: yok)  $8 isaret bekleme suresi sn (varsayilan 30). $7 verilirse ve yeniden acilirsa: yeni surum $8 sn icinde
+// isareti yazmazsa (acilista coktu / takildi) yeni surum kapatilir, yedek geri yuklenir, eski surum acilir ve "$7.failed" yazilir.
 // installScript({oldApp,newApp,pid,backupDir}) yollari bilerek kullanmaz: argumanlar installArgs ile ayri verilir.
 function installScript() {
   return `#!/bin/sh
@@ -215,6 +217,8 @@ PID=$3
 BK=$4
 RELAUNCH=\${5:-1}
 DELAY=\${6:-10}
+MARK=\${7:-}
+WAIT=\${8:-30}
 case "$BK" in /*) ;; *) exit 2 ;; esac
 mkdir -p -- "$BK" || exit 2
 LOG="$BK/guncelleme.log"
@@ -223,10 +227,36 @@ fail() { log "HATA: $*"; exit 1; }
 case "$PID" in ''|*[!0-9]*) fail "gecersiz pid" ;; esac
 case "$RELAUNCH" in 0|1) ;; *) fail "gecersiz secenek" ;; esac
 case "$DELAY" in ''|*[!0-9]*) fail "gecersiz gecikme" ;; esac
+case "$WAIT" in ''|*[!0-9]*) fail "gecersiz bekleme" ;; esac
+case "$MARK" in ''|/*) ;; *) fail "gecersiz isaret" ;; esac
 case "$OLD" in /*.app) ;; *) fail "gecersiz hedef" ;; esac
 case "$NEW" in /*.app) ;; *) fail "gecersiz yeni surum" ;; esac
 [ -d "$NEW" ] || fail "yeni surum bulunamadi"
 log "basladi (pid $PID)"
+# Yerine konan (yeni) uygulamanin calisan sureclerini kapat: ikilisi $OLD/Contents/MacOS altinda olanlar (lsof ile, kabuk deseni yok)
+stop_new() {
+  command -v lsof >/dev/null 2>&1 || return 0
+  pids=$(lsof -t -- "$OLD"/Contents/MacOS/* 2>/dev/null) || true
+  ok=""
+  for p in $pids; do
+    case "$p" in ''|*[!0-9]*) continue ;; esac
+    [ "$p" = "$$" ] && continue
+    ok="$ok $p"
+  done
+  [ -n "$ok" ] || return 0
+  log "yeni surum kapatiliyor:$ok"
+  for p in $ok; do kill "$p" 2>/dev/null; done
+  j=0
+  while [ "$j" -lt 20 ]; do
+    alive=0
+    for p in $ok; do kill -0 "$p" 2>/dev/null && alive=1; done
+    [ "$alive" = 0 ] && return 0
+    j=$((j + 1))
+    sleep 0.5
+  done
+  for p in $ok; do kill -9 "$p" 2>/dev/null; done
+  return 0
+}
 i=0
 while kill -0 "$PID" 2>/dev/null; do
   i=$((i + 1))
@@ -235,6 +265,7 @@ while kill -0 "$PID" 2>/dev/null; do
 done
 BAK="$BK/onceki.app"
 rm -rf -- "$BAK"
+[ -n "$MARK" ] && rm -f -- "$MARK"
 had_old=0
 if [ -e "$OLD" ]; then
   mv -f -- "$OLD" "$BAK" || fail "eski surum yedeklenemedi"
@@ -257,6 +288,28 @@ fi
 if [ "$RELAUNCH" = 1 ]; then
   if open -n "$OLD"; then
     log "yeni surum acildi"
+    if [ -n "$MARK" ]; then
+      # Yeni surumun basariyla actigini bildiren isareti bekle; gelmezse geri al
+      i=0
+      while [ ! -e "$MARK" ]; do
+        i=$((i + 1))
+        if [ "$i" -gt $((WAIT * 2)) ]; then
+          log "yeni surum $WAIT sn icinde acilis isareti yazmadi; geri aliniyor"
+          stop_new
+          printf '%s\\n' "$(date '+%s')" > "$MARK.failed" 2>/dev/null
+          if [ "$had_old" = 1 ]; then
+            rm -rf -- "$OLD"
+            if mv -- "$BAK" "$OLD"; then log "eski surum geri yuklendi"; open -n "$OLD"; else log "GERI YUKLENEMEDI, yedek: $BAK"; fi
+          fi
+          exit 1
+        fi
+        sleep 0.5
+      done
+      rm -f -- "$MARK"
+      log "yeni surum basariyla acildi"
+    else
+      sleep "$DELAY"
+    fi
   else
     log "yeni surum acilamadi; geri aliniyor"
     if [ "$had_old" = 1 ]; then
@@ -265,7 +318,6 @@ if [ "$RELAUNCH" = 1 ]; then
     fi
     exit 1
   fi
-  sleep "$DELAY"
 fi
 rm -rf -- "$BAK"
 log "tamam"
@@ -274,12 +326,14 @@ exit 0
 }
 
 // /bin/sh <betik> ardindan verilecek argumanlar (dogrulanmis)
-function installArgs({ oldApp, newApp, pid, backupDir, relaunch = true, delay = 10 }) {
+function installArgs({ oldApp, newApp, pid, backupDir, relaunch = true, delay = 10, marker = '', wait = 30 }) {
   for (const [k, v] of [['oldApp', oldApp], ['newApp', newApp]]) if (typeof v !== 'string' || !path.isAbsolute(v) || !v.endsWith('.app')) throw new Error('Geçersiz yol: ' + k);
   if (typeof backupDir !== 'string' || !path.isAbsolute(backupDir)) throw new Error('Geçersiz yol: backupDir');
   if (!Number.isSafeInteger(pid) || pid < 1) throw new Error('Geçersiz pid');
   if (!Number.isSafeInteger(delay) || delay < 0 || delay > 600) throw new Error('Geçersiz gecikme');
-  return [oldApp, newApp, String(pid), backupDir, relaunch ? '1' : '0', String(delay)];
+  if (marker !== '' && (typeof marker !== 'string' || !path.isAbsolute(marker))) throw new Error('Geçersiz yol: marker');
+  if (!Number.isSafeInteger(wait) || wait < 1 || wait > 600) throw new Error('Geçersiz bekleme');
+  return [oldApp, newApp, String(pid), backupDir, relaunch ? '1' : '0', String(delay), marker, String(wait)];
 }
 
 // Bu konumdaki uygulama yerinde guncellenebilir mi?

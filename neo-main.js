@@ -40,7 +40,7 @@ function registerNeo({ipcMain,app,BrowserWindow,path,screen,globalShortcut,Notif
     if(busy){log.unshift({at:Date.now(),q:text,a:'Önceki soruyu yanıtlıyorum; bitince tekrar sor.',tools:[]});if(log.length>30)log.pop();toWin();return}
     const g=gen;busy=true;partial=text;answer='';send({cmd:'thinking'});setState('thinking');
     let r;try{r=await B().ask(text)}catch(e){r={text:'Bir şeyler ters gitti.'}}
-    busy=false;
+    if(g===gen)busy=false;                               // Neo kapatilip acildiysa yeni turun mesgul bayragina dokunma (disable zaten sifirladi)
     if(g!==gen||!isOn())return;                          // bu arada Neo kapatildi: cevap gosterilmez
     answer=r.text;log.unshift({at:Date.now(),q:text,a:r.text,tools:r.tools||[]});if(log.length>30)log.pop();toWin();
     if(child)speak(r.text);else setState('off');
@@ -57,8 +57,9 @@ function registerNeo({ipcMain,app,BrowserWindow,path,screen,globalShortcut,Notif
       case 'wake':partial='';answer='';show({wake:true});break;
       case 'partial':partial=String(m.text||'').slice(0,300);show();break;
       case 'level':if(orb&&!orb.isDestroyed()&&orb.isVisible())orb.webContents.send('neo:level',+m.db||-90);break;
-      case 'command':{const t=String(m.text||'').trim();if(t)onCommand(t.slice(0,1000));else{send({cmd:'idle'});setState(rest())}break}
-      case 'nocommand':partial='';answer='Seni duyamadım.';send({cmd:'idle'});setState(rest());break;
+      case 'command':{const t=String(m.text||'').trim();if(t)onCommand(t.slice(0,1000));else if(busy){partial='';show()}else{send({cmd:'idle'});setState(rest())}break}
+      // Onceki soru surerken bos dinleme 'dusunuyorum' durumunu bozmasin
+      case 'nocommand':if(busy){partial='';show();break}partial='';answer='Seni duyamadım.';send({cmd:'idle'});setState(rest());break;
       // Kuyrukta baska konusma varsa bekleme durumuna gecilmez
       case 'spoken':saying.delete(String(m.id||''));if(m.stopped&&!m.id)saying.clear();if(!saying.size&&!busy){send({cmd:'idle'});setState(rest())}break;
       case 'error':{const msg=String(m.msg||m.code||'').slice(0,200);
@@ -127,13 +128,15 @@ function registerNeo({ipcMain,app,BrowserWindow,path,screen,globalShortcut,Notif
   ipcMain.handle('neo:set',(e,o)=>{if(!from(e)||!o||typeof o!=='object')return null;const before=conf();
     save({neo:clean({...before,...o})});const c=conf();configure();
     if(c.wake!==before.wake)send({cmd:c.wake?'start':'stop'});
-    if(c.hotkey!==before.hotkey&&hk){try{globalShortcut.unregister(hk)}catch(e){}hk=null;try{if(globalShortcut.register(c.hotkey,talk))hk=c.hotkey}catch(e){}}
+    if(c.hotkey!==before.hotkey&&isOn()){if(hk){try{globalShortcut.unregister(hk)}catch(e){}hk=null}try{if(globalShortcut.register(c.hotkey,talk))hk=c.hotkey}catch(e){}}
     toWin();return view()});
   ipcMain.handle('neo:forget',e=>{if(!from(e))return null;for(const k in brains)brains[k].reset();log.length=0;return view()});
-  // Groq anahtari (gsk_...) sifreli saklanir; bos gonderilirse silinir
-  ipcMain.handle('neo:key',(e,p,k)=>{if(!from(e)||!BRAINS.includes(p))return null;k=String(k||'').trim();
-    if(k&&(p==='groq'?!/^gsk_[A-Za-z0-9]{20,100}$/.test(k):!/^sk-ant-[\w-]{20,200}$/.test(k)))return {...view(),keyError:p==='groq'?'Groq anahtarı "gsk_" ile başlar.':'Claude anahtarı "sk-ant-" ile başlar.'};
-    keys.set(p,k||null);delete brains[p];return view()});
+  // Anahtar sifreli saklanir. Bos metin yok sayilir (yanlislikla "Kaydet" silmesin); yalniz acik null ("Sil" dugmesi) siler
+  ipcMain.handle('neo:key',(e,p,k)=>{if(!from(e)||!BRAINS.includes(p))return null;
+    if(k===null){keys.set(p,null);delete brains[p];return view()}
+    k=typeof k==='string'?k.trim():'';if(!k)return view();
+    if((p==='groq'?!/^gsk_[A-Za-z0-9]{20,100}$/.test(k):!/^sk-ant-[\w-]{20,200}$/.test(k)))return {...view(),keyError:p==='groq'?'Groq anahtarı "gsk_" ile başlar.':'Claude anahtarı "sk-ant-" ile başlar.'};
+    keys.set(p,k);delete brains[p];return view()});
   ipcMain.handle('neo:link',e=>{if(from(e))shell.openExternal('https://console.groq.com/keys')});
   app.whenReady().then(()=>{if(isOn())enable()});
   app.on('will-quit',()=>stop(true));

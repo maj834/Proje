@@ -9,8 +9,9 @@ const execDefault=(file,args,o={})=>new Promise((ok,no)=>{
     if(e){e.stderr=String(err||'').slice(0,500);return no(e)}ok(out)})});
 
 // fetch/exec/base yalniz testler icin disaridan verilebilir
-function registerHiz({ipcMain,app,BrowserWindow,path,cfg,save,isOn=()=>true,fetch,exec,base,testOpts}){
-  let win=null,ctl=null,running=null;
+const NEO_COOLDOWN=60000;
+function registerHiz({ipcMain,app,BrowserWindow,path,cfg,save,isOn=()=>true,fetch,exec,base,testOpts,now=()=>Date.now()}){
+  let win=null,ctl=null,running=null,neoAt=-Infinity;
   const run=exec||execDefault;
   const conf=()=>({history:[],...(cfg().hiz||{})});
   const history=()=>(Array.isArray(conf().history)?conf().history:[]).slice(-H.HISTORY_MAX);
@@ -83,7 +84,9 @@ function registerHiz({ipcMain,app,BrowserWindow,path,cfg,save,isOn=()=>true,fetc
   }
   // Neo (sesli asistan): testi calistir, ozet sonuc dondur (pencere aciksa canli ilerleme orada da gorunur)
   // Pencere aciksa testi o da gostersin (ext: dugmeye basilmadan baslayan test); bitince sonuc ve gecmis gider
-  async function runForNeo(){toWin('hiz:evt',{phase:'start',ext:true,pct:0});const r=await start();
+  // Neo arka arkaya test yaptirmasin (veri/sure): basarili testten sonra 1 dk bekleme
+  async function runForNeo(){if(now()-neoAt<NEO_COOLDOWN)return {error:'Hız testi az önce yapıldı; 1 dakika bekle.'};
+    toWin('hiz:evt',{phase:'start',ext:true,pct:0});const r=await start();if(r.ok)neoAt=now();
     toWin('hiz:evt',{phase:'extdone',ok:!!r.ok,result:r.result||null,history:history(),error:r.error||null});
     if(!r.ok)return {error:r.error||'Test yapılamadı.'};const x=r.result||{};
     return {download_mbit:x.down??x.download??null,upload_mbit:x.up??x.upload??null,ping_ms:x.ping??x.latency??null,jitter_ms:x.jitter??null,verdict:x.verdict||null,isp:x.isp||(x.meta&&x.meta.isp)||null}}

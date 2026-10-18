@@ -12,7 +12,8 @@ const YEARS={
     '05-26':['half','Kurban Bayramı arifesi'],'05-27':['full','Kurban Bayramı'],'05-28':['full','Kurban Bayramı'],'05-29':['full','Kurban Bayramı'],'05-30':['full','Kurban Bayramı']}},
   // 2027 dini bayram tarihleri tahmindir: dogrulanmali (Borsa Istanbul takvimi)
   2027:{verified:false,days:{
-    '03-09':['half','Ramazan Bayramı arifesi'],'03-10':['full','Ramazan Bayramı'],'03-11':['full','Ramazan Bayramı'],'03-12':['full','Ramazan Bayramı'],
+    // Diyanet hesabina gore (2025 ile ayni desen): arife 8 Mart, bayram 9-11 Mart 2027
+    '03-08':['half','Ramazan Bayramı arifesi'],'03-09':['full','Ramazan Bayramı'],'03-10':['full','Ramazan Bayramı'],'03-11':['full','Ramazan Bayramı'],
     '05-15':['half','Kurban Bayramı arifesi'],'05-16':['full','Kurban Bayramı'],'05-17':['full','Kurban Bayramı'],'05-18':['full','Kurban Bayramı'],'05-19':['full','Kurban Bayramı']}}
 };
 const hhmm=m=>String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0');

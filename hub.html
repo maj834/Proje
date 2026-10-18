@@ -24,7 +24,7 @@ h1{font:600 22px var(--font);margin:0;letter-spacing:-.01em}
 .sw{position:relative;width:32px;height:18px;flex:none}.sw input{opacity:0;width:0;height:0;position:absolute}
 .sw span{position:absolute;inset:0;border-radius:9px;background:var(--line-2);transition:background .15s;cursor:pointer}
 .sw span:before{content:'';position:absolute;left:2px;top:2px;width:14px;height:14px;border-radius:50%;background:#fff;transition:transform .15s;box-shadow:0 1px 2px rgba(0,0,0,.25)}
-.sw input:checked+span{background:var(--acc)}.sw input:checked+span:before{transform:translateX(14px)}.sw input:disabled+span{opacity:.4;cursor:default}
+.sw input:checked+span{background:var(--acc)}.sw input:checked+span:before{transform:translateX(14px)}.sw input:disabled+span{opacity:.4;cursor:default}.sw input:focus-visible+span{outline:2px solid var(--acc);outline-offset:2px}
 .lbl{font-size:12px;color:var(--fg-2)}
 .upd{margin-top:var(--s4);background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:var(--s3) var(--s4);display:none;gap:var(--s3);align-items:center;flex-wrap:wrap}
 .upd.on{display:flex}.upd.ready{border-color:var(--acc)}.upd .t{font:600 13px var(--font)}.upd .n{color:var(--fg-3);font-size:12px;flex-basis:100%}
@@ -39,7 +39,7 @@ h1{font:600 22px var(--font);margin:0;letter-spacing:-.01em}
   <div class="upd" id="upd" role="status"></div>
   <div class="bar" id="flt"></div>
   <div class="grid" id="grid"></div>
-  <div class="ver"><span id="ver"></span><a id="chk">Güncellemeleri denetle</a><label><input type="checkbox" id="auto"> Otomatik indir</label></div>
+  <div class="ver"><span id="ver"></span><a id="chk" href="#" role="button">Güncellemeleri denetle</a><label><input type="checkbox" id="auto"> Otomatik indir</label></div>
 </div>
 <script>
 const $=id=>document.getElementById(id);
@@ -71,7 +71,7 @@ function render(){
     const ic=el('div','ico');ic.innerHTML=P+(ICONS[m.id]||'')+'</svg>';
     const hd=el('div','hd'),tx=el('div');tx.append(el('div','nm',m.name),el('div','st',!m.ready?'Yakında':m.on?(m.status||'Açık'):'Kapalı'));hd.append(ic,tx);
     const ft=el('div','ft');
-    if(m.ready){const sw=el('label','sw'),inp=el('input');inp.type='checkbox';inp.checked=m.on;inp.title=m.on?'Kapat':'Aç';
+    if(m.ready){const sw=el('label','sw'),inp=el('input');inp.type='checkbox';inp.checked=m.on;inp.title=m.on?'Kapat':'Aç';inp.setAttribute('aria-label',m.name+(m.on?' kapat':' aç'));
       inp.onchange=async()=>{S=await hub.toggle(m.id,inp.checked);render()};sw.append(inp,el('span'));
       const open=el('button','btn','Aç');open.disabled=!m.on;open.onclick=()=>hub.open(m.id);
       ft.append(sw,el('span','lbl',m.on?'Açık':'Kapalı'),open)}
@@ -104,6 +104,6 @@ function renderUpd(){
   if(u.notes&&u.notes.length&&u.phase!=='error'){const n=el('div','n','Yenilikler: '+u.notes.slice(0,5).join(' · '));b.append(n)}
 }
 hub.upd.on(u=>{U=u;renderUpd()});hub.upd.state().then(u=>{if(u){U=u;renderUpd()}});
-$('chk').onclick=async()=>{$('chk').textContent='Denetleniyor…';const u=await hub.upd.check();if(u)U=u;$('chk').textContent='Güncellemeleri denetle';renderUpd()};
+$('chk').onclick=async e=>{e.preventDefault();$('chk').textContent='Denetleniyor…';const u=await hub.upd.check();if(u)U=u;$('chk').textContent='Güncellemeleri denetle';renderUpd()};
 $('auto').onchange=async()=>{const u=await hub.upd.set({auto:$('auto').checked});if(u)U=u;renderUpd()};
 </script></body></html>

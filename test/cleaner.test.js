@@ -13,7 +13,7 @@ function put(p, data, ageDays) {
   return p;
 }
 const rnd = n => crypto.randomBytes(n);
-function setup(t) { const d = tmpDir(); t.after(() => fs.rmSync(d, { recursive: true, force: true })); return d; }
+function setup(t) { const d = tmpDir(); t.after(() => fs.rmSync(d, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })); return d; }
 // Sahte Cop Sepeti: dosyalari gecici .Trash klasorune tasir
 function fakeTrash(dir) {
   const tr = path.join(dir, 'FakeTrash'); fs.mkdirSync(tr, { recursive: true });

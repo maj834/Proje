@@ -167,9 +167,11 @@ func appInfo(_ bundle: String) -> [String: Any] {
 struct Settings: Equatable { var gain: Float = 1; var bass: Float = 0; var treble: Float = 0; var mute = false
     var neutral: Bool { !mute && abs(gain - 1) < 0.005 && abs(bass) < 0.1 && abs(treble) < 0.1 } }
 
-// RBJ ses kitabi raf filtresi katsayilari (S = 1)
+// RBJ ses kitabi raf filtresi katsayilari (S = 1). Kose frekansi Nyquist'e yaklasinca (or. 8 kHz Bluetooth
+// HFP'de 7 kHz tiz) filtre kararsizlasir: f0 en fazla 0,45 * fs.
 func shelf(low: Bool, f0: Double, dB: Double, fs: Double) -> [Float] {
-    let A = pow(10, dB / 40), w0 = 2 * Double.pi * f0 / fs, cw = cos(w0), sw = sin(w0)
+    let f = min(f0, 0.45 * fs)
+    let A = pow(10, dB / 40), w0 = 2 * Double.pi * f / fs, cw = cos(w0), sw = sin(w0)
     let alpha = sw / 2 * sqrt(2.0), sA = 2 * sqrt(A) * alpha
     var b0, b1, b2, a0, a1, a2: Double
     if low {
@@ -194,8 +196,10 @@ final class Processor {
     private var pending = Params(), live = Params()
     private let z: UnsafeMutablePointer<Float> = { let p = UnsafeMutablePointer<Float>.allocate(capacity: Processor.maxCh * 4); p.initialize(repeating: 0, count: Processor.maxCh * 4); return p }()
     private var g: Float = 1
-    // Ses dizisinin yazdigi sayaclar (izin reddi = surekli sessiz yakalama tespiti icin)
+    // Ses dizisinin yazdigi sayaclar (izin reddi = surekli sessiz yakalama tespiti icin).
+    // heard: yakalama en az bir kez sessiz olmayan ornek verdi (izin var; sonraki uzun sessizlik ret sayilmaz)
     var callbacks = 0, silent = 0
+    var heard = false
     deinit { z.deallocate(); lock.deallocate() }
     func update(_ s: Settings) {                                   // ana dizi
         func t(_ a: [Float]) -> K { (a[0], a[1], a[2], a[3], a[4]) }
@@ -231,7 +235,8 @@ final class Processor {
         let tin = td.assumingMemoryBound(to: Float.self)
         let inFrames = tbytes / (MemoryLayout<Float>.size * tch)
         callbacks &+= 1
-        if inFrames > 0 && tin[0] == 0 && tin[(inFrames - 1) * tch] == 0 { silent &+= 1 } else { silent = 0 }
+        if inFrames > 0 && tin[0] == 0 && tin[(inFrames - 1) * tch] == 0 { silent &+= 1 }
+        else { silent = 0; if inFrames > 0 && !heard { heard = true } }
         var gEnd = g; var ch = 0
         for b in ol { guard let d = b.mData else { continue }
             let n = max(1, Int(b.mNumberChannels)), o = d.assumingMemoryBound(to: Float.self)
@@ -244,6 +249,8 @@ final class Processor {
                     var x: Float = 0
                     if i < inFrames { x = mono ? 0.5 * (tin[i * tch] + tin[i * tch + 1]) : (src >= 0 ? tin[i * tch + src] : 0) }
                     x = bq(bq(x, p.low, st), p.high, st + 2) + 1e-25   // +1e-25: Intel'de denormal yavaslamasi olmasin
+                    // NaN/sonsuz filtre durumunda kalirsa kanal kalici olarak bozulur: durumu sifirla, bu ornek sessiz
+                    if !x.isFinite { st[0] = 0; st[1] = 0; st[2] = 0; st[3] = 0; x = 0 }
                     o[i * n + c] = limit(x * gg)
                 }
                 gEnd = gg; ch += 1
@@ -327,6 +334,7 @@ final class Engine {
     var taps: [TapKey: AnyObject] = [:]; var lastOutput: String? = nil; var lastList = "", lastDev = ""
     var failed: [String: Date] = [:]                            // "bundle\nuid": kurulamayan yakalamayi 30 sn tekrar deneme
     var denied = Set<String>()                                  // izin verilmedi (surekli sessiz) uygulamalar
+    var heardApps = Set<String>()                               // yakalamasindan en az bir kez ses gelmis uygulamalar
     // Dinleyiciler: varsayilan cikis, yakalanan her surecin aygit listesi, kullanilan her cikis aygitinin hiz/yapisi
     var sysL: Listener? = nil; var procL: [AudioObjectID: Listener] = [:]; var devL: [AudioObjectID: Listener] = [:]
     var devSig: [AudioObjectID: String] = [:]
@@ -383,6 +391,10 @@ final class Engine {
     // aygitlardaki yakalamalar da yeniden kurulur (yalnizca gecikmeli senkronda; duzenli kontrol bunu tuketmez).
     func sync(force: Bool = false, rebuildStale: Bool = false) {
         guard #available(macOS 14.2, *) else { return }
+        // Yakalama (process tap) yalnizca macOS 14.4+ (ust duzeydeki `supported` ile ayni kontrol); altinda
+        // liste/aygitlar bildirilir ama yakalama kurulmaz
+        let canTap: Bool
+        if #available(macOS 14.4, *) { canTap = true } else { canTap = false }
         let procs = audioProcesses()
         let defID = defaultOutput()
         let outUID = defID.flatMap { getString($0, kAudioDevicePropertyDeviceUID) }
@@ -406,9 +418,11 @@ final class Engine {
         }
         var byBundle: [String: [AudioProc]] = [:], playing = Set<String>(), playingObjs = Set<AudioObjectID>()
         for p in procs { byBundle[p.bundle, default: []].append(p); if p.playing { playing.insert(p.bundle); playingObjs.insert(p.obj) } }
-        // Izin reddi: 3 sn'den uzun suredir yakalama hep sessiz ama yakaladigi surec ses caliyor
+        // Izin reddi: 3 sn'den uzun suredir yakalama hep sessiz ama yakaladigi surec ses caliyor ve bu uygulamadan
+        // hic ses gelmedi (ses duyulduktan sonraki uzun dijital sessizlik ret degildir)
         for (k, t) in taps { let t = t as! AppTap
-            if !denied.contains(k.bundle) && t.objs.contains(where: { playingObjs.contains($0) })
+            if t.proc.heard { heardApps.insert(k.bundle) }
+            if !denied.contains(k.bundle) && !heardApps.contains(k.bundle) && t.objs.contains(where: { playingObjs.contains($0) })
                 && t.proc.callbacks > 300 && t.proc.silent > 300 && Date().timeIntervalSince(t.born) > 3 {
                 denied.insert(k.bundle)
                 emit(["type": "error", "code": "tcc", "msg": "Uygulama sesine erişim izni yok. Sistem Ayarları › Gizlilik ve Güvenlik › Ekran ve Sistem Sesi Kaydı › Yalnızca Sistem Sesi Kaydı'nda Cem App'i aç."])
@@ -416,6 +430,7 @@ final class Engine {
         }
         let tapped = Set(taps.keys.map { $0.bundle })
         let wanted: (String) -> Bool = { b in
+            if !canTap { return false }
             let e = self.effective(b); if e.neutral || self.denied.contains(b) { return false }
             return self.perApp[b] != nil || playing.contains(b) || tapped.contains(b)
         }
@@ -466,7 +481,7 @@ final class Engine {
             let uids = via.isEmpty ? (shown[p.bundle] ?? []) : via
             if !uids.isEmpty { d["device"] = uids.map { nameOf[$0] ?? $0 }.joined(separator: ", ") }
             apps.append(d) }
-        let key = apps.map { "\($0["bundle"]!)\($0["playing"]!)\($0["active"]!)\($0["device"] ?? "")" }.joined() + (outUID ?? "")
+        let key = apps.map { "\($0["bundle"]!)\($0["playing"]!)\($0["active"]!)\($0["denied"]!)\($0["device"] ?? "")" }.joined() + (outUID ?? "")
         if key != lastList || force { lastList = key; emit(["type": "apps", "apps": apps]) }
         let dkey = devs.map { "\($0["uid"] ?? "")\($0["default"] ?? "")\($0["volume"] ?? "")\($0["muted"] ?? "")" }.joined()
         if dkey != lastDev || force { lastDev = dkey; emit(["type": "devices", "devices": devs]) }
@@ -507,8 +522,10 @@ func handle(_ line: String) {
         let s = settingsFrom(o); if s.neutral { engine.perApp[b] = nil } else { engine.perApp[b] = s }
         engine.denied.remove(b); engine.clearFailed(b)
         if supported { engine.sync() } else { emit(["type": "unsupported"]) }
-    case "global": engine.global = settingsFrom(o); if supported { engine.sync() } else { emit(["type": "unsupported"]) }
-    case "reset": engine.perApp = [:]; engine.global = Settings(); engine.sync(force: true)
+    case "global":
+        engine.global = settingsFrom(o); engine.denied.removeAll()
+        if supported { engine.sync() } else { emit(["type": "unsupported"]) }
+    case "reset": engine.perApp = [:]; engine.global = Settings(); engine.denied.removeAll(); engine.sync(force: true)
     case "masterVolume": setMasterVolume(Float((o["value"] as? Double) ?? 0.5)); emit(["type": "devices", "devices": outputDevices()])
     case "masterMute": setMasterMute((o["value"] as? Bool) ?? false); emit(["type": "devices", "devices": outputDevices()])
     // Varsayilani izleyen uygulamalar yeni aygita gecince surec aygit dinleyicisi yakalamayi tasir; diger aygitlara

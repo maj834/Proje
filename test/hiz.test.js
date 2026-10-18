@@ -295,3 +295,18 @@ test('hexPass: Turkce karakterli sifre hex gelirse cozulur, gercek hex sifre boz
   assert.equal(H.hexPass('normal şifre'), 'normal şifre');
   assert.equal(H.hexPass('ff00'), 'ff00', 'gecersiz UTF-8 ise dokunma');
 });
+
+test('L4: Neo hiz testi 1 dakika icinde tekrarlanmaz; durum running bayragini icerir', async (t) => {
+  const { base, st } = await server(t, { rate: 4e6 });
+  const fe = fakeElectron(); let now = 1e6;
+  const ui = registerHiz({ ...fe.deps, isOn: () => true, base, exec: async () => '', now: () => now, testOpts: { dlMs: 400, ulMs: 300, pingCount: 2 } });
+  const r1 = await ui.run();
+  assert.equal(r1.error, undefined); assert.ok(r1.download_mbit > 0);
+  const reqs = st.reqs;
+  now += 30000;
+  assert.deepEqual(await ui.run(), { error: 'Hız testi az önce yapıldı; 1 dakika bekle.' });
+  assert.equal(st.reqs, reqs, 'bekleme suresinde ag istegi yok');
+  now += 31000;
+  assert.equal((await ui.run()).error, undefined);
+  ui.open(); assert.equal((await fe.handlers['hiz:state']({ sender: fe.wc })).running, false); ui.disable();
+});

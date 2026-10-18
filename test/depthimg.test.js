@@ -194,3 +194,79 @@ test('parseStats: eksi gunluk degisim korunur (F11)', () => {
   assert.equal(st.dayChange, -1.2);
   assert.equal(st.low, 9.93);
 });
+
+// --- tesseract.js sahtesi: varsayilan OCR iscisinin yasam dongusu -----------------
+const Module = require('module');
+function mockTesseract(t) {
+  const st = { workers: [], opts: [], creating: null, overlap: 0 };
+  const delay = ms => new Promise(r => setTimeout(r, ms));
+  const fake = {
+    async createWorker(lang, oem, opts) {
+      st.opts.push(opts);
+      if (st.creating) await st.creating;
+      let busy = false, params = null;
+      const w = {
+        terminated: false,
+        async setParameters(p) { if (busy) st.overlap++; busy = true; await delay(2); params = p; },
+        async recognize(buf) {
+          await delay(3);
+          busy = false;
+          if (w.terminated) throw new Error('terminated');
+          if (String(buf) === 'bozuk') throw new Error('Error attempting to read image.');
+          return { data: { text: params.tessedit_pageseg_mode + ':' + buf, confidence: 90 } };
+        },
+        async terminate() { w.terminated = true; }
+      };
+      st.workers.push(w);
+      return w;
+    }
+  };
+  const p = require.resolve('../depthimg.js');
+  delete require.cache[p];
+  const orig = Module._load;
+  Module._load = function (r, ...a) { return r === 'tesseract.js' ? fake : orig.call(this, r, ...a); };
+  st.DI = require(p);
+  delete require.cache[p];
+  t.after(async () => { await st.DI.close(); Module._load = orig; });
+  return st;
+}
+
+test('defaultOcr: isci errorHandler ile acilir, hata yine reddedilir (L1)', async t => {
+  const st = mockTesseract(t);
+  await assert.rejects(st.DI.defaultOcr(Buffer.from('bozuk'), 'num'), /read image/);
+  assert.equal(st.opts.length, 1);
+  assert.equal(typeof st.opts[0].errorHandler, 'function', 'errorHandler yoksa tesseract ana surecte istisna atar');
+  assert.doesNotThrow(() => st.opts[0].errorHandler('Error attempting to read image.'));
+  assert.deepEqual(await st.DI.defaultOcr(Buffer.from('a'), 'num'), { text: '7:a', conf: 90 }, 'hatadan sonra isci kullanilmaya devam eder');
+});
+
+test('defaultOcr: eszamanli cagrilar sirayla calisir, parametreler karismaz (L2)', async t => {
+  const st = mockTesseract(t);
+  const modes = ['num', 'text', 'trade', 'line', 'text', 'num', 'line', 'trade'];
+  const r = await Promise.all(modes.map((m, i) => st.DI.defaultOcr(Buffer.from(String(i)), m)));
+  assert.equal(st.workers.length, 1, 'tek isci paylasilir');
+  assert.equal(st.overlap, 0, 'setParameters/recognize ciftleri ic ice gecmemeli');
+  assert.deepEqual(r.map(x => x.text), modes.map((m, i) => (m === 'text' ? '6' : '7') + ':' + i));
+});
+
+test('close: acilmakta olan isci de sonlandirilir (L3)', async t => {
+  const st = mockTesseract(t);
+  let open; st.creating = new Promise(r => { open = r; });
+  const job = st.DI.defaultOcr(Buffer.from('x'), 'num');
+  const late = st.DI.defaultOcr(Buffer.from('y'), 'num');
+  await new Promise(r => setTimeout(r, 5));
+  let closed = false;
+  const c = st.DI.close().then(() => { closed = true; });
+  await new Promise(r => setTimeout(r, 5));
+  assert.equal(closed, false, 'close acilan isciyi bekler');
+  open();
+  await c;
+  await assert.rejects(job, /kapat/);
+  await assert.rejects(late, /kapat/, 'kapatmadan once siraya giren is yeni isci acmaz');
+  assert.equal(st.workers.length, 1);
+  assert.equal(st.workers[0].terminated, true, 'isci sizmamali');
+  // Kapatmadan sonra yeni cagri yeni isci acar.
+  st.creating = null;
+  assert.equal((await st.DI.defaultOcr(Buffer.from('z'), 'num')).text, '7:z');
+  assert.equal(st.workers.length, 2);
+});

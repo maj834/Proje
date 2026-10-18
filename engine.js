@@ -298,7 +298,7 @@ function analyzeCandles(candles,{X0,X1,Y0,Y1,W,H,minTol=3}){
   // Risk/odul: en yakin dirence uzaklik / en yakin destege uzaklik.
   const riskReward=res.length&&sup.length?+((lastY-res[0].y)/Math.max(span*1e-3,sup[0].y-lastY)).toFixed(2):null;
   const ind={rsi:r!=null?Math.round(r):null,rsiSeries:R.slice(-60).map(v=>v==null?null:Math.round(v)),
-    macd:hist[N-1]>0?'pozitif':'negatif',macdCross:crossM,emaTrend:eUp?'yukari':'asagi',emaCross:crossE,
+    macd:hD>0?'pozitif':hD<0?'negatif':'notr',macdCross:crossM,emaTrend:eD>0?'yukari':eD<0?'asagi':'yatay',emaCross:crossE,
     bb:bbU!=null?{pos:Math.round((cl[N-1]-bbL)/Math.max(1e-6,bbU-bbL)*100),width:Math.round((bbU-bbL)/span*100)}:null,
     candle:cp&&cp.name,divergence:div&&div.name};
   // 14) Gecmis AL/SAT isaretleri: trendin dondugu mumlar (her biri gerekceleriyle).

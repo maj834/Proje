@@ -31,7 +31,7 @@ body.draw #badge{display:none!important}
 #dcard .tr{margin-top:6px;font-weight:500}#dcard .up{color:oklch(74% 0.15 155)}#dcard .dn{color:oklch(68% 0.18 25)}#dcard b{font:500 12px var(--mono)}
 #dcard svg{position:static;width:100%;height:30px;margin-top:4px}
 #dcard .ws{margin-top:7px;display:flex;flex-direction:column;gap:3px}
-#dcard .tt{margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,.08);opacity:.85;font:400 11px var(--mono)}
+#dcard .tt{overflow:hidden;text-overflow:ellipsis;overflow-wrap:anywhere;margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,.08);opacity:.85;font:400 11px var(--mono)}
 #dcard .sig{display:flex;align-items:center;gap:10px;margin:10px 0 2px;padding:8px 10px;border-radius:5px;background:rgba(255,255,255,.05);border-left:3px solid #7d838c}
 #dcard .sig b{font:700 18px var(--mono);letter-spacing:.04em;min-width:58px}#dcard .sig.up{border-color:#33b37b}#dcard .sig.dn{border-color:#e5534b}
 #dcard .sig.up b{color:#33b37b}#dcard .sig.dn b{color:#ff6b6f}#dcard .sig .rs{display:flex;flex-direction:column;gap:2px;font:400 10.5px var(--font);opacity:.85}
@@ -266,7 +266,9 @@ addEventListener('resize',()=>{if(A)drawAnalysis({...A,anim:false});else render(
 
 
 // --- derinlik katmani -----------------------------------------------------
-const kfmt=n=>n==null?'—':Math.abs(n)>=1e6?(n/1e6).toLocaleString('tr-TR',{maximumFractionDigits:1})+'M':Math.abs(n)>=1e3?Math.round(n/1e3).toLocaleString('tr-TR')+'K':n.toLocaleString('tr-TR');
+// main.js bistCode ile ayni: Turkce harfler ASCII'ye, .IS ve diger isaretler atilir
+const bc=s=>String(s||'').toLocaleUpperCase('tr-TR').replace(/\.IS$/,'').replace(/[ŞÇĞÖÜİ]/g,c=>({Ş:'S',Ç:'C',Ğ:'G',Ö:'O',Ü:'U',İ:'I'})[c]).replace(/[^A-Z0-9]/g,'');
+const kfmt=n=>n==null?'—':Math.abs(n)>=1e6?(n/1e6).toLocaleString('tr-TR',{maximumFractionDigits:1})+'M':Math.abs(n)>=1e4?Math.round(n/1e3).toLocaleString('tr-TR')+'K':n.toLocaleString('tr-TR');
 let lastWallsKey='',DD=null,lastLiveDir=null,BNO=null;
 function drawDepth(d){
   DD=d;const dp=$('dp'),card=$('dcard');dp.replaceChildren();
@@ -292,7 +294,7 @@ function drawDepth(d){
   // Kose karti: baski, trend, mini grafik, duvarlar (konumlanamadiysa), son islemler
   const pr=d.pressure,tr=d.trend||{},h=d.history||[];
   const parts=[];const e=(tag,cls,txt)=>{const x=document.createElement(tag);if(cls)x.className=cls;if(txt!=null)x.textContent=txt;return x};
-  const hd=e('div','hd');hd.append(e('span',null,(d.symbol||'')+(d.last!=null?'  '+fmt(d.last):'')+(d.change!=null?'  '+(d.change>0?'+':'')+fmt(d.change)+'%':'')),e('small',null,(d.source==='telegram'?'Telegram':'Ekran')+' · '+new Date(d.at).toLocaleTimeString('tr-TR')));parts.push(hd);
+  const hd=e('div','hd');hd.append(e('span',null,(d.symbol||'')+(d.last!=null?'  '+fmt(d.last):'')+(d.change!=null?'  '+(d.change>0?'+':d.change<0?'-':'')+'%'+fmt(Math.abs(d.change)):'')),e('small',null,(d.source==='telegram'?'Telegram':'Ekran')+' · '+new Date(d.at).toLocaleTimeString('tr-TR')));parts.push(hd);
   // Canli AL/SAT: islem akisi + baski + kurum akisi (+ grafik skoru)
   const lv=d.live;
   if(lv){const k=lv.dir>0?'up':lv.dir<0?'dn':'',box=e('div','sig '+k+(lv.dir!==lastLiveDir?' new':''));lastLiveDir=lv.dir;
@@ -318,9 +320,10 @@ function drawDepth(d){
   if(b0||s0){const r=e('div','row');r.append(e('span','up',b0?'▲ '+b0.name.slice(0,14)+' '+kfmt(b0.net):''),e('span','dn',s0?'▼ '+s0.name.slice(0,14)+' '+kfmt(s0.net):''));parts.push(r)}
   if((d.trades||[]).length){const t=d.trades.slice(0,3).map(x=>fmt(x.price)+' × '+kfmt(x.qty)+(x.buyer?' '+x.buyer+'→'+(x.seller||''):'')).join('\n');const tt=e('div','tt');tt.style.whiteSpace='pre';tt.textContent=t;parts.push(tt)}
   // Haber botundan bu hisse icin son 24 saatin en onemli haberi
-  const nw=BNO&&BNO.symbol===String(d.symbol||'').replace(/\W/g,'')?BNO.list.find(n=>!n.general&&(n.importance||Math.abs(n.score||0))>=3&&Date.now()-new Date(n.ts).getTime()<86400000):null;
+  const sc=bc(d.symbol);
+  const nw=BNO&&BNO.symbol===sc?BNO.list.find(n=>!n.general&&(n.importance||Math.abs(n.score||0))>=3&&Date.now()-new Date(n.ts).getTime()<86400000):null;
   if(nw)parts.push(e('div','tt '+(nw.score>0?'up':nw.score<0?'dn':''),'Haber: '+(nw.summary||nw.title).slice(0,90)));
-  const mine=BNO&&BNO.symbol===String(d.symbol||'').replace(/\W/g,'');
+  const mine=BNO&&BNO.symbol===sc;
   const acc=mine&&BNO.akd&&BNO.akd.top[0];
   if(acc&&BNO.akd.days>=2)parts.push(e('div','tt up',BNO.akd.days+' günlük birikim: '+acc.name.slice(0,18)+' +'+kfmt(acc.net)+' ('+acc.buyDays+'/'+BNO.akd.days+' gün alıcı)'));
   const ev=mine&&(BNO.calendar||[])[0];

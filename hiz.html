@@ -139,7 +139,8 @@ function history(){
 let ext=false;   // Neo'nun baslattigi test
 hiz.on(p=>{if(!p)return;
   if(p.phase==='start'&&p.ext&&!busy){ext=true;$('go').disabled=true;$('err').textContent='';gauge(0);$('pct').style.width='0%';$('phase').textContent='Neo test yapıyor…';return}
-  if(p.phase==='extdone'){ext=false;$('go').disabled=false;if(p.ok&&p.result){$('phase').textContent='Bitti';gauge(p.result.down);$('pct').style.width='100%';S.history=p.history||S.history;result(p.result);history()}
+  if(p.phase==='extdone'){if(busy)return;   // kullanicinin kendi testi suruyor: Neo'nun ("zaten suruyor") sonucu onu bozmasin
+    ext=false;$('go').disabled=false;if(p.ok&&p.result){$('err').textContent='';$('phase').textContent='Bitti';gauge(p.result.down);$('pct').style.width='100%';S.history=p.history||S.history;result(p.result);history()}
     else{$('phase').textContent='';gauge(null);$('pct').style.width='0%';if(p.error)$('err').textContent=p.error}return}
   if(!busy&&!ext)return;$('phase').textContent=PH[p.phase]||'';
   $('pct').style.width=Math.max(0,Math.min(100,+p.pct||0))+'%';
@@ -176,5 +177,7 @@ $('wipe').onclick=()=>{$('pass').value='';$('ssid').value='';$('qrPass').textCon
 window.addEventListener('pagehide',()=>{$('pass').value='';$('qrPass').textContent='';stale()});
 
 hiz.state().then(s=>{if(!s)return;S=s;history();mac=!!s.wifi;if(!s.wifi){$('find').disabled=$('getPass').disabled=true;$('wNote').textContent='Ağ adı ve şifre otomatik yalnızca Mac\'te alınır; elle yazabilirsin.'}
-  const l=(s.history||[]).at(-1);if(l)gauge(l.down)});
+  const l=(s.history||[]).at(-1);if(l)gauge(l.down);
+  // Pencere Neo'nun suren testi sirasinda acildi: dugme kilitli, ilerleme gosterilir
+  if(s.running&&!busy){ext=true;$('go').disabled=true;$('phase').textContent='Neo test yapıyor…'}});
 </script></body></html>

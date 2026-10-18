@@ -167,3 +167,30 @@ test('errorText: 401, kredi 403, 404, 429, cevrimdisi, SyntaxError', async t => 
   assert.equal(err.message, 'Grok\'a bağlanılamadı.');
   assert.equal(G.errorText(err), 'Grok\'a bağlanılamadı.');
 });
+
+test('model listesi onbellegi anahtara bagli; test() onbellegi atlar (M2)', async t => {
+  const G = fresh('grok.js');
+  const KEY2 = 'xai-' + 'b'.repeat(40);
+  let bad = false;
+  const calls = mockFetch(t, [
+    [isModels, (url, init) => (bad || init.headers.authorization !== 'Bearer ' + KEY) ? { status: 401, body: { error: 'Incorrect API key provided' } } : { body: MODELS }],
+    [isChat, () => ({ body: chat(JSON.stringify(ANALYSIS())) })]
+  ]);
+  const models = () => calls.filter(c => isModels.test(c.url));
+  assert.equal((await G.test(KEY)).ok, true);
+  // Gecerli anahtardan sonra gecersiz anahtar onbellekten "gecerli" gorunmemeli.
+  await assert.rejects(G.test(KEY2), e => e.status === 401);
+  // Ayni anahtar ikinci kez denendiginde de sunucuya gidilir (anahtar iptal edilmis olabilir).
+  bad = true;
+  await assert.rejects(G.test(KEY), e => e.status === 401);
+  assert.equal(models().length, 3);
+  // analyze icin onbellek anahtar bazinda: KEY ile listelenir, KEY2 icin tekrar sorulur.
+  bad = false;
+  const G2 = fresh('grok.js');
+  await G2.analyze({ key: KEY, img: IMG });
+  await G2.analyze({ key: KEY, img: IMG });
+  assert.equal(models().length, 4, 'ayni anahtar onbellekten');
+  await G2.analyze({ key: KEY2, img: IMG });
+  assert.equal(models().length, 5, 'farkli anahtar icin liste yeniden alinir');
+  assert.equal(calls.at(-1).body.model, 'grok-4', 'KEY2 listesi alinamazsa yedek model');
+});

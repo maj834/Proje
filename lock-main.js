@@ -58,7 +58,8 @@ function registerLock({ipcMain,dialog,shell,app,BrowserWindow,path,systemPrefere
     backup:e.backup!==false,recoverable:!!e.recoverable});
   function state(extra){
     const unlocked=vault.isUnlocked();
-    return {ok:true,setup:vault.hasPassword(),unlocked,touchId:canBio()&&keyOk()&&vault.hasBiometric(),canTouchId:canBio(),
+    const st=vault.status();
+    return {ok:true,setup:st==='ok',corrupt:st==='corrupt',unlocked,touchId:canBio()&&keyOk()&&vault.hasBiometric(),canTouchId:canBio(),
       remainingMs:vault.remainingMs(),idleMs:vault.idleMs,files:unlocked?vault.files().map(view):[],mac,...takeNotice(),...extra};
   }
   // Kurtarma bildirimi pencereye bir kez gider

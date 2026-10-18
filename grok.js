@@ -6,7 +6,8 @@ const ai=require('./ai');
 const BASE='https://api.x.ai/v1';
 // Model adlari zamanla degisir: once hesabin gorsel destekleyen modelleri listelenir, yoksa bu yedek kullanilir.
 const FALLBACK_MODEL='grok-4';
-let modelCache={at:0,list:null};
+// Onbellek anahtara baglidir: anahtar degisince (ya da baska anahtar denenince) liste yeniden alinir.
+let modelCache={key:null,at:0,list:null};
 
 const validKey=k=>/^xai-[A-Za-z0-9_-]{20,}$/.test(String(k||'').trim())||/^grok_[A-Za-z0-9_]{20,}$/.test(String(k||'').trim());
 
@@ -20,11 +21,11 @@ async function call(key,path,body,ms=60000){
 }
 
 // Gorsel girdi kabul eden modeller (hesaba gore). /language-models alanlari: id, input_modalities.
-async function models(key){
-  if(modelCache.list&&Date.now()-modelCache.at<3600000)return modelCache.list;
+async function models(key,{fresh=false}={}){
+  if(!fresh&&modelCache.list&&modelCache.key===key&&Date.now()-modelCache.at<3600000)return modelCache.list;
   const j=await call(key,'/language-models',null,15000);
   const list=((j&&(j.models||j.data))||[]).filter(m=>(m.input_modalities||[]).includes('image')).map(m=>m.id).filter(Boolean);
-  modelCache={at:Date.now(),list};
+  modelCache={key,at:Date.now(),list};
   return list;
 }
 async function pickModel(key,preferred){
@@ -71,8 +72,9 @@ async function analyzeDepth({key,model,img}){
   const r=await ask(key,m,ai.DSYS,ai.DSCHEMA,'derinlik',img,'Derinlik verilerini oku.');
   return {...r.data,model:r.model,cost:0};
 }
+// Anahtar denemesi her zaman sunucuya gider (onbellekteki liste gecersiz anahtari gizlemesin).
 async function test(key){
-  const l=await models(key);
+  const l=await models(key,{fresh:true});
   return {ok:true,visionModels:l};
 }
 

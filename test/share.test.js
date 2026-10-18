@@ -16,7 +16,7 @@ async function setup(t, ask = async () => true, o = {}) {
   const dir = tmpDir(), dl = path.join(dir, 'dl'); fs.mkdirSync(dl);
   const events = [];
   const S = createShare({ downloadsDir: dl, host: '127.0.0.1', ask, onEvent: e => events.push(e), ...o });
-  t.after(() => { S.stop(); fs.rmSync(dir, { recursive: true, force: true }); });
+  t.after(() => { S.stop(); fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }); });
   const info = await S.start();
   return { S, dir, dl, info, events };
 }
@@ -194,7 +194,7 @@ test('telefona yerel yol ya da sistem hatasi gitmez (F11)', async (t) => {
 });
 
 test('acilista yalnizca bu uygulamanin eski yarim dosyalari silinir (F11)', async (t) => {
-  const dir = tmpDir(); t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const dir = tmpDir(); t.after(() => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }));
   const old = Date.now() / 1000 - 2 * 3600;
   for (const n of ['eski.mov' + PART, 'yeni.mov' + PART, 'safari.part', 'film.mov']) fs.writeFileSync(path.join(dir, n), 'x');
   for (const n of ['eski.mov' + PART, 'safari.part', 'film.mov']) fs.utimesSync(path.join(dir, n), old, old);
@@ -245,11 +245,121 @@ test('share.html: baslatma hatasinda dugme "Yeniden başlat" olur ve hata gorunu
 });
 
 test('sure dolunca kapanir', async (t) => {
-  const dir = tmpDir(); t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const dir = tmpDir(); t.after(() => fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }));
   const ev = [];
   const S = createShare({ downloadsDir: dir, host: '127.0.0.1', ttl: 150, onEvent: e => ev.push(e) });
   const { url } = await S.start();
   await new Promise(r => setTimeout(r, 400));
   assert.ok(ev.some(e => e.type === 'stop' && e.reason === 'time'));
   await assert.rejects(req(url));
+});
+
+test('bos (0 bayt) dosya indirilir, oturum bosta kalinca yine kapanir (M1)', async (t) => {
+  const { S, dir, info, events } = await setup(t, undefined, { ttl: 300 });
+  const p = path.join(dir, 'bos.txt'); fs.writeFileSync(p, '');
+  const [f] = S.add([p]);
+  const r = await req(info.url + 'f/' + f.id);
+  assert.equal(r.status, 200); assert.equal(r.body.length, 0); assert.equal(r.headers['content-length'], '0');
+  assert.equal((await req(info.url + 'f/' + f.id, { headers: { range: 'bytes=0-' } })).status, 200);
+  await sleep(800);
+  assert.ok(events.some(e => e.type === 'stop' && e.reason === 'time'), 'sayac geri indi, sure doldu');
+});
+
+test('Range: "bytes=-" yok sayilir (200 tam dosya), "bytes=-0" 416', async (t) => {
+  const { S, dir, info } = await setup(t);
+  const p = path.join(dir, 'k.txt'); fs.writeFileSync(p, '0123456789');
+  const [f] = S.add([p]);
+  const a = await req(info.url + 'f/' + f.id, { headers: { range: 'bytes=-' } });
+  assert.equal(a.status, 200); assert.equal(a.body.toString(), '0123456789');
+  assert.equal((await req(info.url + 'f/' + f.id, { headers: { range: 'bytes=-0' } })).status, 416);
+  const b = await req(info.url + 'f/' + f.id, { headers: { range: 'bytes=-3' } });
+  assert.equal(b.status, 206); assert.equal(b.body.toString(), '789');
+});
+
+const fdCount = () => { try { return fs.readdirSync('/proc/self/fd').length; } catch (e) { return null; } };
+test('yarida kesilen indirmeler dosya tanimlayicisi sizdirmaz, stop() acik akislari kapatir (M2)', { skip: fdCount() === null && 'yalnizca /proc/self/fd olan sistemlerde' }, async (t) => {
+  const { S, dir, info } = await setup(t, undefined, { ttl: 60000 });
+  const p = path.join(dir, 'big.bin'); fs.writeFileSync(p, Buffer.alloc(16 * 1024 * 1024, 1));
+  const [f] = S.add([p]);
+  const agent = new http.Agent({ keepAlive: false });
+  const abortOne = () => new Promise(ok => { const q = http.get(info.url + 'f/' + f.id, { agent }, res => res.once('data', () => { q.destroy(); setTimeout(ok, 10); })); q.on('error', () => ok()); });
+  await abortOne(); await sleep(200);
+  const before = fdCount();
+  for (let i = 0; i < 20; i++) await abortOne();
+  await sleep(300);
+  assert.ok(fdCount() - before < 5, `fd ${before} -> ${fdCount()}`);
+  // durdurulan (soket bekletilen) indirmeler stop() ile kapanir
+  const u = new URL(info.url), socks = [];
+  for (let i = 0; i < 5; i++) { const s = net.connect(u.port, '127.0.0.1', () => s.write(`GET ${u.pathname}f/${f.id} HTTP/1.1\r\nHost: a\r\n\r\n`)); s.pause(); s.on('error', () => {}); socks.push(s); }
+  t.after(() => socks.forEach(s => s.destroy()));
+  await sleep(300);
+  const during = fdCount();
+  S.stop('quit'); await sleep(100);
+  socks.forEach(s => s.destroy()); await sleep(200);   // istemci soketleri de ayni surecte
+  assert.ok(fdCount() <= before + 2 && fdCount() < during, `fd once ${before}, indirme sirasinda ${during}, stop sonrasi ${fdCount()}`);
+});
+
+test('list yoklamasi oturumu acik tutmaz; gercek islem sayaci sifirlar ve "activity" bildirir (M3)', async (t) => {
+  const { info, events } = await setup(t, undefined, { ttl: 400 });
+  const n0 = events.filter(e => e.type === 'activity').length;
+  assert.equal((await req(info.url)).status, 200);
+  const n1 = events.filter(e => e.type === 'activity').length;
+  assert.equal(n1, n0 + 1, 'sayfa acmak sayaci sifirlar');
+  assert.equal(events.find(e => e.type === 'activity').ttl, 400);
+  await req(info.url + 'list'); await req(info.url, { method: 'HEAD' });
+  assert.equal(events.filter(e => e.type === 'activity').length, n1, 'list/HEAD sifirlamaz');
+  for (let k = 0; k < 10 && !events.some(e => e.type === 'stop'); k++) { await req(info.url + 'list').catch(() => {}); await sleep(100); }
+  assert.ok(events.some(e => e.type === 'stop' && e.reason === 'time'), 'yalnizca yoklama varken sure doldu');
+});
+
+test('safeName: ayrilmis yarim dosya eki ile biten ada "_" eklenir, gelen dosya silinmez (L1)', async (t) => {
+  assert.equal(safeName('Fatura' + PART), 'Fatura' + PART + '_');
+  assert.equal(safeName('X.CemApp-Part'), 'X.CemApp-Part_');
+  assert.equal(safeName('a.part'), 'a.part');
+  const long = safeName('x'.repeat(300) + PART);
+  assert.ok(!long.toLowerCase().endsWith(PART) && Buffer.byteLength(long) <= 200, long);
+  const { info, dl, S } = await setup(t);
+  const { ticket } = JSON.parse((await ask(info, [{ name: 'Fatura' + PART, size: 4 }])).body);
+  assert.equal((await up(info, ticket, 'Fatura' + PART, Buffer.from('veri'))).status, 200);
+  assert.deepEqual(fs.readdirSync(dl), ['Fatura' + PART + '_']);
+  S.stop();
+  const old = Date.now() / 1000 - 2 * 3600; fs.utimesSync(path.join(dl, 'Fatura' + PART + '_'), old, old);
+  assert.equal(sweepParts(dl), 0); assert.deepEqual(fs.readdirSync(dl), ['Fatura' + PART + '_']);
+});
+
+test('macOS: telefondan gelen dosyaya karantina isareti konur; diger sistemlerde cagri yok', async (t) => {
+  const calls = [];
+  const execFile = (cmd, args, o, cb) => { calls.push({ cmd, args }); setImmediate(() => cb(new Error('yok sayilir'))); };
+  const { info, dl, S } = await setup(t, undefined, { platform: 'darwin', execFile });
+  const { ticket } = JSON.parse((await ask(info, [{ name: 'a.zip', size: 3 }])).body);
+  assert.equal((await up(info, ticket, 'a.zip', Buffer.from('abc'))).status, 200, 'xattr hatasi yuklemeyi bozmaz');
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].cmd, '/usr/bin/xattr');
+  assert.deepEqual(calls[0].args.slice(0, 2), ['-w', 'com.apple.quarantine']);
+  assert.match(calls[0].args[2], /^0081;[0-9a-f]+;Cem App;$/);
+  assert.equal(calls[0].args[3], path.join(dl, 'a.zip'));
+  assert.equal(S.info().received.length, 1);
+  const calls2 = [];
+  const { info: i2 } = await setup(t, undefined, { platform: 'linux', execFile: (...a) => { calls2.push(a); a[a.length - 1](); } });
+  const { ticket: t2 } = JSON.parse((await ask(i2, [{ name: 'b.zip', size: 3 }])).body);
+  assert.equal((await up(i2, t2, 'b.zip', Buffer.from('abc'))).status, 200);
+  assert.equal(calls2.length, 0);
+});
+
+test('share.html: geri sayim sunucunun "activity" olayina uyar, baska olaylar sifirlamaz (M3)', async () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'share.html'), 'utf8');
+  const code = html.match(/<script>([\s\S]*)<\/script>/)[1];
+  const els = {};
+  const mk = () => ({ style: {}, textContent: '', innerHTML: '', childElementCount: 0, classList: { toggle() {}, add() {}, remove() {} }, replaceChildren() {}, append() {}, querySelector: () => mk(), remove() {} });
+  const document = { getElementById: id => (els[id] = els[id] || mk()), createElement: mk, addEventListener() {}, body: mk() };
+  let on, tick;
+  const share = { start: async () => ({ ok: true, running: true, url: 'http://x/', files: [], received: [] }), on: f => { on = f; } };
+  vm.runInNewContext(code, { document, share, setInterval: f => { tick = f; return 1; }, clearInterval() {}, setTimeout, String, Math });
+  await sleep(20);
+  for (let i = 0; i < 700; i++) tick();
+  assert.equal(els.ttl.textContent, 'Kapanmasına 0:00');
+  on({ type: 'visit', ip: '1.2.3.4' }); tick();
+  assert.equal(els.ttl.textContent, 'Kapanmasına 0:00', 'yalnizca activity sifirlar');
+  on({ type: 'activity', ttl: 120000 }); tick();
+  assert.equal(els.ttl.textContent, 'Kapanmasına 1:59');
 });

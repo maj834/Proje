@@ -1,3 +1,4 @@
+require('./smoke.js')(require('electron').app); // CEM_SMOKE=1: CI acilis testi (yoksa hicbir sey yapmaz)
 const {app,BrowserWindow,Tray,screen,desktopCapturer,ipcMain,globalShortcut,nativeImage,safeStorage,systemPreferences,shell,Menu,Notification,clipboard,dialog}=require('electron');
 const fs=require('fs'),path=require('path');
 const engine=require('./engine');
@@ -36,18 +37,18 @@ const neoUi=require('./neo-main').registerNeo({ipcMain,app,BrowserWindow,path,sc
     const out={symbol:code};
     try{const c=await market.candles(code,'1g','BIST'),q=c.quote;out.price=q.price;out.prev_close=q.prev;out.change_pct=q.price&&q.prev?+((q.price/q.prev-1)*100).toFixed(2):null;
       out.day_high=q.dayHigh;out.day_low=q.dayLow;out.volume=q.volume;out.name=q.name;out.note='Yahoo verisi ~15 dk gecikmeli olabilir'}catch(e){out.price_error=e.message}
-    if(lastDepth&&lastDepth.symbol===code&&Date.now()-lastDepth.at<15*60000){const d=lastDepth;out.depth={last:d.last,pressure:d.pressure&&d.pressure.text,trend:d.trend&&d.trend.text,
+    if(lastDepth&&lastDepth.symbol===code&&Date.now()-lastDepth.at<15*60000){const d=lastDepth;out.depth={last:d.last,pressure_score:d.pressure?d.pressure.score:null,trend:d.trend&&d.trend.text,
       signal:d.signal&&d.signal.why,top_buyers:(d.buyers||[]).slice(0,3).map(b=>b.name+' '+b.net),top_sellers:(d.sellers||[]).slice(0,3).map(b=>b.name+' '+b.net)}}
     try{const n=await botNews(code);if(n){out.news=(n.list||[]).slice(0,4).map(x=>({title:x.summary||x.title,score:x.score,importance:x.importance}));
       out.upcoming=(n.calendar||[]).slice(0,3).map(x=>x.day+' '+x.kind+' '+x.title)}}catch(e){}
     return out},
-  showStock:sym=>{const code=bistCode(sym);if(!modOn('borsa'))return {error:'Borsa özelliği kapalı.'};showPop();fetchDepth({symbol:code});return {ok:true,symbol:code}},
+  showStock:sym=>{const code=bistCode(sym);if(!code)return {error:'Hisse kodu anlaşılmadı.'};if(!modOn('borsa'))return {error:'Borsa özelliği kapalı.'};showPop();fetchDepth({symbol:code});return {ok:true,symbol:code}},
   timer:(min,label)=>{setTimeout(()=>{if(!modOn('neo'))return;new Notification({title:'Neo hatırlatma',body:label||'Süre doldu'}).show();neoUi.say('Hatırlatma: '+(label||'süre doldu'))},min*60000);
     return {ok:true,at:new Date(Date.now()+min*60000).toLocaleTimeString('tr-TR',{timeZone:'Europe/Istanbul',hour:'2-digit',minute:'2-digit'})}},
   openApp:name=>new Promise(r=>require('child_process').execFile('/usr/bin/open',['-a',name],{timeout:10000},e=>r(e?{error:'"'+name+'" uygulaması bulunamadı.'}:{ok:true}))),
   openUrl:url=>{shell.openExternal(url);return {ok:true}},
-  speed:()=>global.hizUi&&modOn('hiz')?global.hizUi.run():{error:'İnternet hız testi özelliği henüz yüklü değil.'},
-  clipboard:q=>global.panoUi&&modOn('pano')?global.panoUi.find(q):{error:'Pano geçmişi özelliği henüz yüklü değil.'},
+  speed:()=>global.hizUi&&modOn('hiz')?global.hizUi.run():{error:'İnternet Hız Testi Merkez\'de kapalı.'},
+  clipboard:q=>global.panoUi&&modOn('pano')?global.panoUi.find(q):{error:'Pano Geçmişi Merkez\'de kapalı.'},
 }});
 // Kendi kendini guncelleme: GitHub Releases'tan yeni surum (yalnizca paketlenmis Mac uygulamasinda)
 const updUi=require('./updater-main').registerUpdater({ipcMain,app,path,Notification,shell,cfg:()=>cfg(),save:o=>save(o),
@@ -140,8 +141,12 @@ const targetDisplay=silent=>(silent&&ovDisplay!=null&&screen.getAllDisplays().fi
 // Cizimler Electron ekran id'si yerine kararli bir imzayla saklanir: monitor tekrar baglaninca id degisse de cizimler kaybolmaz.
 const dkey=d=>d.size.width+'x'+d.size.height+'@'+d.scaleFactor+(d.label?' '+d.label:'');
 // Eski surumlerin id anahtarli cizimlerini su anki ekranlarin imzasina tasir.
+// Gecerli cizim: nesne, t metni, a en az iki sayilik dizi (bozuk kayit uygulamayi bozmasin)
+const okDraw=x=>x&&typeof x==='object'&&typeof x.t==='string'&&Array.isArray(x.a)&&x.a.length>=2&&x.a.every(Number.isFinite);
 function migrateDrawings(){
-  const all=cfg().drawings;if(!all)return;let ch=false;const out={...all};
+  const all=cfg().drawings;if(!all||typeof all!=='object')return;let ch=false;const out={};
+  // Eski/bozuk kayitlari temizle
+  for(const [k,v] of Object.entries(all)){const l=Array.isArray(v)?v.filter(okDraw):[];if(!Array.isArray(v)||l.length!==v.length)ch=true;out[k]=l}
   for(const d of screen.getAllDisplays()){const id=String(d.id),k=dkey(d);if(id===k||!Array.isArray(out[id]))continue;out[k]=[...(out[k]||[]),...out[id]].slice(0,200);delete out[id];ch=true}
   if(ch)save({drawings:out});
 }
@@ -179,19 +184,27 @@ function openShare(){
   shareWin.loadFile(path.join(__dirname,'share.html'));shareWin.once('ready-to-show',()=>{shareWin.show();shareWin.focus()});
   shareWin.webContents.setWindowOpenHandler(()=>({action:'deny'}));
   shareWin.webContents.on('will-navigate',e=>e.preventDefault());
-  shareWin.on('closed',()=>{shareWin=null;if(shareSess){shareSess.stop('user');shareSess=null}});
+  shareWin.on('closed',()=>{shareWin=null;shareDenied.clear();if(shareSess){shareSess.stop('user');shareSess=null}});
 }
 async function shareState(){
   const i=shareSess?shareSess.info():{running:false,files:[],received:[]};
   const qr=i.url&&i.running?await require('qrcode').toString(i.url,{type:'svg',margin:1,errorCorrectionLevel:'M'}):null;
   return {ok:true,...i,qr};
 }
-// Telefondan gelen dosyalar icin onay: cihaz basina bir kez sorulur
+// Telefondan gelen dosyalar icin onay: cihaz basina bir kez sorulur. Varsayilan dugme Reddet
+// (yanlislikla Enter kabul etmesin); reddedilen cihaz bu oturumda bir daha sormaz, ayni cihazin
+// es zamanli istekleri tek pencereyi bekler (pencere yagmuru olmasin).
+const shareDenied=new Set(),shareAsking=new Map();
 function shareAsk({ip,count,bytes,names}){
+  if(shareDenied.has(ip))return Promise.resolve(false);
+  if(shareAsking.has(ip))return shareAsking.get(ip);
   if(shareWin){shareWin.show();shareWin.focus()}
-  return dialog.showMessageBox(shareWin||undefined,{type:'question',buttons:['Kabul et','Reddet'],defaultId:0,cancelId:1,
+  const p=dialog.showMessageBox(shareWin||undefined,{type:'question',buttons:['Kabul et','Reddet'],defaultId:1,cancelId:1,
     message:'Telefondan '+count+' dosya gönderilmek isteniyor ('+shareLib.human(bytes)+')',
-    detail:names.join('\n')+(count>names.length?'\n+'+(count-names.length)+' dosya daha':'')+'\n\nCihaz: '+ip+'\nKaydedileceği yer: İndirilenler'}).then(r=>r.response===0);
+    detail:names.join('\n')+(count>names.length?'\n+'+(count-names.length)+' dosya daha':'')+'\n\nCihaz: '+ip+'\nKaydedileceği yer: İndirilenler'})
+    .then(r=>{const ok=r.response===0;if(!ok)shareDenied.add(ip);return ok},()=>false)
+    .finally(()=>shareAsking.delete(ip));
+  shareAsking.set(ip,p);return p;
 }
 function shareEvt(e){
   if(shareWin&&!shareWin.isDestroyed())shareWin.webContents.send('shareEvt',e);
@@ -220,12 +233,13 @@ const toggle=()=>pop.isVisible()?pop.hide():showPop();
 
 // Overlay tek bir ekranda durur ve o ekranin cizimlerini gosterir.
 function placeOverlay(d){
-  if(ovDisplay===d.id&&ovKey===dkey(d))return;
+  if(ovDisplay===d.id&&ovKey===dkey(d)){const b=ov.getBounds();if(b.x!==d.bounds.x||b.y!==d.bounds.y)ov.setBounds(d.bounds);return}   // ekran yer degistirdi
   ovDisplay=d.id;ovKey=dkey(d);ov.setBounds(d.bounds);
   sendOv('drawings',(cfg().drawings||{})[ovKey]||[]);
   syncOverlay();
 }
 function syncOverlay(){
+  if(!modOn('borsa'))return ov.hide();
   const hasDraw=((cfg().drawings||{})[ovKey]||[]).length>0;
   if(drawing||hasDraw||lastResult||(lastDepth&&cfg().depthOverlay!==false))ov.showInactive();else ov.hide();
 }
@@ -244,6 +258,7 @@ function recordDepth(d){
   if(d.flow&&d.flow.top)sync.enqueue('flow_log',{symbol:d.symbol,net:Math.round(d.flow.net),top_name:d.flow.top.name,top_net:Math.round(d.flow.top.net||0),top_cost:d.flow.top.cost??null});
 }
 function drawOverlay(a,d,anim){
+  if(!modOn('borsa'))return;
   placeOverlay(d);lastResult=a;
   const live=liveSignal();recordSignal(live,a);
   sendOv('draw',{...a,anim,show:ind(),live});syncOverlay();
@@ -358,7 +373,7 @@ async function analyze(opts={}){
   if(eng==='claude'&&!key){send('err',{msg:'Claude analizi için Ayarlar sekmesinden API anahtarını gir. Anahtarsız da Hızlı (yerel) analiz kullanılabilir.',settings:true});return opts.silent||showPop()}
   if(!screenAllowed()){
     try{await desktopCapturer.getSources({types:['screen'],thumbnailSize:{width:1,height:1}})}catch(e){} // izin istemini tetikler
-    send('err',{msg:'Ekran Kaydı izni gerekli. Sistem Ayarları › Gizlilik ve Güvenlik › Ekran Kaydı bölümünden Cem App\'yu aç, sonra uygulamayı yeniden başlat.',perm:true});
+    send('err',{msg:'Ekran Kaydı izni gerekli. Sistem Ayarları › Gizlilik ve Güvenlik › Ekran Kaydı bölümünden Cem App\'i aç, sonra uygulamayı yeniden başlat.',perm:true});
     return opts.silent||showPop();
   }
   busy=true;
@@ -480,6 +495,9 @@ const EXTRA={
   akd:{key:'akdCmd',def:'/akd {KOD}',every:120,has:r=>(r.buyers||[]).length+(r.sellers||[]).length>0,img:(im,ref)=>require('./depthimg').readAkd(im,{ref}),pick:r=>({buyers:r.buyers,sellers:r.sellers})},
   trades:{key:'tradeCmd',def:'/islem {KOD}',every:60,has:r=>(r.trades||[]).length>0,img:(im,ref)=>require('./depthimg').readTrades(im,{ref}),pick:r=>({trades:r.trades})}};
 const extraCache={akd:{},trades:{}},extraFail={akd:{},trades:{}};
+// Arayuze giden bot fotografi: yarim kalmis (kesilmis) data URL yerine kucultulmus gecerli JPEG
+function thumb(p){if(!p)return null;try{let im=nativeImage.createFromDataURL(p);if(im.isEmpty())return null;if(im.getSize().width>760)im=im.resize({width:760,quality:'good'});
+  const u='data:image/jpeg;base64,'+im.toJPEG(82).toString('base64');return u.length<=1500000?u:null}catch(e){return null}}
 async function photoData(messages,fn){const m=messages.find(x=>x.photo);if(!m)return null;
   try{const im=nativeImage.createFromDataURL(m.photo),sz=im.getSize();return await fn({width:sz.width,height:sz.height,data:im.toBitmap(),bgra:true})}catch(e){console.error('ocr',e);return null}}
 async function fetchExtra(kind,symbol,ref,auto,now=false){
@@ -539,6 +557,7 @@ async function tgConnect(p){
   if(!/^\d+$/.test(apiId)||!/^[0-9a-f]{32}$/i.test(apiHash))throw new Error('api_id sayı, api_hash 32 karakterlik bir kod olmalı (my.telegram.org).');
   const bot=String(p.bot||c.bot||'').trim().replace(/^@?/,'@');
   save({tg:{...c,apiId,apiHash:enc(apiHash),bot:bot.length>1?bot:c.bot,cmd:p.cmd||c.cmd||'{KOD}',akdCmd:p.akdCmd!=null?String(p.akdCmd).slice(0,60):c.akdCmd,tradeCmd:p.tradeCmd!=null?String(p.tradeCmd).slice(0,60):c.tradeCmd}});
+  tgUser=null;                                        // eski istemci kapanir; yeni baglanti basarisizsa 'bagli' gorunmesin
   tgUser=await tg.connect({apiId,apiHash,session:dec(tgCfg().session),
     ask:(step,hint)=>step==='phone'&&p.phone?Promise.resolve(String(p.phone)):tgAsk(step,hint),
     onSession:ss=>save({tg:{...tgCfg(),session:enc(ss)}})});
@@ -678,13 +697,14 @@ async function fetchDepth(opts={}){
       flow:{net:flow,change:fd,top:(d.buyers[0]||null)},safe:safeInfo()};
     lastDepth.signal=liveSignal();lastDepth.live=liveView();
     recordDepth(lastDepth);recordSignal(lastDepth.signal,lastResult||{});
-    send('depth',{...lastDepth,messages:messages.map(m=>({...m,photo:m.photo?m.photo.slice(0,200000):null})),usage:state().usage});
+    send('depth',{...lastDepth,messages:messages.map(m=>({...m,photo:thumb(m.photo)})),usage:state().usage});
     pushDepthOverlay();if(!opts.auto||!newsCache[bistCode(symbol)]||Date.now()-newsCache[bistCode(symbol)].at>600000)pushNews(symbol);
   }catch(e){send('depthErr',{msg:ai.errorText(e)})}
   finally{depthBusy=false}
 }
 // Derinligi grafigin uzerine: fiyat olcegi varsa seviyelere, yoksa kose kartina.
 function pushDepthOverlay(){
+  if(!modOn('borsa'))return;                           // Borsa kapatildiktan sonra biten istek katmani geri acmasin
   if(!lastDepth||!cfg().depthOverlay&&cfg().depthOverlay!==undefined)return sendOv('depth',null);
   const cal=lastResult&&lastResult.engine!=='yerel'&&(!lastResult.symbol||!lastDepth.symbol||lastResult.symbol.replace(/\W/g,'').includes(lastDepth.symbol))?calibParams(lastResult):null;
   sendOv('depth',{...lastDepth,cal,box:lastResult&&lastResult.chart_box||null});
@@ -809,11 +829,13 @@ function state(){
 }
 
 app.whenReady().then(()=>{
+  // Paketlenmis uygulamada Gelistirici Araclari menusu yok (pencerelerde kod calistirilip kilit/anahtar korumalari asilamasin); kopyala-yapistir icin Duzen menusu kalir
+  if(app.isPackaged)Menu.setApplicationMenu(Menu.buildFromTemplate([{role:'appMenu'},{role:'editMenu'},{role:'windowMenu'}]));
   migrateDrawings();mk();
   // Dosya kilidi: ev ve veri klasorlerini okudugu icin uygulama hazir olunca kaydedilir
   lockUi=require('./lock-main').registerLock({ipcMain,dialog,shell,app,BrowserWindow,path,systemPreferences,safeStorage});
   // Cozunurluk/olcek degisince imza degisir: katmanin durdugu ekranin cizimlerini yeni imzaya tasi.
-  screen.on('display-metrics-changed',(e,d)=>{if(d.id!==ovDisplay||!ovKey||ovKey===dkey(d))return;const all=cfg().drawings||{},nk=dkey(d);
+  screen.on('display-metrics-changed',(e,d)=>{if(d.id!==ovDisplay||!ovKey)return;if(ovKey===dkey(d))return placeOverlay(d);const all=cfg().drawings||{},nk=dkey(d);
     if(all[ovKey]&&!(all[nk]||[]).length){const o={...all,[nk]:all[ovKey]};delete o[ovKey];save({drawings:o})}placeOverlay(d)});
   tray=new Tray(trayIcon());tray.setToolTip(APP_NAME);
   tray.on('click',()=>modOn('borsa')?toggle():hubUi.open());
@@ -892,7 +914,10 @@ app.whenReady().then(()=>{
   ipcMain.handle('clearHistory',()=>save({history:[]}));
   ipcMain.handle('hideOverlay',clearAnalysis);
   ipcMain.handle('draw',(e,on)=>setDrawing(on!==false));
-  ipcMain.handle('saveDrawings',(e,list)=>{if(!Array.isArray(list)||!ovKey)return;save({drawings:{...(cfg().drawings||{}),[ovKey]:list.slice(0,200)}});syncOverlay();
+  ipcMain.handle('saveDrawings',(e,list)=>{if(!Array.isArray(list)||!ovKey)return;
+    // Bozuk oge (null, a dizisi olmayan) kaydedilirse cfg her okunuşta patlar: yalniz gecerli cizimler
+    list=list.filter(okDraw);
+    save({drawings:{...(cfg().drawings||{}),[ovKey]:list.slice(0,200)}});syncOverlay();
     // Alarmlar canli takip ister: bekleyen alarm varsa canli modu ac.
     if(pendingAlarms()&&!cfg().live){setLive(true);send('state',state())}});
   ipcMain.handle('copy',(e,t)=>{if(typeof t==='string')clipboard.writeText(t.slice(0,5000))});
@@ -923,7 +948,7 @@ app.whenReady().then(()=>{
     if(o.source==='telegram'||o.source==='ekran')save({depthSource:o.source});
     if([0,20,30,45,60,120].includes(o.auto))setDepthAuto(modOn('borsa')?o.auto:0);
     if(typeof o.signals==='boolean'){save({signals:o.signals});if(lastResult)sendOv('draw',{...lastResult,anim:false,show:ind()})}
-    if(typeof o.overlay==='boolean'){save({depthOverlay:o.overlay});pushDepthOverlay()}
+    if(typeof o.overlay==='boolean'){save({depthOverlay:o.overlay});pushDepthOverlay();syncOverlay()}
     return state()});
   ipcMain.handle('tgClick',async(e,o)=>{const {msgId,i,j}=o||{};const why=canSend(false);if(why)return {ok:false,msg:why};sent.push(Date.now());
     try{const r=await tg.click(tgCfg().bot,msgId,i,j);if(r.webapp)openTerminal(r.webapp);return {ok:true,...r}}catch(err){return {ok:false,msg:ai.errorText(err)}}});

@@ -65,7 +65,7 @@ function render(){
   const s=S&&S.last,h=S&&S.hello;
   $('chip').textContent=h?[h.chip,h.cores?h.cores+' çekirdek':null].filter(Boolean).join(' · '):'';
   $('err').textContent=S&&!S.supported?'Bu özellik yalnızca Mac\'te çalışır.':(S&&S.error)||'';
-  if(!s){return bars()}
+  if(!s){clearTiles();return bars()}
   const th=$('th');th.textContent=s.thermal?TH[s.thermal]:'';th.className='th '+(s.thermal||'');th.style.display=s.thermal?'':'none';
   const t=s.cpu.temp;setv('temp',t!=null?tr(t)+'°C':'—',heat(t));
   $('temps').textContent=s.cpu.tempMax!=null&&s.cpu.tempMax!==t?'en sıcak '+tr(s.cpu.tempMax)+'°C':t==null?'sensör okunamadı':'';
@@ -87,6 +87,16 @@ function render(){
     $('btemp').textContent=bt.temp!=null?tr(bt.temp,1)+'°C':'—';$('bwatt').textContent=bt.watts!=null?(bt.watts>0?'+':'')+tr(bt.watts,1)+' W':'—';$('cyc').textContent=bt.cycles!=null?tr(bt.cycles):'—'}
   $('down').textContent=R(s.net.down);$('up').textContent=R(s.net.up);$('dr').textContent=R(s.disk.read);$('dw').textContent=R(s.disk.write);$('free').textContent=B(s.disk.free);
   bars();
+}
+// Olcum yok (yardimci durdu / yeniden basliyor): eski degerler kalmasin, her alan "—"
+function clearTiles(){
+  $('th').style.display='none';
+  for(const id of ['temp','cpu','fps','gpu'])setv(id,'—');
+  for(const id of ['temps','cpus','fpss','gpus'])$(id).textContent='';
+  for(const id of ['gtemp','gcpu','gfps','ggpu','cores','fans'])$(id).replaceChildren();
+  for(const id of ['memb','batb'])$(id).style.width='0%';
+  for(const id of ['mem','press','swap','power','bat','btemp','bwatt','cyc','down','up','dr','dw','free'])$(id).textContent='—';
+  $('press').className='';
 }
 function bars(){if(!S)return;const on=S.conf.bar;
   $('bars').replaceChildren(...S.bars.map(b=>{const e=document.createElement('button');e.className='chip'+(on.includes(b.id)?' on':'');e.textContent=b.name;

@@ -27,7 +27,16 @@ const SCHEMA={type:'object',additionalProperties:false,
   }};
 
 const modelInfo=id=>MODELS.find(m=>m.id===id)||MODELS[0];
-const cost=(id,u)=>{const m=modelInfo(id);return((u.input_tokens||0)*m.inM+(u.output_tokens||0)*m.outM)/1e6};
+const price=(m,u)=>((u.input_tokens||0)*m.inM+(u.output_tokens||0)*m.outM)/1e6;
+// Tarihli kanonik adlar da (claude-sonnet-5-5-2026...) taninir; bilinmeyen model null.
+const knownModel=id=>{id=String(id||'');return MODELS.find(m=>id===m.id||id.startsWith(m.id+'-'))||null};
+// Sunucu tarafi yedek model cevapladiysa (usage.iterations icinde 'fallback_message') her adim kendi modelinin
+// fiyatiyla hesaplanir; fiyati bilinmeyen adimda istenen modelin fiyati kullanilir.
+const cost=(id,u)=>{
+  const it=Array.isArray(u.iterations)?u.iterations.filter(x=>x&&typeof x==='object'):null;
+  if(it&&it.some(x=>x.type==='fallback_message'))return it.reduce((s,x)=>s+price(knownModel(x.model)||modelInfo(id),x),0);
+  return price(modelInfo(id),u);
+};
 
 // img: JPEG base64. crop: goruntunun tam ekrandaki yeri {x,y,w,h} (0-1); yanit tam ekrana cevrilir.
 // Kirpilmis goruntudeki 0-1 koordinatlari tam ekrana cevir (Claude ve Grok ortak).

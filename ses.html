@@ -58,7 +58,9 @@ const sendVol=throttle(v=>ses.volume(v));
 const pct=g=>Math.round(g*100)+'%',db=v=>(v>0?'+':'')+v+' dB';
 function apply(s){if(!s)return;S=s;if(!dragging)render()}
 function render(){
-  const e=$('err');e.textContent=S.error||'';e.style.display=S.error?'block':'none';
+  // tccError: izin hatasi, uygulama listesi gelince kaybolmaz (izni olmayan uygulama kaldikca gorunur)
+  const msg=[S.error,S.tccError].filter(Boolean).join(' ');
+  const e=$('err');e.textContent=msg;e.style.display=msg?'block':'none';
   // cikis
   const dev=$('dev');dev.replaceChildren(...(S.devices||[]).map(d=>{const o=el('option',null,d.name);o.value=d.uid;o.selected=d.default;return o}));
   const def=(S.devices||[]).find(d=>d.default);
