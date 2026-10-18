@@ -124,13 +124,29 @@ function trend(hist){
 // --- Islem akisi (tape) -------------------------------------------------------------
 // Bot her seferinde son ~20 islemi gonderir; yeni gelenler birikmis listeye eklenir (tekrarlar atilir).
 const sec=t=>{const m=String(t||'').match(/^(\d{1,2}):(\d{2}):(\d{2})$/);return m?+m[1]*3600+ +m[2]*60+ +m[3]:null};
-// Saati olmayan islem (est) alinma saatini tasir; her mesajda degisecegi icin anahtara saat girmez.
-const tkey=t=>[t.est?'~':t.time,t.price,t.qty,t.buyer,t.seller].join('|');
-// Tekrar sayimi: ayni anahtarli islemden yeni grupta eskisinden fazlasi varsa yalniz fazlasi eklenir.
+const tkey=t=>[t.time,t.price,t.qty,t.buyer,t.seller].join('|');
+const ekey=t=>[t.price,t.qty,t.buyer,t.seller].join('|');
+// Saati olmayan islemler (est: alinma saati verilmis) tek tek degil SIRAYLA eslenir: bot son ~20 islemi kayan
+// pencere olarak gonderir. Yeni mesaj bir onceki mesajla (R) hizalanir; ortusen kisim atilir, gerisi yenidir.
+// Boylece ayni fiyat/adet/kurumla gercekten tekrar eden islem de kaybolmaz. Bot yeniden eskiye (NF) ya da
+// eskiden yeniye (OF) siralayabilir; tesadufi tek islem eslesmesi sayilmaz (en az 2 ortak islem): ortusmenin pencere ucuna dayandigi ve en az yeni islem veren hizalama secilir.
+function estNew(R,X){
+  if(!R||!R.length)return X;
+  const r=R.map(ekey),x=X.map(ekey),min=Math.min(2,r.length,x.length),eq=(i,j,n)=>{for(let q=0;q<n;q++)if(x[i+q]!==r[j+q])return false;return true};
+  let best=null;
+  for(let k=0;k<=x.length;k++){const n=x.length-k;if(n>=min&&n<=r.length&&eq(k,0,n)){best={add:X.slice(0,k)};break}}  // NF: X = yeni + R'nin basi
+  for(let j=0;j<r.length;j++){const n=r.length-j;if(n>=min&&n<=x.length&&eq(0,j,n)){const add=X.slice(n);if(!best||add.length<best.add.length)best={add};break}} // OF: X = R'nin sonu + yeni
+  return best?best.add:X;
+}
+// Saatli islemlerde tekrar sayimi: ayni anahtarli islemden yeni grupta eskisinden fazlasi varsa yalniz fazlasi eklenir.
 function mergeTape(tape,trades,max=800){
-  const have=new Map(),cnt=new Map(),add=[];for(const t of tape||[]){const k=tkey(t);have.set(k,(have.get(k)||0)+1)}
-  for(const t of trades||[]){if(sec(t.time)==null)continue;const k=tkey(t),c=(cnt.get(k)||0)+1;cnt.set(k,c);if(c>(have.get(k)||0))add.push(t)}
-  return [...add,...(tape||[])].sort((a,b)=>sec(b.time)-sec(a.time)).slice(0,max);
+  const have=new Map(),cnt=new Map(),add=[];for(const t of tape||[])if(!t.est){const k=tkey(t);have.set(k,(have.get(k)||0)+1)}
+  const est=[];for(const t of trades||[]){if(sec(t.time)==null)continue;if(t.est){est.push(t);continue}
+    const k=tkey(t),c=(cnt.get(k)||0)+1;cnt.set(k,c);if(c>(have.get(k)||0))add.push(t)}
+  if(est.length)add.push(...estNew(tape&&tape.estLast,est));
+  const out=[...add,...(tape||[])].sort((a,b)=>sec(b.time)-sec(a.time)).slice(0,max);
+  Object.defineProperty(out,'estLast',{value:est.length?est:tape&&tape.estLast||null}); // son ham saatsiz mesaj (hizalama icin)
+  return out;
 }
 // Aktif alis/satis dengesi, hacim agirlikli ortalama fiyat (VWAP), kumulatif hacim farki (CVD) ve en agresif kurum.
 // Zaman, son islemin saatine gore olculur (bot verisi gecikmeli olabilir). Yon: 5 ve 15 dk pencereleri + fiyatin VWAP'a gore yeri.

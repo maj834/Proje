@@ -236,3 +236,19 @@ test('mergeTape: saatsiz islem tekrar gelince ikinci kez sayilmaz', () => {
   const b = D.parseText('Islemler\n' + t, { now: Date.UTC(2026, 9, 20, 7, 6, 0) }).trades;
   assert.equal(D.mergeTape(D.mergeTape([], a), b).length, a.length);
 });
+
+test('mergeTape: saatsiz islemler sirayla eslenir, gercek tekrar kaybolmaz', () => {
+  const P = (lines, m) => D.parseText('Islemler\n' + lines.join('\n'), { now: Date.UTC(2026, 9, 20, 7, m, 0) }).trades;
+  const a = '🟢 52,30 1.000 BofA Ziraat', b = '🔴 52,25 500 Gedik Ak', c = '🟢 52,35 2.000 Ak Is';
+  let t = D.mergeTape([], P([b, a], 1));               // en yeni ustte: b, a
+  t = D.mergeTape(t, P([a, b, a], 2));                  // yeni bir "a" geldi (ayni fiyat/adet/kurum), sonra eski b, a
+  assert.equal(t.length, 3);
+  t = D.mergeTape(t, P([c, a, b], 3));                  // pencere kaydi: yalniz c yeni
+  assert.equal(t.length, 4);
+  t = D.mergeTape(t, P([c, a, b], 4));                  // aynisi tekrar: yeni yok
+  assert.equal(t.length, 4);
+  // eskiden yeniye gonderen bot da dogru sayilir
+  let u = D.mergeTape([], P([a, b], 1));
+  u = D.mergeTape(u, P([a, b, c], 2));
+  assert.equal(u.length, 3);
+});
