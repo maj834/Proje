@@ -22,9 +22,9 @@ global.panoUi=panoUi;
 // Internet hiz testi ve misafir Wi-Fi QR
 const hizUi=require('./hiz-main').registerHiz({ipcMain,app,BrowserWindow,path,cfg:()=>cfg(),save:o=>save(o),isOn:()=>modOn('hiz')});
 global.hizUi=hizUi;
-// Neo: "Hey Neo" sesli asistan. Araclari uygulamanin kendi ozellikleri; Claude anahtari Borsa ayarlarindaki anahtar.
+// Neo: "Hey Neo" sesli asistan. Araclari uygulamanin kendi ozellikleri. Beyin: ucretsiz Groq (varsayilan) ya da Claude API anahtari.
 const neoUi=require('./neo-main').registerNeo({ipcMain,app,BrowserWindow,path,screen,globalShortcut,Notification,cfg:()=>cfg(),save:o=>save(o),
-  getKey:()=>getKey(),isOn:()=>modOn('neo'),actions:{
+  shell,keys:{get:p=>p==='claude'?getKey():dec(cfg().groqKey),set:(p,k)=>p==='claude'?setKey(k):save({groqKey:enc(k)})},isOn:()=>modOn('neo'),actions:{
   feature:id=>{if(id==='merkez'){hubUi.open();return {ok:true}}if(!modOn(id))return {error:'Bu özellik Merkez\'de kapalı.'};const f=OPEN[id];if(!f)return {error:'Bu özellik henüz yok.'};f();return {ok:true}},
   status:()=>{const v=sysUi.view(),s=v.last;if(!s)return {error:modOn('sistem')?'Ölçüm henüz gelmedi.':'Sistem Durumu özelliği kapalı.'};
     return {cpu_temp_c:s.cpu.temp,cpu_hottest_c:s.cpu.tempMax,cpu_percent:s.cpu.usage,gpu_percent:s.gpu.usage,ram_used_gb:s.mem.used&&+(s.mem.used/1e9).toFixed(1),

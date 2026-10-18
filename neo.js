@@ -107,6 +107,58 @@ function createBrain({getKey,actions,client=null,now=()=>Date.now(),model=MODEL,
   }
   return {ask,reset,history:()=>messages};
 }
+// ---- Groq (ucretsiz, OpenAI uyumlu) ----
+// Ayni araclar OpenAI "function" bicimine cevrilir. gpt-oss modelleri Groq'un yerlesik web aramasini (browser_search) destekler;
+// desteklenmezse (400) o arac bir daha gonderilmez. Gunluk sinir (429) ya da kaldirilmis model: siradaki modele gecilir.
+const GROQ_URL='https://api.groq.com/openai/v1/chat/completions';
+const GROQ_MODELS=['openai/gpt-oss-120b','openai/gpt-oss-20b','llama-3.3-70b-versatile'];
+const FN=TOOLS.map(t=>({type:'function',function:{name:t.name,description:t.description,parameters:t.input_schema}}));
+function createGroqBrain({getKey,actions,fetch:F=(...a)=>fetch(...a),now=()=>Date.now(),onTool=()=>{},models=GROQ_MODELS}){
+  let messages=[],last=0,mi=0,miAt=0,web=true;
+  const reset=()=>{messages=[];last=0};
+  async function call(){
+    if(mi&&now()-miAt>3600000)mi=0;                       // bir saat sonra buyuk modeli yeniden dene
+    for(let tries=0;tries<models.length+1;tries++){
+      const model=models[Math.min(mi,models.length-1)],gpt=/gpt-oss/.test(model);
+      const body={model,messages:[{role:'system',content:SYSTEM},...messages],tools:[...FN,...(web&&gpt?[{type:'browser_search'}]:[])],tool_choice:'auto',
+        temperature:0.3,max_completion_tokens:1500,...(gpt?{reasoning_effort:'low'}:{})};
+      let r;try{r=await F(GROQ_URL,{method:'POST',headers:{'content-type':'application/json',authorization:'Bearer '+getKey()},body:JSON.stringify(body),signal:AbortSignal.timeout(30000)})}
+      catch(e){const x=new Error('İnternete bağlanamadım.');x.code='net';throw x}
+      const txt=await r.text();let j=null;try{j=JSON.parse(txt)}catch(e){}
+      if(r.ok&&j&&j.choices&&j.choices[0])return j.choices[0];
+      const msg=(j&&j.error&&j.error.message)||txt.slice(0,200);
+      if(r.status===401){const x=new Error('Groq anahtarı geçersiz.');x.code='auth';throw x}
+      if(r.status===400&&web&&/browser_search|tool/i.test(msg)){web=false;continue}
+      if((r.status===429||r.status===404||r.status===400&&/model/i.test(msg)||r.status>=500)&&mi<models.length-1){mi++;miAt=now();continue}
+      const x=new Error(r.status===429?'Groq günlük ücretsiz sınırı doldu, yarın sıfırlanır.':'Groq hata verdi ('+r.status+').');x.code=r.status===429?'limit':'api';throw x;
+    }
+    const x=new Error('Groq cevap vermedi.');x.code='api';throw x;
+  }
+  async function ask(text){
+    if(!getKey())return {text:'Groq anahtarı yok. Neo penceresinden ücretsiz Groq anahtarını ekle.',error:'nokey'};
+    if(now()-last>MEMORY_MS||messages.length>MAX_TURNS*4)messages=[];
+    const when=new Date(now()).toLocaleString('tr-TR',{timeZone:'Europe/Istanbul',weekday:'long',day:'numeric',month:'long',hour:'2-digit',minute:'2-digit'});
+    messages.push({role:'user',content:`[${when}] ${clip(text,2000)}`});
+    const used=[];
+    try{
+      for(let step=0;step<MAX_STEPS;step++){
+        const ch=await call(),m=ch.message||{};
+        const calls=(m.tool_calls||[]).filter(c=>c&&c.type==='function'&&c.function);
+        // Gecmise yalniz gerekli alanlar (reasoning gibi ek alanlar tekrar gonderilmez)
+        messages.push({role:'assistant',content:m.content||'',...(calls.length?{tool_calls:calls.map(c=>({id:c.id,type:'function',function:{name:c.function.name,arguments:c.function.arguments||'{}'}}))}:{})});
+        if((m.executed_tools||[]).length)used.push('web_search');
+        if(!calls.length){last=now();return {text:String(m.content||'').trim()||'Tamam.',tools:used}}
+        for(const c of calls){let inp;try{inp=JSON.parse(c.function.arguments||'{}')}catch(e){inp=null}
+          onTool(c.function.name,inp);used.push(c.function.name);
+          const out=inp?await runTool(actions,c.function.name,inp):{error:'Geçersiz JSON girdi'};
+          messages.push({role:'tool',tool_call_id:c.id,content:asText(out)})}
+      }
+      last=now();return {text:'Bu biraz uzun sürdü, işlemi yarıda bıraktım.',tools:used};
+    }catch(e){messages=[];return {text:e.code?e.message:'Bir şeyler ters gitti.',error:e.code||'error',tools:used}}
+  }
+  return {ask,reset,history:()=>messages,model:()=>models[mi]};
+}
+
 function errText(e){
   if(e instanceof Anthropic.AuthenticationError)return 'Claude anahtarı geçersiz görünüyor.';
   if(e instanceof Anthropic.PermissionDeniedError)return 'Claude anahtarının bu modele erişimi yok.';
@@ -115,4 +167,4 @@ function errText(e){
   if(e instanceof Anthropic.APIError)return 'Claude hata verdi ('+e.status+').';
   return 'Bir şeyler ters gitti.';
 }
-module.exports={createBrain,runTool,TOOLS,SYSTEM,MODEL,FEATURES,check};
+module.exports={createBrain,createGroqBrain,runTool,TOOLS,FN,SYSTEM,MODEL,GROQ_MODELS,FEATURES,check};

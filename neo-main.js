@@ -1,21 +1,26 @@
 // Neo: "Hey Neo" sesli asistani. Kulak ve agiz native/neo.swift (neo-yardimcisi): uyandirma kelimesi Mac'te, internetsiz.
 // Beyin neo.js (Claude + uygulama araclari). Ekranin ustunde kucuk bir kure: dinliyor / dusunuyor / konusuyor.
 const {spawn}=require('child_process'),fs=require('fs');
-const {createBrain}=require('./neo.js');
+const {createBrain,createGroqBrain}=require('./neo.js');
 
-const DEF={wake:true,voice:'',rate:0.5,hotkey:'Alt+Space'};
+const DEF={wake:true,voice:'',rate:0.5,hotkey:'Alt+Space',brain:'groq'};
+const BRAINS=['groq','claude'];
 const WAKE=['hey neo','hey nio','hey niyo','hey neyo','hey neo','hey nevo','hey new'];
 const clean=c=>({wake:c.wake!==false,voice:typeof c.voice==='string'?c.voice.slice(0,200):'',
-  rate:Math.max(0.3,Math.min(0.7,+c.rate||DEF.rate)),hotkey:typeof c.hotkey==='string'&&/^[\w+]{1,40}$/.test(c.hotkey)?c.hotkey:DEF.hotkey});
+  rate:Math.max(0.3,Math.min(0.7,+c.rate||DEF.rate)),brain:BRAINS.includes(c.brain)?c.brain:DEF.brain,hotkey:typeof c.hotkey==='string'&&/^[\w+]{1,40}$/.test(c.hotkey)?c.hotkey:DEF.hotkey});
 
-function registerNeo({ipcMain,app,BrowserWindow,path,screen,globalShortcut,Notification,cfg,save,getKey,actions,isOn=()=>true,brain=null}){
+// keys: {get(beyin) -> anahtar|null, set(beyin, anahtar)}; beyin 'groq' (ucretsiz, varsayilan) ya da 'claude' (API anahtari)
+function registerNeo({ipcMain,app,BrowserWindow,path,screen,globalShortcut,Notification,shell,cfg,save,keys,actions,isOn=()=>true,brain=null}){
   let child=null,buf='',restarts=0,orb=null,win=null,hello=null,state='off',error=null,partial='',answer='',hideT=null,busy=false,sayN=0;
   const log=[];                                          // son 30 konusma (pencerede gecmis)
   const conf=()=>clean({...DEF,...(cfg().neo||{})});
   const bin=()=>process.env.CEM_NEO_BIN||(app.isPackaged?path.join(process.resourcesPath,'bin','neo-yardimcisi'):path.join(__dirname,'build','bin','neo-yardimcisi'));
   const send=o=>{if(child&&child.stdin.writable)child.stdin.write(JSON.stringify(o)+'\n')};
-  const B=brain||createBrain({getKey,actions,onTool:n=>show({tool:n})});
-  const view=()=>({supported:process.platform==='darwin'||!!process.env.CEM_NEO_BIN,hello,state,error,conf:conf(),log,hasKey:!!getKey()});
+  const brains={};
+  const B=()=>brain||(brains[conf().brain]=brains[conf().brain]||(conf().brain==='claude'
+    ?createBrain({getKey:()=>keys.get('claude'),actions,onTool:n=>show({tool:n})})
+    :createGroqBrain({getKey:()=>keys.get('groq'),actions,onTool:n=>show({tool:n})})));
+  const view=()=>({supported:process.platform==='darwin'||!!process.env.CEM_NEO_BIN,hello,state,error,conf:conf(),log,hasKey:!!keys.get(conf().brain),keys:{groq:!!keys.get('groq'),claude:!!keys.get('claude')}});
   const toWin=()=>{if(win&&!win.isDestroyed())win.webContents.send('neo:state',view())};
   // Kureye canli bilgi: durum, duyulan metin, cevap, ses duzeyi
   function show(o={}){
@@ -29,7 +34,7 @@ function registerNeo({ipcMain,app,BrowserWindow,path,screen,globalShortcut,Notif
 
   async function onCommand(text){
     if(busy)return;busy=true;partial=text;answer='';send({cmd:'thinking'});setState('thinking');
-    let r;try{r=await B.ask(text)}catch(e){r={text:'Bir şeyler ters gitti.'}}
+    let r;try{r=await B().ask(text)}catch(e){r={text:'Bir şeyler ters gitti.'}}
     answer=r.text;log.unshift({at:Date.now(),q:text,a:r.text,tools:r.tools||[]});if(log.length>30)log.pop();
     busy=false;toWin();
     if(child){const id='s'+(++sayN);send({cmd:'say',id,text:r.text});setState('speaking')}else{setState('idle')}
@@ -98,7 +103,7 @@ function registerNeo({ipcMain,app,BrowserWindow,path,screen,globalShortcut,Notif
   let hk=null;
   function rearm(){if(!isOn())return;if(hk){try{globalShortcut.unregister(hk)}catch(e){}hk=null}const k=conf().hotkey;try{if(globalShortcut.register(k,talk))hk=k}catch(e){}}
   function enable(){if(!isOn())return;start();rearm()}
-  function disable(){stop();if(hk){try{globalShortcut.unregister(hk)}catch(e){}hk=null}if(orb&&!orb.isDestroyed())orb.close();if(win&&!win.isDestroyed())win.close();B.reset()}
+  function disable(){stop();if(hk){try{globalShortcut.unregister(hk)}catch(e){}hk=null}if(orb&&!orb.isDestroyed())orb.close();if(win&&!win.isDestroyed())win.close();for(const k in brains)brains[k].reset()}
 
   const from=e=>!!((win&&!win.isDestroyed()&&e.sender===win.webContents)||(orb&&!orb.isDestroyed()&&e.sender===orb.webContents));
   ipcMain.handle('neo:state',e=>from(e)?view():null);
@@ -109,7 +114,12 @@ function registerNeo({ipcMain,app,BrowserWindow,path,screen,globalShortcut,Notif
     if(c.wake!==before.wake)send({cmd:c.wake?'start':'stop'});
     if(c.hotkey!==before.hotkey&&hk){try{globalShortcut.unregister(hk)}catch(e){}hk=null;try{if(globalShortcut.register(c.hotkey,talk))hk=c.hotkey}catch(e){}}
     toWin();return view()});
-  ipcMain.handle('neo:forget',e=>{if(!from(e))return null;B.reset();log.length=0;return view()});
+  ipcMain.handle('neo:forget',e=>{if(!from(e))return null;for(const k in brains)brains[k].reset();log.length=0;return view()});
+  // Groq anahtari (gsk_...) sifreli saklanir; bos gonderilirse silinir
+  ipcMain.handle('neo:key',(e,p,k)=>{if(!from(e)||!BRAINS.includes(p))return null;k=String(k||'').trim();
+    if(k&&(p==='groq'?!/^gsk_[A-Za-z0-9]{20,100}$/.test(k):!/^sk-ant-[\w-]{20,200}$/.test(k)))return {...view(),keyError:p==='groq'?'Groq anahtarı "gsk_" ile başlar.':'Claude anahtarı "sk-ant-" ile başlar.'};
+    keys.set(p,k||null);delete brains[p];return view()});
+  ipcMain.handle('neo:link',e=>{if(from(e))shell.openExternal('https://console.groq.com/keys')});
   app.whenReady().then(()=>{if(isOn())enable()});
   app.on('will-quit',stop);
   // Disaridan (zamanlayici) sesli bildirim

@@ -67,8 +67,8 @@ test('runTool: dogrulama, sinirlar, yalniz https, arac hatasi is_error olarak do
 });
 
 test('clean: ayarlar sinirli', () => {
-  assert.deepEqual(clean({ wake: false, voice: 5, rate: 9, hotkey: 'Alt+Space; rm' }), { wake: false, voice: '', rate: 0.7, hotkey: 'Alt+Space' });
-  assert.deepEqual(clean({}), { wake: true, voice: '', rate: 0.5, hotkey: 'Alt+Space' });
+  assert.deepEqual(clean({ wake: false, voice: 5, rate: 9, hotkey: 'Alt+Space; rm', brain: 'gpt' }), { wake: false, voice: '', rate: 0.7, brain: 'groq', hotkey: 'Alt+Space' });
+  assert.deepEqual(clean({ brain: 'claude' }), { wake: true, voice: '', rate: 0.5, brain: 'claude', hotkey: 'Alt+Space' });
 });
 
 // Sahte ses yardimcisi + sahte Electron: uyanma -> komut -> dusunme -> konusma -> bekleme akisi
@@ -95,7 +95,7 @@ require('readline').createInterface({input:process.stdin}).on('line',l=>{fs.appe
   const ui = registerNeo({ ipcMain: { handle: (c, f) => { handlers[c] = f; } }, app: { isPackaged: false, whenReady: () => ({ then: f => { onReady = f; } }), on: (e, f) => { quit = f; } },
     BrowserWindow: Win, path, screen: { getCursorScreenPoint: () => ({ x: 0, y: 0 }), getDisplayNearestPoint: () => ({ workArea: { x: 0, y: 25, width: 1440, height: 875 } }) },
     globalShortcut: { register: (k, f) => { keys[k] = f; return true; }, unregister: k => { delete keys[k]; } },
-    Notification: function () { return { show() {} }; }, cfg: () => ({ neo: conf }), save: o => { conf = o.neo; }, getKey: () => 'k', actions: {}, isOn: () => on, brain });
+    Notification: function () { return { show() {} }; }, cfg: () => ({ neo: conf }), save: o => { conf = o.neo; }, keys: { get: () => 'k', set() {} }, shell: { openExternal() {} }, actions: {}, isOn: () => on, brain });
   const wait = async (f, ms = 3000) => { const e = Date.now() + ms; while (!f()) { if (Date.now() > e) throw new Error('zaman asimi'); await new Promise(r => setTimeout(r, 15)); } };
   const cmds = () => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8').trim().split('\n').map(JSON.parse) : []);
   onReady();
@@ -118,4 +118,45 @@ require('readline').createInterface({input:process.stdin}).on('line',l=>{fs.appe
   on = false; ui.disable(); assert.equal(keys['Alt+Space'], undefined);
   await wait(() => cmds().some(x => x.cmd === 'quit'));
   quit();
+});
+
+// ---- Groq beyni (sahte fetch) ----
+function fakeFetch(steps) {
+  const reqs = [];
+  const f = async (url, o) => { reqs.push({ url, body: JSON.parse(o.body), auth: o.headers.authorization }); const st = steps.shift();
+    if (st instanceof Error) throw st;
+    return { ok: st.status === 200, status: st.status, text: async () => JSON.stringify(st.body) }; };
+  f.reqs = reqs; return f;
+}
+const ch = (message, finish = 'stop') => ({ status: 200, body: { choices: [{ message, finish_reason: finish }] } });
+
+test('Groq beyni: fonksiyon cagrisi, arac sonucu tool mesajiyla doner, istek bicimi', async () => {
+  const got = [];
+  const F = fakeFetch([ch({ role: 'assistant', content: null, tool_calls: [{ id: 'c1', type: 'function', function: { name: 'set_app_volume', arguments: '{"app":"Spotify","percent":150}' } }] }, 'tool_calls'),
+    ch({ role: 'assistant', content: 'Spotify yüzde 150.' })]);
+  const b = N.createGroqBrain({ getKey: () => 'gsk_x', actions: { appVolume: (a, p) => { got.push([a, p]); return { ok: true }; } }, fetch: F, now: () => Date.UTC(2026, 9, 20, 7) });
+  const r = await b.ask('spotify sesini yüzde 150 yap');
+  assert.equal(r.text, 'Spotify yüzde 150.'); assert.deepEqual(r.tools, ['set_app_volume']); assert.deepEqual(got, [['Spotify', 150]]);
+  const q = F.reqs[0];
+  assert.equal(q.url, 'https://api.groq.com/openai/v1/chat/completions'); assert.equal(q.auth, 'Bearer gsk_x');
+  assert.equal(q.body.model, 'openai/gpt-oss-120b'); assert.equal(q.body.reasoning_effort, 'low'); assert.equal(q.body.messages[0].role, 'system');
+  assert.ok(q.body.tools.some(t => t.type === 'browser_search')); assert.equal(q.body.tools.filter(t => t.type === 'function').length, N.TOOLS.length);
+  const m2 = F.reqs[1].body.messages;
+  assert.equal(m2.at(-1).role, 'tool'); assert.equal(m2.at(-1).tool_call_id, 'c1'); assert.equal(m2.at(-2).tool_calls[0].function.name, 'set_app_volume');
+});
+
+test('Groq beyni: 429 kucuk modele gecer, browser_search 400 ise birakilir, 401 ve limit mesajlari Turkce', async () => {
+  const F = fakeFetch([{ status: 400, body: { error: { message: 'tool browser_search is not supported' } } }, { status: 429, body: { error: { message: 'rate limit' } } }, ch({ role: 'assistant', content: 'Tamam.' })]);
+  const b = N.createGroqBrain({ getKey: () => 'gsk_x', actions: {}, fetch: F });
+  assert.equal((await b.ask('selam')).text, 'Tamam.');
+  assert.equal(F.reqs[1].body.tools.some(t => t.type === 'browser_search'), false, 'web aramasi kapatildi');
+  assert.equal(F.reqs[2].body.model, 'openai/gpt-oss-20b'); assert.equal(b.model(), 'openai/gpt-oss-20b');
+  const A = N.createGroqBrain({ getKey: () => 'gsk_x', actions: {}, fetch: fakeFetch([{ status: 401, body: {} }]) });
+  assert.equal((await A.ask('x')).text, 'Groq anahtarı geçersiz.');
+  const L = N.createGroqBrain({ getKey: () => 'gsk_x', actions: {}, fetch: fakeFetch([{ status: 429, body: {} }, { status: 429, body: {} }, { status: 429, body: {} }]) });
+  assert.match((await L.ask('x')).text, /ücretsiz sınırı/);
+  assert.equal((await N.createGroqBrain({ getKey: () => '', actions: {} }).ask('x')).error, 'nokey');
+  const bad = fakeFetch([ch({ role: 'assistant', content: '', tool_calls: [{ id: 'c', type: 'function', function: { name: 'open_url', arguments: '{bozuk' } }] }, 'tool_calls'), ch({ role: 'assistant', content: 'Açamadım.' })]);
+  await N.createGroqBrain({ getKey: () => 'gsk_x', actions: {}, fetch: bad }).ask('aç');
+  assert.match(bad.reqs[1].body.messages.at(-1).content, /Geçersiz JSON/);
 });

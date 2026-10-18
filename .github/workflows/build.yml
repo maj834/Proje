@@ -85,6 +85,96 @@ jobs:
           console.log("sistem-yardimcisi tamam: " + stats.length + " stats, " + msgs.filter(m => m.type === "error").length + " error satiri");
           console.log(JSON.stringify(stats[stats.length - 1]));
           JS
+      # Neo yardimcisi (sesli asistan: "Hey Neo" + komut tanima + TTS; Swift, arm64 + x64, Info.plist gomulu)
+      - run: plutil -lint native/neo-Info.plist
+      - run: npm run neo
+      - run: ./build/bin/neo-yardimcisi --version && lipo -info build/bin/neo-yardimcisi
+      # TCC (mikrofon / konusma tanima) kullanim aciklamalari ikiliye gomulu olmali, iki mimaride de
+      - name: neo-yardimcisi gomulu Info.plist
+        shell: bash
+        run: |
+          set -e
+          for a in arm64 x86_64; do
+            otool -arch "$a" -l build/bin/neo-yardimcisi | grep -q 'sectname __info_plist' || { echo "__info_plist yok: $a"; exit 1; }
+          done
+          otool -arch arm64 -s __TEXT __info_plist build/bin/neo-yardimcisi | head -3
+          for k in com.cem.app.neo NSMicrophoneUsageDescription NSSpeechRecognitionUsageDescription; do
+            n=$(grep -ao "$k" build/bin/neo-yardimcisi | wc -l | tr -d ' ')
+            test "$n" -ge 2 || { echo "gomulu plist'te $k eksik ($n)"; exit 1; }
+          done
+          echo "gomulu Info.plist tamam"
+      # Uyandirma sozcugu eslestiricisi (ses/izin gerekmez): --wake-test stdin satirlarini degerlendirir
+      - name: neo-yardimcisi uyandirma eslesmesi
+        shell: bash
+        run: |
+          set -o pipefail
+          printf '%s\n' "Hey Neo, sesi aç" "hey nio" "Heyneo müziği durdur" "bugün hava nasıl" "hey ne oldu" "hey no" "Hey Neo." "HEY NİYO ışığı kapat" "tamam hey neo ekranı kilitle" "hey net olarak söyle" "Hey ne o" "selam neo" \
+            | ./build/bin/neo-yardimcisi --wake-test > neo-wake.txt
+          cat neo-wake.txt
+          node - <<'JS'
+          const fs = require("fs");
+          const fail = (m) => { console.error("HATA: " + m); process.exit(1); };
+          const rows = fs.readFileSync("neo-wake.txt", "utf8").split("\n").filter(Boolean).map(l => JSON.parse(l));
+          const want = [
+            ["Hey Neo, sesi aç", "sesi aç"], ["hey nio", ""], ["Heyneo müziği durdur", "müziği durdur"], ["bugün hava nasıl", null],
+            ["hey ne oldu", null], ["hey no", null], ["Hey Neo.", ""], ["HEY NİYO ışığı kapat", "ışığı kapat"],
+            ["tamam hey neo ekranı kilitle", "ekranı kilitle"], ["hey net olarak söyle", null], ["Hey ne o", ""], ["selam neo", null],
+          ];
+          if (rows.length !== want.length) fail("satir sayisi " + rows.length);
+          want.forEach(([text, cmd], i) => {
+            const r = rows[i];
+            if (r.text !== text) fail("sira/metin: " + JSON.stringify(r));
+            if (cmd === null ? r.wake !== false : (r.wake !== true || r.command !== cmd)) fail("beklenen " + JSON.stringify(cmd) + ": " + JSON.stringify(r));
+          });
+          console.log("uyandirma eslesmesi tamam: " + rows.length + " ornek");
+          JS
+      # Duman testi: yalnizca config/say/stopSay/thinking/idle (CI'da mikrofon izni istenemez: start/listen gonderilmez).
+      # Ses ya da ses cikisi yoksa "tts" hata satiri normal; cokme, takilma ya da bozuk JSON adimi dusurur.
+      - name: neo-yardimcisi duman testi
+        timeout-minutes: 2
+        shell: bash
+        run: |
+          set -o pipefail
+          uzun="Bu uzun bir deneme cümlesidir; durdurma komutu gelene kadar okunmaya devam etmesi gerekir. Bir, iki, üç, dört, beş, altı, yedi, sekiz, dokuz, on."
+          { echo '{"cmd":"config","locale":"tr-TR","silenceMs":1200,"maxMs":15000,"voice":"","rate":0.5}'
+            echo '{"cmd":"say","id":"t","text":"Merhaba"}'; sleep 3
+            echo "{\"cmd\":\"say\",\"id\":\"u\",\"text\":\"$uzun\"}"; sleep 1
+            echo '{"cmd":"stopSay"}'; echo '{"cmd":"cancel"}'; echo '{"cmd":"thinking"}'; sleep 0.5
+            echo '{"cmd":"idle"}'; sleep 0.5; echo '{"cmd":"quit"}'; } | ./build/bin/neo-yardimcisi > neo-cikti.txt &
+          pid=$!
+          ( sleep 45; kill -9 "$pid" 2>/dev/null && echo "ZAMAN ASIMI: neo-yardimcisi kapanmadi" ) & wd=$!
+          rc=0; wait "$pid" || rc=$?
+          pkill -P "$wd" 2>/dev/null || true; kill "$wd" 2>/dev/null || true
+          cat neo-cikti.txt
+          test "$rc" -eq 0 || { echo "neo-yardimcisi cikis kodu $rc"; exit 1; }
+          node - <<'JS'
+          const fs = require("fs");
+          const fail = (m) => { console.error("HATA: " + m); process.exit(1); };
+          const lines = fs.readFileSync("neo-cikti.txt", "utf8").split("\n").filter(Boolean);
+          const msgs = lines.map((l, i) => { try { return JSON.parse(l); } catch (e) { fail("bozuk JSON, satir " + (i + 1) + ": " + l); } });
+          const h = msgs[0];
+          if (!h || h.type !== "hello") fail("ilk satir hello degil");
+          if (h.version !== 1 || typeof h.wakeOnDevice !== "boolean" || typeof h.cmdOnDevice !== "boolean" || h.locale !== "tr-TR" || !Array.isArray(h.voices)) fail("hello alanlari: " + lines[0]);
+          for (const v of h.voices) {
+            if (typeof v.id !== "string" || typeof v.name !== "string" || !/^tr/i.test(v.lang) || !["default", "enhanced", "premium"].includes(v.quality)) fail("ses: " + JSON.stringify(v));
+          }
+          const known = ["hello", "state", "wake", "partial", "command", "nocommand", "level", "spoken", "error"];
+          const bad = msgs.filter(m => !known.includes(m.type));
+          if (bad.length) fail("bilinmeyen satir: " + JSON.stringify(bad[0]));
+          const states = msgs.filter(m => m.type === "state").map(m => m.state);
+          if (!states.every(s => ["off", "idle", "listening", "thinking", "speaking"].includes(s))) fail("durum: " + states);
+          if (states[0] !== "off") fail("ilk durum off degil: " + states[0]);
+          if (!states.includes("thinking") || states[states.length - 1] !== "off") fail("thinking/idle durumlari: " + states);
+          if (states.includes("listening") || msgs.some(m => ["wake", "partial", "command", "nocommand"].includes(m.type))) fail("mikrofon kullanilmamaliydi");
+          for (const e of msgs.filter(m => m.type === "error")) {
+            if (!["mic_denied", "speech_denied", "no_recognizer", "engine", "tts"].includes(e.code) || typeof e.msg !== "string") fail("error: " + JSON.stringify(e));
+          }
+          const spoken = msgs.filter(m => m.type === "spoken");
+          for (const id of ["t", "u"]) if (!spoken.some(s => s.id === id)) fail("spoken yok: " + id);
+          if (spoken.length !== 2) fail("spoken sayisi: " + spoken.length);
+          for (const m of msgs.filter(m => m.type === "level")) if (typeof m.db !== "number" || !Number.isFinite(m.db)) fail("level: " + JSON.stringify(m));
+          console.log("neo-yardimcisi tamam: " + h.voices.length + " Turkce ses, durumlar " + states.join(">") + ", spoken " + JSON.stringify(spoken));
+          JS
       # Secret tanimli degilse bos gelir -> imzasiz derleme. Tanimlanirsa electron-builder imzalar ve notarize eder.
       - name: electron-builder
         env:
@@ -97,17 +187,20 @@ jobs:
           for v in CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do [ -n "${!v}" ] || unset "$v"; done
           if [ -z "${CSC_LINK:-}" ]; then export CSC_IDENTITY_AUTO_DISCOVERY=false; fi
           npx electron-builder --mac --publish never
-      - run: ls -la dist/mac-arm64/*.app/Contents/Resources/bin/ && plutil -p dist/mac-arm64/*.app/Contents/Info.plist | grep -E 'NSAudioCapture|LSUIElement' || true
-      # Paketlenmis uygulamalarda (arm64 + x64) iki yardimci da var mi
+      - run: ls -la dist/mac-arm64/*.app/Contents/Resources/bin/ && plutil -p dist/mac-arm64/*.app/Contents/Info.plist | grep -E 'NSAudioCapture|NSMicrophone|NSSpeechRecognition|LSUIElement' || true
+      # Paketlenmis uygulamalarda (arm64 + x64) tum yardimcilar ve Neo izin aciklamalari var mi
       - name: Paket icerigi (yardimcilar)
         shell: bash
         run: |
           set -e
           n=0
           for app in dist/mac*/*.app; do
-            for b in ses-yardimcisi sistem-yardimcisi; do
+            for b in ses-yardimcisi sistem-yardimcisi neo-yardimcisi; do
               test -x "$app/Contents/Resources/bin/$b" || { echo "eksik: $app/Contents/Resources/bin/$b"; exit 1; }
               lipo -info "$app/Contents/Resources/bin/$b"
+            done
+            for k in NSMicrophoneUsageDescription NSSpeechRecognitionUsageDescription; do
+              plutil -p "$app/Contents/Info.plist" | grep -q "$k" || { echo "Info.plist'te $k yok: $app"; exit 1; }
             done
             n=$((n+1))
           done

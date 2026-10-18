@@ -9,7 +9,8 @@
     "test": "node --test test/*.test.js",
     "ses": "mkdir -p build/bin && swiftc -O -target arm64-apple-macos13 -o build/bin/ses-arm64 native/ses.swift && swiftc -O -target x86_64-apple-macos13 -o build/bin/ses-x64 native/ses.swift && lipo -create -output build/bin/ses-yardimcisi build/bin/ses-arm64 build/bin/ses-x64 && rm build/bin/ses-arm64 build/bin/ses-x64",
     "sistem": "mkdir -p build/bin && swiftc -O -target arm64-apple-macos13 -o build/bin/sistem-arm64 native/sistem.swift && swiftc -O -target x86_64-apple-macos13 -o build/bin/sistem-x64 native/sistem.swift && lipo -create -output build/bin/sistem-yardimcisi build/bin/sistem-arm64 build/bin/sistem-x64 && rm build/bin/sistem-arm64 build/bin/sistem-x64",
-    "yardimcilar": "npm run ses && npm run sistem"
+    "yardimcilar": "npm run ses && npm run sistem && npm run neo",
+    "neo": "mkdir -p build/bin && swiftc -O -swift-version 5 -target arm64-apple-macos13 -Xlinker -sectcreate -Xlinker __TEXT -Xlinker __info_plist -Xlinker native/neo-Info.plist -o build/bin/neo-arm64 native/neo.swift && swiftc -O -swift-version 5 -target x86_64-apple-macos13 -Xlinker -sectcreate -Xlinker __TEXT -Xlinker __info_plist -Xlinker native/neo-Info.plist -o build/bin/neo-x64 native/neo.swift && lipo -create -output build/bin/neo-yardimcisi build/bin/neo-arm64 build/bin/neo-x64 && rm build/bin/neo-arm64 build/bin/neo-x64"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.135.0",
@@ -52,11 +53,14 @@
       "extendInfo": {
         "LSUIElement": false,
         "NSScreenCaptureUsageDescription": "Grafiği okumak için ekran görüntüsü gerekir",
-        "NSAudioCaptureUsageDescription": "Uygulama başına ses seviyesi ve bas/tiz ayarı için uygulamaların sesine erişmek gerekir"
+        "NSAudioCaptureUsageDescription": "Uygulama başına ses seviyesi ve bas/tiz ayarı için uygulamaların sesine erişmek gerekir",
+        "NSMicrophoneUsageDescription": "Neo sesli asistanı \"Hey Neo\" dediğinizi duymak ve komutlarınızı dinlemek için mikrofonu kullanır",
+        "NSSpeechRecognitionUsageDescription": "Neo sesli asistanı söylediklerinizi yazıya çevirmek için konuşma tanımayı kullanır"
       },
       "binaries": [
         "Contents/Resources/bin/ses-yardimcisi",
-        "Contents/Resources/bin/sistem-yardimcisi"
+        "Contents/Resources/bin/sistem-yardimcisi",
+        "Contents/Resources/bin/neo-yardimcisi"
       ]
     },
     "asarUnpack": [
@@ -68,7 +72,8 @@
         "to": "bin",
         "filter": [
           "ses-yardimcisi",
-          "sistem-yardimcisi"
+          "sistem-yardimcisi",
+          "neo-yardimcisi"
         ]
       }
     ]

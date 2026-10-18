@@ -57,12 +57,14 @@ if(ORB){
     <div class="row"><div class="f">“Hey Neo” ile uyan<div class="d" id="wd"></div></div><label><input type="checkbox" id="wake"> Açık</label></div>
     <div class="row"><div class="f">Konuşmak için kısayol<div class="d">Uyandırma kelimesi demeden dinler; konuşurken basarsan susar.</div></div><kbd id="hk"></kbd></div>
     <div class="row"><div class="f">Ses</div><select id="voice" aria-label="Neo'nun sesi"></select></div>
+    <div class="row"><div class="f">Beyin<div class="d" id="bd"></div></div><select id="brain" aria-label="Neo'nun beyni"><option value="groq">Groq (ücretsiz)</option><option value="claude">Claude (API anahtarı)</option></select></div>
+    <div class="row"><input type="text" id="key" placeholder="" aria-label="API anahtarı" autocomplete="off" spellcheck="false"><button class="btn" id="ks">Kaydet</button><button class="btn" id="kl">Anahtar al</button></div>
     <div class="err" id="err" role="status"></div>
   </div>
   <div class="log" id="log" aria-live="polite"></div>
   <div class="row"><input type="text" id="q" placeholder="Yazarak sor… (ör. Spotify sesini yüzde 150 yap)" aria-label="Neo'ya yaz"><button class="btn pri" id="go">Sor</button>
     <button class="btn" id="mic" title="Sesle sor">🎙</button></div>
-  <div class="row"><span class="note f">Uyandırma kelimesi Mac'te, internetsiz algılanır. Komutun Claude'a gider (Claude anahtarın).</span><button class="btn" id="fg">Konuşmayı unut</button></div>
+  <div class="row"><span class="note f">Uyandırma kelimesi Mac'te, internetsiz algılanır. Komutun seçtiğin beyne gider (Groq ya da Claude).</span><button class="btn" id="fg">Konuşmayı unut</button></div>
   </div>`;
   const $=id=>document.getElementById(id);let S=null;
   function render(){if(!S)return;const c=S.conf;
@@ -71,7 +73,11 @@ if(ORB){
     $('hk').textContent=c.hotkey.replace('Alt','⌥').replace('Space','Boşluk').replace(/\+/g,' ');
     const vs=(S.hello&&S.hello.voices)||[];$('voice').replaceChildren(el('option',null,'Varsayılan Türkçe ses'),...vs.map(v=>{const o=el('option',null,v.name+(v.quality&&v.quality!=='default'?' ('+v.quality+')':''));o.value=v.id;return o}));
     $('voice').options[0].value='';$('voice').value=c.voice||'';
-    $('err').textContent=(!S.hasKey?'Claude anahtarı yok: Borsa → Ayarlar → Claude anahtarı. ':'')+(S.error||'')+(S.supported?'':' Neo yalnızca Mac\'te çalışır.');
+    $('brain').value=c.brain;const g=c.brain==='groq';
+    $('bd').textContent=g?'Ücretsiz, çok hızlı. Günlük ücretsiz sınırı var.':'En akıllısı; kullandıkça ücretli (claude.ai aboneliği bunu kapsamaz).';
+    $('key').placeholder=(S.keys[c.brain]?'Kayıtlı · değiştirmek için yeni anahtarı yapıştır':g?'gsk_… Groq anahtarı':'sk-ant-… Claude API anahtarı');
+    $('kl').style.display=g?'':'none';
+    $('err').textContent=(S.keyError?S.keyError+' ':'')+(!S.hasKey?(g?'Groq anahtarı yok: "Anahtar al" → giriş yap → Create API Key → buraya yapıştır. ':'Claude API anahtarı yok. '):'')+(S.error||'')+(S.supported?'':' Neo yalnızca Mac\'te çalışır.');
     const L=$('log');L.replaceChildren(...[...S.log].reverse().flatMap(x=>{const a=el('div','a',x.a);if(x.tools&&x.tools.length)a.append(el('small',null,x.tools.map(t=>TOOL[t]||t).join(' · ')));return [el('div','q',x.q),a]}));L.scrollTop=L.scrollHeight}
   neo.on(s=>{S=s;render()});neo.state().then(s=>{if(s){S=s;render()}});
   $('wake').onchange=async()=>{S=await neo.set({wake:$('wake').checked})||S;render()};
@@ -79,5 +85,8 @@ if(ORB){
   const ask=async()=>{const t=$('q').value.trim();if(!t)return;$('q').value='';$('go').disabled=true;S=await neo.ask(t)||S;$('go').disabled=false;render()};
   $('go').onclick=ask;$('q').onkeydown=e=>{if(e.key==='Enter')ask()};$('mic').onclick=()=>neo.talk();
   $('fg').onclick=async()=>{S=await neo.forget()||S;render()};
+  $('brain').onchange=async()=>{S=await neo.set({brain:$('brain').value})||S;render()};
+  $('ks').onclick=async()=>{const k=$('key').value.trim();S=await neo.key(S.conf.brain,k)||S;if(!S.keyError)$('key').value='';render()};
+  $('kl').onclick=()=>neo.link();
 }
 </script></body></html>
