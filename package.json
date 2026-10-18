@@ -69,7 +69,8 @@
         "Contents/Resources/bin/ses-yardimcisi",
         "Contents/Resources/bin/sistem-yardimcisi",
         "Contents/Resources/bin/neo-yardimcisi"
-      ]
+      ],
+      "icon": "assets/icon.png"
     },
     "asarUnpack": [
       "node_modules/{tesseract.js,tesseract.js-core,@tesseract.js-data,bmp-js,idb-keyval,is-url,node-fetch,whatwg-url,tr46,webidl-conversions,opencollective-postinstall,regenerator-runtime,wasm-feature-detect,zlibjs}/**"

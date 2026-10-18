@@ -5,7 +5,8 @@
 html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font:400 13px/1.45 var(--font);-webkit-user-select:none;user-select:none}
 .top{height:52px;-webkit-app-region:drag;display:flex;align-items:flex-end;padding:0 var(--s6,28px) 0 88px}
 .wrap{padding:var(--s2) var(--s6,28px) var(--s6,28px);max-width:1080px;margin:0 auto}
-h1{font:600 22px var(--font);margin:0;letter-spacing:-.01em}.sub{color:var(--fg-3);margin-top:2px}
+h1{font:600 22px var(--font);margin:0;letter-spacing:-.01em}
+.brand{display:flex;align-items:center;gap:12px}.brand img{border-radius:10px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.2))}.sub{color:var(--fg-3);margin-top:2px}
 .bar{display:flex;align-items:center;gap:var(--s2);margin:var(--s5) 0 var(--s3)}
 .chip{border:1px solid var(--line-2);background:var(--surface);color:var(--fg-2);font:500 12px var(--font);padding:4px 11px;border-radius:999px;cursor:pointer}
 .chip.on{background:var(--fg);border-color:var(--fg);color:var(--bg)}
@@ -34,7 +35,7 @@ h1{font:600 22px var(--font);margin:0;letter-spacing:-.01em}.sub{color:var(--fg-
 </style></head><body>
 <div class="top"></div>
 <div class="wrap">
-  <h1 id="title"></h1><div class="sub">Kullanmak istediğin özellikleri aç. Kapalı özellik menü çubuğunda görünmez ve arka planda çalışmaz.</div>
+  <div class="brand"><img src="assets/logo128.png" width="44" height="44" alt=""><h1 id="title"></h1></div><div class="sub">Kullanmak istediğin özellikleri aç. Kapalı özellik menü çubuğunda görünmez ve arka planda çalışmaz.</div>
   <div class="upd" id="upd" role="status"></div>
   <div class="bar" id="flt"></div>
   <div class="grid" id="grid"></div>
