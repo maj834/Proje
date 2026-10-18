@@ -200,7 +200,7 @@ async function prepare(zipPath, { exec = defaultExec, version, signed = null, wo
   } catch (e) { fs.rmSync(tmp, { recursive: true, force: true }); throw e; }
 }
 
-// Kurulum betigi (POSIX sh). Yollar betige YAZILMAZ: $1..$8 konum argumanlari.
+// Kurulum betigi (POSIX sh). Yollar betige YAZILMAZ: $1..$9 konum argumanlari. $9: kapanista kurulumda ilk acilisin izlenme suresi (sn).
 // $1 eski .app  $2 yeni .app  $3 beklenecek pid  $4 yedek klasoru  $5 yeniden ac (1/0, varsayilan 1)  $6 yedek silme gecikmesi sn (varsayilan 10)
 // $7 acilis isareti dosyasi (bos: yok)  $8 isaret bekleme suresi sn (varsayilan 30). $7 verilirse ve yeniden acilirsa: yeni surum $8 sn icinde
 // isareti yazmazsa (acilista coktu / takildi) yeni surum kapatilir, yedek geri yuklenir, eski surum acilir ve "$7.failed" yazilir.
@@ -219,6 +219,7 @@ RELAUNCH=\${5:-1}
 DELAY=\${6:-10}
 MARK=\${7:-}
 WAIT=\${8:-30}
+WATCH=\${9:-259200}
 case "$BK" in /*) ;; *) exit 2 ;; esac
 mkdir -p -- "$BK" || exit 2
 LOG="$BK/guncelleme.log"
@@ -228,6 +229,7 @@ case "$PID" in ''|*[!0-9]*) fail "gecersiz pid" ;; esac
 case "$RELAUNCH" in 0|1) ;; *) fail "gecersiz secenek" ;; esac
 case "$DELAY" in ''|*[!0-9]*) fail "gecersiz gecikme" ;; esac
 case "$WAIT" in ''|*[!0-9]*) fail "gecersiz bekleme" ;; esac
+case "$WATCH" in ''|*[!0-9]*) fail "gecersiz izleme" ;; esac
 case "$MARK" in ''|/*) ;; *) fail "gecersiz isaret" ;; esac
 case "$OLD" in /*.app) ;; *) fail "gecersiz hedef" ;; esac
 case "$NEW" in /*.app) ;; *) fail "gecersiz yeni surum" ;; esac
@@ -319,6 +321,34 @@ if [ "$RELAUNCH" = 1 ]; then
     exit 1
   fi
 fi
+# Kapanista kuruldu (yeniden acilmadi): betik arka planda bekler; kullanici uygulamayi actiginda yeni surum $WAIT sn
+# icinde acilis isareti yazmazsa (acilista coktu / takildi) eski surum geri yuklenir. En fazla $WATCH sn izlenir;
+# sure dolarsa yedek kalir (yeni surum basariyla acildiginda kendisi siler).
+if [ "$RELAUNCH" = 0 ] && [ -n "$MARK" ] && [ "$had_old" = 1 ]; then
+  NAME=$(basename -- "$OLD" .app)
+  log "kapanista kuruldu; ilk acilis izleniyor"
+  t=0
+  seen=-1
+  while [ "$t" -lt "$WATCH" ]; do
+    if [ -e "$MARK" ]; then
+      rm -f -- "$MARK"
+      log "yeni surum basariyla acildi"
+      break
+    fi
+    if [ "$seen" -lt 0 ] && pgrep -x -- "$NAME" >/dev/null 2>&1; then seen=$t; log "yeni surum acildi; isaret bekleniyor"; fi
+    if [ "$seen" -ge 0 ] && [ $((t - seen)) -gt "$WAIT" ]; then
+      log "yeni surum $WAIT sn icinde acilis isareti yazmadi; geri aliniyor"
+      stop_new
+      printf '%s\\n' "$(date '+%s')" > "$MARK.failed" 2>/dev/null
+      rm -rf -- "$OLD"
+      if mv -- "$BAK" "$OLD"; then log "eski surum geri yuklendi"; open -n "$OLD"; else log "GERI YUKLENEMEDI, yedek: $BAK"; fi
+      exit 1
+    fi
+    sleep 2
+    t=$((t + 2))
+  done
+  if [ "$t" -ge "$WATCH" ]; then log "izleme suresi doldu; yedek korunuyor"; exit 0; fi
+fi
 rm -rf -- "$BAK"
 log "tamam"
 exit 0
@@ -326,14 +356,15 @@ exit 0
 }
 
 // /bin/sh <betik> ardindan verilecek argumanlar (dogrulanmis)
-function installArgs({ oldApp, newApp, pid, backupDir, relaunch = true, delay = 10, marker = '', wait = 30 }) {
+function installArgs({ oldApp, newApp, pid, backupDir, relaunch = true, delay = 10, marker = '', wait = 30, watch = 259200 }) {
   for (const [k, v] of [['oldApp', oldApp], ['newApp', newApp]]) if (typeof v !== 'string' || !path.isAbsolute(v) || !v.endsWith('.app')) throw new Error('Geçersiz yol: ' + k);
   if (typeof backupDir !== 'string' || !path.isAbsolute(backupDir)) throw new Error('Geçersiz yol: backupDir');
   if (!Number.isSafeInteger(pid) || pid < 1) throw new Error('Geçersiz pid');
   if (!Number.isSafeInteger(delay) || delay < 0 || delay > 600) throw new Error('Geçersiz gecikme');
   if (marker !== '' && (typeof marker !== 'string' || !path.isAbsolute(marker))) throw new Error('Geçersiz yol: marker');
   if (!Number.isSafeInteger(wait) || wait < 1 || wait > 600) throw new Error('Geçersiz bekleme');
-  return [oldApp, newApp, String(pid), backupDir, relaunch ? '1' : '0', String(delay), marker, String(wait)];
+  if (!Number.isSafeInteger(watch) || watch < 0 || watch > 30 * 86400) throw new Error('Geçersiz izleme');
+  return [oldApp, newApp, String(pid), backupDir, relaunch ? '1' : '0', String(delay), marker, String(wait), String(watch)];
 }
 
 // Bu konumdaki uygulama yerinde guncellenebilir mi?

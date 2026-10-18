@@ -13,10 +13,10 @@ jobs:
       # Electron ikili dosyasi testlerde gerekmez (zaten ilk calistirmada indirilir).
       ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with: {persist-credentials: false}
-      - uses: actions/setup-node@v4
-        with: {node-version: 20, cache: npm}
+      - uses: actions/setup-node@v5
+        with: {node-version: 22, cache: npm}
       - run: npm ci
       - run: for f in *.js; do node --check "$f"; done
       - run: npm test
@@ -34,10 +34,10 @@ jobs:
       cancel-in-progress: false
     steps:
       # fetch-depth 0: surum notlari icin onceki etiketler ve gecmis. git push yok -> kimlik bilgisi .git/config'e yazilmaz (gh GH_TOKEN kullanir)
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with: {fetch-depth: 0, persist-credentials: false}
-      - uses: actions/setup-node@v4
-        with: {node-version: 20, cache: npm}
+      - uses: actions/setup-node@v5
+        with: {node-version: 22, cache: npm}
       - run: npm ci
       # Surum yalniz CI'da: 2.0.<calisma no>. Depodaki package.json 2.0.0 kalir. Guncelleyici bu numarayi karsilastirir.
       - name: Surum numarasi
@@ -211,21 +211,30 @@ jobs:
       # uygulama hazir olup birkac saniye hatasiz calisinca "CEM_SMOKE_OK" yazip 0 ile cikar. 60 sn icinde cikmazsa, 0 disi kodla
       # cikarsa ya da isaret yoksa adim (ve dolayisiyla Release) duser.
       - name: Paketlenmis uygulama acilis testi
-        timeout-minutes: 3
+        timeout-minutes: 6
         shell: bash
         run: |
           set -u
-          APP="dist/mac-arm64/Cem App.app/Contents/MacOS/Cem App"
-          test -x "$APP" || { echo "yok: $APP"; ls -la dist; exit 1; }
-          CEM_SMOKE=1 ELECTRON_ENABLE_LOGGING=1 "$APP" > smoke.txt 2>&1 &
-          pid=$!
-          ( sleep 60; kill -9 "$pid" 2>/dev/null && echo "ZAMAN ASIMI: uygulama 60 sn icinde cikmadi" >> smoke.txt ) & wd=$!
-          rc=0; wait "$pid" || rc=$?
-          pkill -P "$wd" 2>/dev/null || true; kill "$wd" 2>/dev/null || true
-          cat smoke.txt
-          test "$rc" -eq 0 || { echo "uygulama cikis kodu $rc"; exit 1; }
-          grep -q '^CEM_SMOKE_OK' smoke.txt || { echo "CEM_SMOKE_OK isareti yok"; exit 1; }
-          echo "acilis testi tamam"
+          # Intel (x64) paketi Apple Silicon calistiricida Rosetta 2 ile acilir; yoksa kurulur
+          /usr/bin/pgrep -q oahd || sudo softwareupdate --install-rosetta --agree-to-license >/dev/null 2>&1 || true
+          fail=0
+          for app in dist/mac-arm64/*.app dist/mac/*.app; do
+            APP="$app/Contents/MacOS/Cem App"
+            echo "::group::acilis testi: $app ($(lipo -archs "$APP" 2>/dev/null))"
+            test -x "$APP" || { echo "yok: $APP"; ls -la dist; fail=1; echo "::endgroup::"; continue; }
+            out="smoke-$(basename "$(dirname "$app")").txt"
+            CEM_SMOKE=1 ELECTRON_ENABLE_LOGGING=1 "$APP" > "$out" 2>&1 &
+            pid=$!
+            ( sleep 90; kill -9 "$pid" 2>/dev/null && echo "ZAMAN ASIMI: uygulama 90 sn icinde cikmadi" >> "$out" ) & wd=$!
+            rc=0; wait "$pid" || rc=$?
+            pkill -P "$wd" 2>/dev/null || true; kill "$wd" 2>/dev/null || true
+            cat "$out"
+            echo "::endgroup::"
+            if [ "$rc" -ne 0 ]; then echo "::error::$app cikis kodu $rc"; fail=1
+            elif ! grep -q '^CEM_SMOKE_OK' "$out"; then echo "::error::$app CEM_SMOKE_OK isareti yok"; fail=1
+            else echo "$app acilis testi tamam"; fi
+          done
+          exit "$fail"
       - run: ls -la dist/mac-arm64/*.app/Contents/Resources/bin/ && plutil -p dist/mac-arm64/*.app/Contents/Info.plist | grep -E 'NSAudioCapture|NSMicrophone|NSSpeechRecognition|LSUIElement' || true
       # Paketlenmis uygulamalarda (arm64 + x64) tum yardimcilar ve Neo izin aciklamalari var mi
       - name: Paket icerigi (yardimcilar)
@@ -319,5 +328,5 @@ jobs:
             echo "siliniyor: $t"
             gh release delete "$t" --cleanup-tag --yes
           done < eski.txt
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with: {name: CemApp-dmg, path: dist/*.dmg}

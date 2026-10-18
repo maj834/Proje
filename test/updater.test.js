@@ -437,6 +437,30 @@ test('installScript: yeni surum acilis isaretini yazarsa yedek silinir, isaret t
   assert.deepEqual(e.opened(), ['-n', e.oldApp]); assert.match(e.log(), /basariyla acildi/); assert.equal(e.pwned(), false);
 });
 
+test('installScript: kapanista kurulumda ilk acilis izlenir; isaret gelirse yedek silinir, gelmezse eskiye donulur', async (t) => {
+  const pg = (e, code) => { const f = path.join(e.d, 'bin', 'pgrep'); fs.writeFileSync(f, `#!/bin/sh\nexit ${code}\n`); fs.chmodSync(f, 0o755); };
+  // 1) kullanici acti, yeni surum isareti yazdi: yedek silinir, hicbir sey acilmaz
+  let e = scriptEnv(t); pg(e, 0);
+  setTimeout(() => fs.writeFileSync(e.marker, ''), 1500);
+  let r = await e.run(deadPid(), false, { marker: e.marker, wait: 20 });
+  assert.equal(r.code, 0, r.err + e.log());
+  assert.equal(e.ver(), 'yeni'); assert.ok(!fs.existsSync(path.join(e.backupDir, 'onceki.app'))); assert.deepEqual(e.opened(), []);
+  assert.match(e.log(), /ilk acilis izleniyor/); assert.match(e.log(), /basariyla acildi/);
+  // 2) acildi ama isaret gelmedi (acilista coktu): eski surum geri yuklenir ve acilir, .failed yazilir
+  const hung = spawn('/bin/sleep', ['30']); t.after(() => { try { hung.kill('SIGKILL'); } catch (x) {} });
+  e = scriptEnv(t, { lsofPid: hung.pid }); pg(e, 0);
+  r = await e.run(deadPid(), false, { marker: e.marker, wait: 1 });
+  assert.equal(r.code, 1, r.err + e.log());
+  assert.equal(e.ver(), 'eski'); assert.ok(fs.existsSync(e.marker + '.failed')); assert.deepEqual(e.opened(), ['-n', e.oldApp]);
+  assert.match(e.log(), /geri yuklendi/);
+  // 3) kullanici hic acmadi: izleme suresi dolar, yeni surum yerinde, yedek korunur
+  e = scriptEnv(t); pg(e, 1);
+  r = await e.run(deadPid(), false, { marker: e.marker, wait: 1, watch: 3 });
+  assert.equal(r.code, 0, r.err + e.log());
+  assert.equal(e.ver(), 'yeni'); assert.ok(fs.existsSync(path.join(e.backupDir, 'onceki.app'))); assert.match(e.log(), /izleme suresi doldu/);
+  assert.throws(() => U.installArgs({ oldApp: '/a.app', newApp: '/b.app', pid: 5, backupDir: '/b', watch: -1 }), /izleme/);
+});
+
 test('installScript: acilis isareti gelmezse yeni surum kapatilir, eskiye donulur, .failed yazilir', async (t) => {
   const hung = spawn('/bin/sleep', ['30']); t.after(() => { try { hung.kill('SIGKILL'); } catch (x) {} });
   const gone = new Promise(r => hung.on('exit', r));

@@ -162,8 +162,8 @@ function registerUpdater({ ipcMain, app, path, Notification, shell, cfg, save, s
       const script = path.join(dir(), 'kur.sh');
       fs.rmSync(script, { force: true });
       fs.writeFileSync(script, U.installScript({}), { mode: 0o700, flag: 'wx' });
-      // Yeniden acilacaksa betik yeni surumun acilis isaretini bekler; gelmezse geri alir
-      const marker = relaunch ? startedFile(ready.version) : '';
+      // Isaret her iki yolda: yeniden acilista betik hemen bekler; kapanista kurulumda kullanicinin ilk acilisini izler
+      const marker = startedFile(ready.version);
       for (const f of [startedFile(ready.version), startedFile(ready.version) + '.failed']) fs.rmSync(f, { force: true });
       const args = U.installArgs({ oldApp: old, newApp: ready.app, pid, backupDir: backupDir(), relaunch, delay: deps.delay ?? 10,
         marker, wait: deps.startedWait ?? STARTED_WAIT });
