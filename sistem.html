@@ -1,0 +1,98 @@
+<!doctype html><html lang="tr"><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; script-src 'self' 'unsafe-inline'">
+<title>Sistem durumu</title><link rel="stylesheet" href="theme.css">
+<style>
+html,body{margin:0;background:var(--bg);color:var(--fg);font:400 12.5px/1.4 var(--font);-webkit-user-select:none;user-select:none;overflow:hidden}
+body{border:1px solid var(--line-2);border-radius:10px;height:100vh;box-sizing:border-box;display:flex;flex-direction:column}
+.hd{display:flex;align-items:center;gap:8px;padding:10px 12px 8px;border-bottom:1px solid var(--line)}
+.hd b{font:600 13px var(--font)}.hd .m{color:var(--fg-3);font-size:11px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.th{font:500 10.5px var(--font);border-radius:999px;padding:1px 8px;border:1px solid var(--line-2);color:var(--fg-2)}
+.th.fair{color:var(--warn);border-color:var(--warn)}.th.serious,.th.critical{color:var(--dn);border-color:var(--dn)}
+.bd{flex:1;overflow-y:auto;padding:10px 12px 12px}
+.tiles{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.tile{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:8px 10px;min-height:58px}
+.tile .k{font-size:11px;color:var(--fg-3)}.tile .v{font:600 22px var(--mono);font-variant-numeric:tabular-nums;letter-spacing:-.02em;margin-top:2px}
+.tile .s{font-size:10.5px;color:var(--fg-3)}.tile svg{display:block;width:100%;height:20px;margin-top:3px}
+.ok{color:var(--up)}.warm{color:var(--warn)}.hot{color:var(--dn)}
+.sec{margin-top:10px;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+.sec .t{font:600 11px var(--font);color:var(--fg-2);text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px}
+.row{display:flex;justify-content:space-between;gap:8px;padding:2px 0}.row span{color:var(--fg-2)}.row b{font:500 12px var(--mono);font-variant-numeric:tabular-nums}
+.bar{height:5px;border-radius:3px;background:var(--sunk);overflow:hidden;margin:3px 0 4px}.bar i{display:block;height:100%;background:var(--acc)}
+.cores{display:grid;grid-template-columns:repeat(auto-fill,minmax(14px,1fr));gap:3px;align-items:end;height:34px}
+.cores i{display:block;background:var(--acc);border-radius:2px;min-height:2px}
+.chips{display:flex;flex-wrap:wrap;gap:5px}
+.chip{border:1px solid var(--line-2);background:var(--bg);color:var(--fg-2);font:500 11px var(--font);padding:3px 9px;border-radius:999px;cursor:pointer}
+.chip.on{background:var(--fg);border-color:var(--fg);color:var(--bg)}
+.chip:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
+.err{margin-top:8px;color:var(--warn);font-size:11.5px}
+.note{color:var(--fg-3);font-size:10.5px;margin-top:6px}
+</style></head><body>
+<div class="hd"><b>Sistem</b><span class="m" id="chip"></span><span class="th" id="th"></span></div>
+<div class="bd">
+  <div class="tiles">
+    <div class="tile"><div class="k">İşlemci sıcaklığı</div><div class="v" id="temp">—</div><div class="s" id="temps"></div><svg id="gtemp" viewBox="0 0 100 20" preserveAspectRatio="none" aria-hidden="true"></svg></div>
+    <div class="tile"><div class="k">İşlemci kullanımı</div><div class="v" id="cpu">—</div><div class="s" id="cpus"></div><svg id="gcpu" viewBox="0 0 100 20" preserveAspectRatio="none" aria-hidden="true"></svg></div>
+    <div class="tile"><div class="k">FPS (ekran)</div><div class="v" id="fps">—</div><div class="s" id="fpss"></div><svg id="gfps" viewBox="0 0 100 20" preserveAspectRatio="none" aria-hidden="true"></svg></div>
+    <div class="tile"><div class="k">Ekran kartı</div><div class="v" id="gpu">—</div><div class="s" id="gpus"></div><svg id="ggpu" viewBox="0 0 100 20" preserveAspectRatio="none" aria-hidden="true"></svg></div>
+  </div>
+  <div class="sec"><div class="t">Çekirdekler</div><div class="cores" id="cores" aria-label="Çekirdek başına kullanım"></div></div>
+  <div class="sec"><div class="t">Bellek</div><div class="bar"><i id="memb"></i></div>
+    <div class="row"><span>Kullanılan</span><b id="mem">—</b></div><div class="row"><span>Bellek baskısı</span><b id="press">—</b></div><div class="row"><span>Takas (swap)</span><b id="swap">—</b></div></div>
+  <div class="sec" id="secfan"><div class="t">Fan ve güç</div><div id="fans"></div><div class="row"><span>Sistem gücü</span><b id="power">—</b></div></div>
+  <div class="sec" id="secbat"><div class="t">Pil</div><div class="bar"><i id="batb"></i></div>
+    <div class="row"><span>Doluluk</span><b id="bat">—</b></div><div class="row"><span>Pil sıcaklığı</span><b id="btemp">—</b></div>
+    <div class="row"><span>Güç akışı</span><b id="bwatt">—</b></div><div class="row"><span>Şarj döngüsü</span><b id="cyc">—</b></div></div>
+  <div class="sec"><div class="t">Ağ ve disk</div>
+    <div class="row"><span>İndirme</span><b id="down">—</b></div><div class="row"><span>Yükleme</span><b id="up">—</b></div>
+    <div class="row"><span>Disk okuma</span><b id="dr">—</b></div><div class="row"><span>Disk yazma</span><b id="dw">—</b></div><div class="row"><span>Boş alan</span><b id="free">—</b></div></div>
+  <div class="sec"><div class="t">Menü çubuğunda göster</div><div class="chips" id="bars"></div>
+    <div class="note">En fazla 4 değer. FPS seçiliyse ekran güncellemesi panel kapalıyken de ölçülür (biraz işlemci kullanır).</div></div>
+  <div class="err" id="err" role="status"></div>
+</div>
+<script>
+const $=id=>document.getElementById(id),tr=(v,d=0)=>v.toLocaleString('tr-TR',{maximumFractionDigits:d,minimumFractionDigits:d});
+const B=b=>{if(b==null)return '—';const u=['B','KB','MB','GB','TB'];let i=0;while(b>=1000&&i<u.length-1){b/=1000;i++}return tr(b,i&&b<100?1:0)+' '+u[i]};
+const R=b=>b==null?'—':B(b)+'/s';
+const TH={nominal:'Normal',fair:'Ilık',serious:'Sıcak',critical:'Çok sıcak'},PR={normal:'Normal',warn:'Yüksek',critical:'Kritik'};
+const heat=t=>t==null?'':t>=90?'hot':t>=75?'warm':'ok';
+let S=null,H=[];
+// Kucuk cizgi grafik (son 120 olcum); deger yoksa bos
+function spark(id,vals,max){const v=vals.filter(x=>x!=null),g=$(id);if(v.length<2){g.replaceChildren();return}
+  const mx=max||Math.max(1,...v),pts=vals.map((x,i)=>x==null?null:(i/(vals.length-1)*100).toFixed(1)+','+(19-x/mx*18).toFixed(1)).filter(Boolean).join(' ');
+  g.innerHTML='<polyline points="'+pts+'" fill="none" stroke="currentColor" stroke-width="1.5" vector-effect="non-scaling-stroke" opacity=".75"/>'}
+function setv(id,txt,cls){const e=$(id);e.textContent=txt;e.className=e.className.replace(/\b(ok|warm|hot)\b/g,'').trim()+(cls?' '+cls:'')}
+function render(){
+  const s=S&&S.last,h=S&&S.hello;
+  $('chip').textContent=h?[h.chip,h.cores?h.cores+' çekirdek':null].filter(Boolean).join(' · '):'';
+  $('err').textContent=S&&!S.supported?'Bu özellik yalnızca Mac\'te çalışır.':(S&&S.error)||'';
+  if(!s){return bars()}
+  const th=$('th');th.textContent=s.thermal?TH[s.thermal]:'';th.className='th '+(s.thermal||'');th.style.display=s.thermal?'':'none';
+  const t=s.cpu.temp;setv('temp',t!=null?tr(t)+'°C':'—',heat(t));
+  $('temps').textContent=s.cpu.tempMax!=null&&s.cpu.tempMax!==t?'en sıcak '+tr(s.cpu.tempMax)+'°C':t==null?'sensör okunamadı':'';
+  setv('cpu',s.cpu.usage!=null?tr(s.cpu.usage)+'%':'—');$('cpus').textContent=s.power!=null?tr(s.power,1)+' W sistem':'';
+  setv('fps',s.fps.screen!=null?tr(s.fps.screen):'—');
+  $('fpss').textContent=(s.fps.display?'ekran '+tr(s.fps.display)+' Hz':'')+(s.fps.screen==null&&S.conf?' · ölçülmüyor':'');
+  setv('gpu',s.gpu.usage!=null?tr(s.gpu.usage)+'%':'—');$('gpus').textContent=s.gpu.temp!=null?tr(s.gpu.temp)+'°C':'';
+  $('gtemp').style.color='var(--'+(t>=90?'dn':t>=75?'warn':'up')+')';$('gcpu').style.color=$('gfps').style.color=$('ggpu').style.color='var(--acc)';
+  spark('gtemp',H.map(x=>x.cpu.temp),110);spark('gcpu',H.map(x=>x.cpu.usage),100);spark('gfps',H.map(x=>x.fps.screen));spark('ggpu',H.map(x=>x.gpu.usage),100);
+  $('cores').replaceChildren(...s.cpu.cores.map((v,i)=>{const e=document.createElement('i');e.style.height=Math.max(2,(v||0)/100*34)+'px';e.title=(i+1)+'. çekirdek '+tr(v||0)+'%';return e}));
+  const m=s.mem;$('memb').style.width=(m.total?m.used/m.total*100:0)+'%';$('mem').textContent=m.total?B(m.used)+' / '+B(m.total):'—';
+  $('press').textContent=m.pressure?PR[m.pressure]:'—';$('press').className=m.pressure==='critical'?'hot':m.pressure==='warn'?'warm':'';$('swap').textContent=B(m.swap);
+  $('secfan').style.display=s.fans.length||s.power!=null?'':'none';
+  $('fans').replaceChildren(...s.fans.map((r,i)=>{const d=document.createElement('div');d.className='row';const a=document.createElement('span'),b=document.createElement('b');
+    a.textContent=s.fans.length>1?(i+1)+'. fan':'Fan';b.textContent=tr(r)+' rpm';d.append(a,b);return d}));
+  $('power').textContent=s.power!=null?tr(s.power,1)+' W':'—';
+  const bt=s.battery;$('secbat').style.display=bt?'':'none';
+  if(bt){$('batb').style.width=(bt.pct||0)+'%';$('bat').textContent=bt.pct!=null?tr(bt.pct)+'%'+(bt.charging?' · şarj oluyor':''):'—';
+    $('btemp').textContent=bt.temp!=null?tr(bt.temp,1)+'°C':'—';$('bwatt').textContent=bt.watts!=null?(bt.watts>0?'+':'')+tr(bt.watts,1)+' W':'—';$('cyc').textContent=bt.cycles!=null?tr(bt.cycles):'—'}
+  $('down').textContent=R(s.net.down);$('up').textContent=R(s.net.up);$('dr').textContent=R(s.disk.read);$('dw').textContent=R(s.disk.write);$('free').textContent=B(s.disk.free);
+  bars();
+}
+function bars(){if(!S)return;const on=S.conf.bar;
+  $('bars').replaceChildren(...S.bars.map(b=>{const e=document.createElement('button');e.className='chip'+(on.includes(b.id)?' on':'');e.textContent=b.name;
+    e.setAttribute('aria-pressed',on.includes(b.id));
+    e.onclick=async()=>{const n=on.includes(b.id)?on.filter(x=>x!==b.id):[...on,b.id].slice(-4);const r=await sys.set({bar:n});if(r){S={...S,conf:r.conf};bars()}};return e}))}
+sys.on(d=>{if(!S)return;S.last=d.last;S.error=d.error;if(d.hello)S.hello=d.hello;if(d.hist&&d.hist.length){H.push(...d.hist);if(H.length>120)H.splice(0,H.length-120)}render()});
+sys.state().then(s=>{if(!s)return;S=s;H=(s.hist||[]).slice(-120);render()});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')sys.hide()});
+</script></body></html>

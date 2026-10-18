@@ -14,20 +14,24 @@ let hubUi=null,lockUi=null;
 const modOn=id=>!hubUi||hubUi.enabled(id);
 const cleanerUi=require('./cleaner-main').registerCleaner({ipcMain,dialog,shell,app,BrowserWindow,path});
 const audioUi=require('./audio-main').registerAudio({ipcMain,app,BrowserWindow,path,cfg:()=>cfg(),save:o=>save(o),isOn:()=>modOn('ses')});
+// Sistem durumu: menu cubugunda kendi tusu (sicaklik, FPS, CPU/GPU/RAM...)
+const sysUi=require('./sistem-main').registerSystem({ipcMain,app,BrowserWindow,Tray,nativeImage,screen,path,Notification,cfg:()=>cfg(),save:o=>save(o),isOn:()=>modOn('sistem')});
 // Merkez penceresi: ozellikleri ac/kapat. Kapatilan ozellik menude gorunmez ve arka planda calismaz.
 hubUi=require('./hub-main').registerHub({ipcMain,app,BrowserWindow,path,cfg:()=>cfg(),save:o=>save(o),name:APP_NAME,actions:{
-  open:id=>({borsa:()=>showPop(),ses:()=>audioUi.open(),paylas:()=>openShare(),temizlik:()=>cleanerUi.open(),kilit:()=>lockUi&&lockUi.open()})[id]?.(),
+  open:id=>({borsa:()=>showPop(),ses:()=>audioUi.open(),paylas:()=>openShare(),temizlik:()=>cleanerUi.open(),kilit:()=>lockUi&&lockUi.open(),sistem:()=>sysUi.show()})[id]?.(),
   toggle:(id,on)=>{
     if(id==='borsa'){if(on)registerShortcuts();else{globalShortcut.unregisterAll();if(cfg().live)setLive(false);setDepthAuto(0);
       if(drawing)setDrawing(false);lastDepth=null;sendOv('depth',null);clearAnalysis();ov.hide();pop.hide()}}
     if(id==='ses'&&!on)audioUi.stop();
+    if(id==='sistem')on?sysUi.enable():sysUi.disable();
     if(id==='kilit'&&!on&&lockUi)lockUi.lock();
     if(id==='paylas'&&!on){if(shareSess){shareSess.stop('user');shareSess=null}if(shareWin)shareWin.close()}
     send('state',state());
   },
   status:id=>id==='borsa'?(cfg().live?'Canlı mod açık':cfg().depthAuto>0?'Canlı takip açık':null)
     :id==='ses'?(n=>n?n+' uygulamada özel ayar':null)(Object.keys((cfg().sound||{}).apps||{}).length)
-    :id==='paylas'?(shareSess&&shareSess.info().running?'Paylaşım açık':null):null}});
+    :id==='paylas'?(shareSess&&shareSess.info().running?'Paylaşım açık':null)
+    :id==='sistem'?sysUi.status():null}});
 
 const INTERVALS=[2,5,10,30,60];
 const HISTORY_MAX=30;
@@ -773,6 +777,7 @@ app.whenReady().then(()=>{
     ...(modOn('paylas')?[{label:'Telefonla Dosya Paylaş (QR)…',click:openShare}]:[]),
     ...(modOn('temizlik')?[{label:'Temizlik…',click:()=>cleanerUi.open()}]:[]),
     ...(modOn('kilit')?[{label:'Dosya Kilidi…',click:()=>lockUi.open()}]:[]),
+    ...(modOn('sistem')?[{label:'Sistem Durumu…',click:()=>sysUi.show()}]:[]),
     {type:'separator'},{label:'Çıkış',role:'quit'}])));
   if(modOn('borsa'))registerShortcuts();
   // Dock simgesi: tiklaninca Merkez acilir. Oturum acilisinda baslatildiysa pencere gosterilmez.

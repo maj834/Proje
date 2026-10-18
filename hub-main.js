@@ -5,6 +5,7 @@ const MODULES=[
   {id:'ses',name:'Ses',desc:'Her uygulamanın sesi ayrı; %200\'e kadar yükseltme, bas ve tiz, çıkış aygıtı.',ready:true,def:true},
   {id:'paylas',name:'Dosya Paylaşımı',desc:'QR ile telefona ve telefondan dosya. iPhone, Android, iPad; uygulama gerekmez.',ready:true,def:true},
   {id:'temizlik',name:'Temizlik',desc:'Birebir aynı dosyalar, önbellek ve gereksiz dosyalar. Her şey önce onayına gelir.',ready:true,def:true},
+  {id:'sistem',name:'Sistem Durumu',desc:'Menü çubuğunda tek tuş: işlemci sıcaklığı, FPS, işlemci, ekran kartı, bellek, fan, pil, internet ve disk.',ready:true,def:true},
   {id:'kilit',name:'Dosya Kilidi',desc:'Dosyaları şifreler; Touch ID ya da şifre olmadan açılmaz.',ready:true,def:true},
   {id:'yazi',name:'Ekrandan Yazı',desc:'Ekranda seçtiğin alandaki yazıyı kopyalar; resim, PDF ve videoda da çalışır.',ready:false,def:true},
   {id:'ceviri',name:'Ekrandan Çeviri',desc:'Seçtiğin alanın çevirisini aynı yerin üstünde gösterir.',ready:false,def:true},
