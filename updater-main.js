@@ -33,7 +33,7 @@ function registerUpdater({ ipcMain, app, path, Notification, shell, cfg, save, s
   let pending = null, ready = null, busy = null, installBusy = null, installing = false, notified = '', timers = [], ctrl = null, cleaned = false;
 
   // --- acilis isareti (kurulum betigi bekler) ---
-  let startErr = null, armed = false;
+  let startErr = null, armed = false, startedOk = false, backupCleaned = false;
   const onStartErr = e => { startErr = e || new Error('hata'); };
   // Yalnizca yakalanmamis istisna acilisi basarisiz sayar; promise reddi (or. internet yokken bir istek) zararsiz olabilir,
   // iyi bir guncellemeyi geri aldirmasin
@@ -50,6 +50,7 @@ function registerUpdater({ ipcMain, app, path, Notification, shell, cfg, save, s
       fs.mkdirSync(dir(), { recursive: true });
       const tmp = startedFile(v) + '.tmp';
       fs.writeFileSync(tmp, `${v}\n${Date.now()}\n`); fs.renameSync(tmp, startedFile(v));
+      startedOk = true;
       // eski isaretler: baska surumlerin started-* dosyalari ve bu/eski surumlerin .failed kayitlari silinir (daha yeni surumun .failed'i kalir)
       for (const n of fs.readdirSync(dir())) {
         const m = /^started-(.+?)(\.failed)?$/.exec(n);
@@ -70,9 +71,11 @@ function registerUpdater({ ipcMain, app, path, Notification, shell, cfg, save, s
   const fail = e => { set({ phase: 'error', error: String((e && e.message) || e).slice(0, 300), progress: null }); };
 
   // Eski indirmeler ve kalmis yedek (kurulum betigi yeni surumun acilis isaretini gorunce siler; kalmissa betik yarida kesilmistir)
+  // Yedek (onceki.app) yalnizca bu surec acilis isaretini yazabildiyse silinir: acilista hata olduysa kurulum betigi
+  // isaret beklerken (STARTED_WAIT) geri yukleme icin ona ihtiyac duyar; ilk denetim (30 sn) onu silmemeli.
   function cleanup() {
-    if (cleaned) return; cleaned = true;
-    for (const p of [dlDir(), backupDir()]) try { fs.rmSync(p, { recursive: true, force: true }); } catch (e) {}
+    if (!cleaned) { cleaned = true; try { fs.rmSync(dlDir(), { recursive: true, force: true }); } catch (e) {} }
+    if (!backupCleaned && (startedOk || !enabled())) { backupCleaned = true; try { fs.rmSync(backupDir(), { recursive: true, force: true }); } catch (e) {} }
   }
 
   // Hazir paketin gecici klasorunu sil (yalniz indirme klasoru altindaki hazirla-* klasoru)

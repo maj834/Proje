@@ -779,6 +779,37 @@ test('L2: lockFile kayit yazilmadan kesilirse acilista tamamlanir (kayitli, yede
   assert.deepEqual(leftovers(home), []);
 });
 
+test('L2: yedek kurulduktan sonra kesilip .kilitli silinse ya da orijinal yolda yeni dosya belirse bile yedek silinmez', async (t) => {
+  for (const mut of ['sil', 'yeni']) {
+    const env = await setup(t);
+    const { V, write, home, bdir } = env;
+    V.lock();
+    const src = write('d.txt', 'D gizli');
+    crashChild(t, env, 'lock', src, 'afterBackup');
+    if (mut === 'sil') fs.rmSync(src + '.kilitli'); else fs.writeFileSync(src, 'baska');
+    const V2 = reopen(env); t.after(() => V2.lock());
+    assert.equal(fs.readdirSync(bdir).length, 1, mut + ': tek kopya olan yedek kalir');
+    const e = V2.files().find(x => x.name === 'd.txt');
+    assert.ok(e, mut + ': kayit tamamlandi');
+    await V2.repair();
+    const ent = V2.entry(e.id);
+    assert.ok(fs.existsSync(ent.path), mut + ': kilitli dosya yerinde ya da geri getirildi');
+    await V2.unlockWithPassword(PW); await V2.verify(ent.path);
+    if (mut === 'yeni') assert.equal(fs.readFileSync(src, 'utf8'), 'baska');
+    void home;
+  }
+});
+
+test('repair: kayit dosyasi silinmisse yedekler sahipsiz sayilip silinmez', async (t) => {
+  const env = await setup(t);
+  const { V, write, bdir, vdir } = env;
+  await V.lockFile(write('e.txt', 'E'));
+  assert.equal(fs.readdirSync(bdir).length, 1);
+  fs.rmSync(path.join(vdir, 'registry.json'));
+  await V.repair();
+  assert.equal(fs.readdirSync(bdir).length, 1);
+});
+
 test('L2: lockFile orijinal silinmeden kesilirse geri alinir; yerlestirmeden once kesilirse iz kalmaz', async (t) => {
   const env = await setup(t);
   const { V, write, home, bdir } = env;

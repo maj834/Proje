@@ -470,6 +470,25 @@ test('registerUpdater: acilis isareti ready + 3 sn sonra yazilir; acilista hata 
   assert.equal(proc.listenerCount('uncaughtExceptionMonitor'), 0, 'dinleyici birakilir');
 });
 
+test('registerUpdater: acilista hata olduysa ilk denetim yedegi (onceki.app) silmez; isaret yazildiysa siler', async (t) => {
+  const proc = new EventEmitter();
+  const h = harness(t, { deps: { proc } });
+  h.ready();
+  const bak = path.join(h.d, 'upd', 'yedek', 'onceki.app');
+  fs.mkdirSync(bak, { recursive: true });
+  proc.emit('uncaughtExceptionMonitor', new Error('acilis hatasi'));
+  h.timers.find(x => x.ms === 3000).f();                      // isaret yazilmaz
+  await h.ui.check(false);
+  assert.ok(fs.existsSync(bak), 'kurulum betigi geri yukleme icin yedege ihtiyac duyar');
+  const h2 = harness(t);
+  h2.ready();
+  const bak2 = path.join(h2.d, 'upd', 'yedek', 'onceki.app');
+  fs.mkdirSync(bak2, { recursive: true });
+  h2.timers.find(x => x.ms === 3000).f();                     // isaret yazildi
+  await h2.ui.check(false);
+  assert.ok(!fs.existsSync(bak2));
+});
+
 test('registerUpdater: acilamayan surum (.failed) otomatik denetimde indirilmez, elle denetimde indirilir', async (t) => {
   const h = harness(t);
   fs.mkdirSync(path.join(h.d, 'upd'), { recursive: true }); fs.writeFileSync(path.join(h.d, 'upd', 'started-2.0.10.failed'), '');

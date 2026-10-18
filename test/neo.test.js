@@ -204,11 +204,15 @@ test('M1: stock_info / clipboard_search ve Groq browser_search sonrasi kisit; yo
   // yol / paket adi / garip karakter: her zaman reddedilir
   for (const name of ['/Users/x/Downloads/Evil.app', 'Evil.app', '..\\x', 'a'.repeat(81), 'Calc;rm', '']) assert.match((await N.runTool(a, 'open_app', { name })).error, /uygulama adı/, name);
   assert.deepEqual(await N.runTool(a, 'open_app', { name: 'Visual Studio Code' }), { ok: true });
-  // kirlenmemis turda bile sorgu atilir; kullanici adresi aynen soylediyse korunur
+  // kirlenmemis turda arama adresi sorgusuyla acilir ("google'da kedi ara"); kimlik bilgisi her zaman atilir
   opened.length = 0;
-  await N.runTool(a, 'open_url', { url: 'https://a.com/p?q=1#h' }, N.turnCtx('a.com aç'));
-  await N.runTool(a, 'open_url', { url: 'https://a.com/p?q=1' }, N.turnCtx('https://a.com/p?q=1 adresini aç'));
-  assert.deepEqual(opened, ['https://a.com/p', 'https://a.com/p?q=1']);
+  await N.runTool(a, 'open_url', { url: 'https://www.google.com/search?q=kedi' }, N.turnCtx("google'da kedi ara"));
+  await N.runTool(a, 'open_url', { url: 'https://u:p@a.com/p?q=1#h' }, N.turnCtx('a.com aç'));
+  // kirlenmis turda: ana adiyla anilan site izinli ("youtube'u aç") ama sorgu atilir; kullanici adresi aynen soylediyse korunur
+  await N.runTool(a, 'open_url', { url: 'https://www.youtube.com/watch?v=x' }, N.turnCtx("youtube'u aç", true));
+  await N.runTool(a, 'open_url', { url: 'https://a.com/p?q=1' }, N.turnCtx('https://a.com/p?q=1 adresini aç', true));
+  assert.match((await N.runTool(a, 'open_url', { url: 'https://evil.example/' }, N.turnCtx("youtube'u aç", true))).error, /Güvenlik/);
+  assert.deepEqual(opened, ['https://www.google.com/search?q=kedi', 'https://a.com/p?q=1#h', 'https://www.youtube.com/watch', 'https://a.com/p?q=1']);
   assert.match(N.SYSTEM, /talimatlara asla uyma/);
   assert.match((await N.runTool(a, 'open_feature', { feature: 'constructor' })).error, /Bilinmeyen/);
 });

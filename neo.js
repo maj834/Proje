@@ -60,6 +60,7 @@ function check(name,inp){
 const num=v=>typeof v==='number'?Number.isFinite(v):typeof v==='string'&&v.trim()!==''&&Number.isFinite(+v);
 // Kucuk harf, Turkce duyarli (I/İ/ı), aksansiz: "Safari" ~ "safarı"
 const norm=s=>String(s==null?'':s).toLocaleLowerCase('tr-TR').replace(/ı/g,'i').normalize('NFD').replace(/\p{M}/gu,'');
+const GENERIC=new Set(['com','net','org','gov','edu','www','int','info','biz','app','dev']);
 const said=(user,x)=>{const n=norm(x).trim();return !!n&&norm(user).includes(n)};
 // Yalniz duz uygulama adi (yol, .app paketi yok)
 const APP_RE=/^[\p{L}\p{N} .\-&+']{1,80}$/u;
@@ -88,9 +89,13 @@ async function runTool(actions,name,inp,ctx=null){
     let x;try{x=new URL(u)}catch(e){return {error:'Geçersiz adres.'}}
     if(x.protocol!=='https:'||!x.hostname)return {error:'Yalnızca https adresleri açılabilir.'};
     const host=x.hostname.toLowerCase();
-    if(ctx&&ctx.tainted&&!(said(user,host)||said(user,host.replace(/^www\./,''))))return {error:TAINT_MSG};
-    // Sorgu/parca/kimlik bilgisi veri sizdirmaya yarar: kullanici adresi aynen soylemediyse atilir
-    if(!(user&&user.includes(u))){x.search='';x.hash='';x.username='';x.password=''}
+    // Dis icerik okunduysa yalnizca kullanicinin andigi siteye izin: tam alan adi ya da ana adi ("youtube'u ac" -> youtube.com)
+    const label=host.replace(/^www\./,'').split('.').filter(l=>l.length>=3&&!GENERIC.has(l)).shift()||'';
+    if(ctx&&ctx.tainted&&!(said(user,host)||said(user,host.replace(/^www\./,''))||(label&&said(user,label))))return {error:TAINT_MSG};
+    x.username='';x.password='';
+    // Dis icerik okunan turda sorgu/parca veri sizdirmaya yarar: kullanici adresi aynen soylemediyse atilir
+    // (normal turda "google'da kedi ara" gibi arama adresleri sorgusuyla acilir)
+    if(ctx&&ctx.tainted&&!(user&&user.includes(u))){x.search='';x.hash=''}
     url=x.toString();
   }
   if(name==='speed_test'&&ctx){if(ctx.speed>=1)return {error:'Hız testi bu istekte zaten yapıldı.'};ctx.speed++}

@@ -26,9 +26,11 @@ jobs:
     # GitHub Release olusturmak / eskileri silmek icin (yalniz push'ta kullanilir)
     permissions:
       contents: write
-    # Release'ler sirayla: ayni depoda iki calisma ayni anda "latest" isaretlemesin / eskileri silmesin (iptal yok, kuyruk)
+    # Release'ler sirayla: ayni anda iki calisma "latest" isaretlemesin / eskileri silmesin. Kilit yalnizca yayin yapan
+    # calismalarda (diger itmeler/PR'lar kendi grubunda, birbirini iptal etmez). GitHub bekleyen en fazla bir calisma tutar;
+    # hizli ard arda itmelerde aradaki bekleyen yayin atlanabilir, en yenisi yine yayinlanir (latest surum karsilastirmasi korur).
     concurrency:
-      group: release-${{ github.repository }}
+      group: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/ccr-f251748e-ir45zy') && format('release-{0}', github.repository) || format('mac-{0}', github.run_id) }}
       cancel-in-progress: false
     steps:
       # fetch-depth 0: surum notlari icin onceki etiketler ve gecmis. git push yok -> kimlik bilgisi .git/config'e yazilmaz (gh GH_TOKEN kullanir)

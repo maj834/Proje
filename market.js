@@ -43,7 +43,7 @@ const plain=s=>String(s||'').toUpperCase().replace(/\.IS$/,'');
 
 // --- Yahoo ------------------------------------------------------------------
 // Onceki gunun kapanisi: chartPreviousClose istenen ARALIGIN basindaki kapanistir (1y icin bir yil once), dun degil.
-// Son mumun Istanbul gununden onceki son mumun kapanisi alinir (gunluk ve gun ici mumlarda calisir).
+// Son mumun Istanbul gununden onceki son mumun kapanisi alinir (gunluk ve gun ici mumlarda; haftalik mumda gecen hafta olur, kullanilmaz).
 const trDayOf=ms=>new Date(ms+3*3600000).toISOString().slice(0,10);
 function prevDayClose(rows){if(!rows||rows.length<2)return null;const d=trDayOf(rows[rows.length-1].t);
   for(let i=rows.length-2;i>=0;i--)if(trDayOf(rows[i].t)!==d)return rows[i].c;return null}
@@ -58,7 +58,7 @@ async function candles(symbol,tf='1g',mkt='BIST'){
     const A=k=>q[k]||[]; // eksik alan (quote:[{}]) TypeError vermesin
     const rows=ts.map((t,i)=>({t:t*1000,o:A('open')[i],h:A('high')[i],l:A('low')[i],c:A('close')[i],v:q.volume?q.volume[i]:null})).filter(r=>[r.o,r.h,r.l,r.c].every(Number.isFinite));
     const m=res.meta||{};
-    return {source:'yahoo',symbol:y,tf,rows,quote:{price:m.regularMarketPrice??(rows.length?rows[rows.length-1].c:null),prev:m.regularMarketPreviousClose??m.previousClose??prevDayClose(rows)??(t.r==='1d'?m.chartPreviousClose??null:null),
+    return {source:'yahoo',symbol:y,tf,rows,quote:{price:m.regularMarketPrice??(rows.length?rows[rows.length-1].c:null),prev:m.regularMarketPreviousClose??m.previousClose??(t.i!=='1wk'?prevDayClose(rows):null)??(t.r==='1d'?m.chartPreviousClose??null:null),
       currency:m.currency||null,name:m.shortName||m.longName||null,exchange:m.exchangeName||null,time:m.regularMarketTime?m.regularMarketTime*1000:null,
       dayHigh:m.regularMarketDayHigh??null,dayLow:m.regularMarketDayLow??null,volume:m.regularMarketVolume??null}};
   });

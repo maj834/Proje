@@ -375,8 +375,9 @@ function createVault(o={}){
 
   // Kayit: kilitli dosyalarin listesi (yol, ad, boyut, tarih). Icerik yok.
   const regRead=()=>{try{const a=JSON.parse(fs.readFileSync(rf,'utf8'));return Array.isArray(a)?a:[]}catch(e){return []}};
-  // Kesin okuma: kayit okunamiyorsa null (sahipsiz yedek temizligi bozuk kayitla calismasin)
-  const regReadStrict=()=>{try{const a=JSON.parse(fs.readFileSync(rf,'utf8'));return Array.isArray(a)?a:null}catch(e){return e.code==='ENOENT'?[]:null}};
+  // Kesin okuma: kayit okunamiyorsa null (sahipsiz yedek temizligi bozuk kayitla calismasin).
+  // Kayit dosyasi hic yoksa da null: yedekler varken kaydin kaybolmasi (elle silme, yarim geri yukleme) tum yedekleri sildirmesin
+  const regReadStrict=()=>{try{const a=JSON.parse(fs.readFileSync(rf,'utf8'));return Array.isArray(a)?a:null}catch(e){return null}};
   const regWrite=a=>writeJson(rf,a);
   function regAdd(e){const a=regRead().filter(x=>x.path!==e.path);a.push(e);regWrite(a);return e}
   function regDrop(p){const a=regRead(),b=a.filter(x=>x.path!==p);if(b.length!==a.length)regWrite(b)}
@@ -675,7 +676,8 @@ function createVault(o={}){
     settlePending();
   }
   // Yarim kalmis kilitleme kayitlari (lockFile yerlestirme ile son kayit arasinda kesildi):
-  //  - .kilitli yoksa: kayit (ve varsa yedek) silinir
+  //  - yedek bag varse (orijinal silinmisti): kayit tamamlanir, yedek asla silinmez
+  //  - .kilitli yoksa: kayit silinir
   //  - .kilitli var ve orijinal hala yerinde: geri alinir (.kilitli silinir, orijinal kalir)
   //  - .kilitli var, orijinal silinmis: kayit tamamlanir; yedek bagi/bayrak repair()'de kurulur
   function settlePending(){
@@ -685,9 +687,12 @@ function createVault(o={}){
       if(!e||!e.pending){out.push(e);continue}
       const b=bakPath(e.id),vis=typeof e.path==='string'&&path.isAbsolute(e.path)&&exists(e.path);
       const src=typeof e.src==='string'&&path.isAbsolute(e.src)&&e.src+EXT===e.path?e.src:null;
-      if(vis&&isLockedFile(e.path)&&!(src&&exists(src))){
+      // Yedek bag yalnizca orijinal silindikten SONRA kurulur: yedek varsa icerigin tek kopyasi odur (orijinal
+      // yolda yeni bir dosya belirmis ya da .kilitli silinmis olsa bile). Kayit tamamlanir; eksik .kilitli repair()'de geri gelir.
+      const hasBak=!!b&&exists(b);
+      if(hasBak||(vis&&isLockedFile(e.path)&&!(src&&exists(src)))){
         const {pending,src:_s,...r}=e;
-        r.backup=!!b&&exists(b)&&sameFile(e.path,b);r.unflagged=true;out.push(r);continue;
+        r.backup=hasBak&&(!vis||sameFile(e.path,b));r.unflagged=true;out.push(r);continue;
       }
       // geri al: yalnizca bizim yazdigimiz .kilitli (orijinal duruyor); baska bir dosyaya dokunulmaz
       if(vis&&src&&exists(src)&&isLockedFile(e.path)&&!(b&&exists(b)&&!sameFile(e.path,b)))try{fs.rmSync(e.path,{force:true});fsyncDir(path.dirname(e.path))}catch(_){}
