@@ -588,7 +588,8 @@ test('lock-main: acilista silinen dosya geri getirilir ve pencereye bir kez bild
   let s = await call('kl:state');
   assert.equal(s.notice, '1 kilitli dosya silinmişti, geri getirildi.');
   s = await call('kl:state'); assert.equal(s.notice, undefined, 'bildirim bir kez');
-  // kasa acilinca da calisir
+  // kasa acilinca da calisir (macOS'ta geri gelen dosyada gercek uchg var: once kaldir, "sahibi nouchg + rm yapti")
+  if (process.platform === 'darwin') require('child_process').execFileSync('/usr/bin/chflags', ['nouchg', r.path]);
   fs.rmSync(r.path);
   s = await call('kl:unlockPw', PW);
   assert.equal(s.ok, true); assert.equal(s.unlocked, true);

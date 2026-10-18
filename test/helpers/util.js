@@ -8,7 +8,8 @@ function fresh(rel) {
   return require(p);
 }
 
-const tmpDir = () => fs.mkdtempSync(path.join(os.tmpdir(), 'grafik-test-'));
+// macOS'ta /var -> /private/var kisayolu: gercek yol kullanilir ki kodun dondurdugu yollarla esit olsun
+const tmpDir = () => fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'grafik-test-'));
 
 // global.fetch yerine yonlendirici: routes = [[RegExp|fn, handler(url, init) -> {status, body} | Error]].
 // Her cagri calls'a eklenir. Eslesme yoksa test hatasi.
