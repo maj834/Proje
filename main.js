@@ -42,7 +42,7 @@ const neoUi=require('./neo-main').registerNeo({ipcMain,app,BrowserWindow,path,sc
       out.upcoming=(n.calendar||[]).slice(0,3).map(x=>x.day+' '+x.kind+' '+x.title)}}catch(e){}
     return out},
   showStock:sym=>{const code=bistCode(sym);if(!modOn('borsa'))return {error:'Borsa özelliği kapalı.'};showPop();fetchDepth({symbol:code});return {ok:true,symbol:code}},
-  timer:(min,label)=>{setTimeout(()=>{new Notification({title:'Neo hatırlatma',body:label||'Süre doldu'}).show();neoUi.say('Hatırlatma: '+(label||'süre doldu'))},min*60000);
+  timer:(min,label)=>{setTimeout(()=>{if(!modOn('neo'))return;new Notification({title:'Neo hatırlatma',body:label||'Süre doldu'}).show();neoUi.say('Hatırlatma: '+(label||'süre doldu'))},min*60000);
     return {ok:true,at:new Date(Date.now()+min*60000).toLocaleTimeString('tr-TR',{timeZone:'Europe/Istanbul',hour:'2-digit',minute:'2-digit'})}},
   openApp:name=>new Promise(r=>require('child_process').execFile('/usr/bin/open',['-a',name],{timeout:10000},e=>r(e?{error:'"'+name+'" uygulaması bulunamadı.'}:{ok:true}))),
   openUrl:url=>{shell.openExternal(url);return {ok:true}},
@@ -63,12 +63,13 @@ hubUi=require('./hub-main').registerHub({ipcMain,app,BrowserWindow,path,cfg:()=>
   toggle:(id,on)=>{
     if(id==='borsa'){if(on)registerShortcuts();else{globalShortcut.unregisterAll();rearmOthers();if(cfg().live)setLive(false);setDepthAuto(0);
       if(drawing)setDrawing(false);lastDepth=null;sendOv('depth',null);clearAnalysis();ov.hide();pop.hide()}}
-    if(id==='ses'&&!on)audioUi.stop();
+    if(id==='ses'){if(on)audioUi.resume();else{audioUi.stop();audioUi.close()}}
+    if(id==='temizlik'&&!on)cleanerUi.close();
     if(id==='sistem')on?sysUi.enable():sysUi.disable();
     if(id==='neo')on?neoUi.enable():neoUi.disable();
     if(id==='pano')on?panoUi.enable():panoUi.disable();
     if(id==='hiz')on?hizUi.enable():hizUi.disable();
-    if(id==='kilit'&&!on&&lockUi)lockUi.lock();
+    if(id==='kilit'&&!on&&lockUi){lockUi.lock();lockUi.close()}
     if(id==='paylas'&&!on){if(shareSess){shareSess.stop('user');shareSess=null}if(shareWin)shareWin.close()}
     send('state',state());
   },
@@ -738,6 +739,10 @@ function setShortcut(name,acc){
   if(!acc||acc.length>60||!/^[\w+\-=\[\];',./\\`]+$/.test(acc))return fail('Geçersiz kısayol.');
   const s=sc(),other=Object.keys(s).find(k=>k!==name&&s[k].toLowerCase()===acc.toLowerCase());
   if(other)return fail('Bu kısayol zaten "'+SC_NAME[other]+'" için kullanılıyor.');
+  // Diger ozelliklerin kisayollari (Pano ⌘⇧V, Neo ⌥Bosluk) alinamaz
+  const nk=a=>String(a).toLowerCase().replace(/commandorcontrol|cmdorctrl|command|cmd|super|meta/g,'cmd').replace(/control/g,'ctrl').replace(/option/g,'alt').split('+').sort().join('+');
+  const taken={[nk('CommandOrControl+Shift+V')]:'Pano Geçmişi',[nk((cfg().neo&&cfg().neo.hotkey)||'Alt+Space')]:'Neo'}[nk(acc)];
+  if(taken)return fail('Bu kısayol "'+taken+'" için kullanılıyor.');
   globalShortcut.unregisterAll();
   if(!tryReg(acc,SC_FN[name]))return fail('Kısayol kaydedilemedi: geçersiz ya da başka bir uygulama kullanıyor. Eski kısayol korundu.');
   save({shortcuts:{...(cfg().shortcuts||{}),[name]:acc}});registerShortcuts();
@@ -835,7 +840,7 @@ app.whenReady().then(()=>{
   app.on('activate',()=>hubUi.open());
   if(!app.getLoginItemSettings().wasOpenedAtLogin)hubUi.open();
   pop.on('hide',()=>{if(scPaused&&modOn('borsa'))registerShortcuts()}); // yakalama yarida kaldiysa kisayollari geri yukle
-  ipcMain.handle('scCapture',(e,on)=>{if(on){scPaused=true;globalShortcut.unregisterAll()}else registerShortcuts();return scState});
+  ipcMain.handle('scCapture',(e,on)=>{if(on){scPaused=true;globalShortcut.unregisterAll();rearmOthers()}else if(modOn('borsa'))registerShortcuts();else scPaused=false;return scState});
   ipcMain.handle('diag',()=>diagnostics());
   ipcMain.handle('karne',()=>scorecard());
   ipcMain.handle('shareOpen',()=>{if(modOn('paylas'))openShare();pop.hide()});
@@ -855,14 +860,14 @@ app.whenReady().then(()=>{
   ipcMain.handle('shareReveal',(e,p)=>{if(shareSess&&fromShare(e)&&shareSess.info().received.some(r=>r.path===p))shell.showItemInFolder(p)});
   ipcMain.handle('testNotify',()=>{if(!Notification.isSupported())return false;new Notification({title:APP_NAME,body:'Test bildirimi: bildirimler çalışıyor.'}).show();return true});
   ipcMain.handle('parseTest',(e,t)=>parseTest(t));
-  ipcMain.handle('scSet',(e,o)=>setShortcut(o&&o.name,o&&o.acc));
+  ipcMain.handle('scSet',(e,o)=>modOn('borsa')?setShortcut(o&&o.name,o&&o.acc):{ok:false,msg:'Borsa özelliği kapalı.',shortcuts:scState});
   ipcMain.handle('analyze',(e,eng)=>analyze({engine:['claude','yerel','piyasa','grok'].includes(eng)?eng:undefined}));
   // Grok: anahtari dogrula ve gorsel destekli modelleri listele (tek istek, kredi harcamaz).
   ipcMain.handle('grokTest',async()=>{if(!grokKey())return {ok:false,msg:'Önce anahtarı kaydet.'};
     try{const r=await grok.test(grokKey());save({grokModels:r.visionModels});return {ok:true,models:r.visionModels,state:state()}}catch(e){return {ok:false,msg:grok.errorText(e)}}});
   ipcMain.handle('key',(e,k)=>{setKey(typeof k==='string'?k.trim():'');trayTitle();return state()});
   ipcMain.handle('cfg',state);
-  ipcMain.handle('live',(e,on)=>setLive(!!on));
+  ipcMain.handle('live',(e,on)=>setLive(!!on&&modOn('borsa')));
   ipcMain.handle('set',(e,o)=>{o=o||{};
     if(ai.MODELS.some(x=>x.id===o.model))save({model:o.model});
     if(INTERVALS.includes(o.interval)){save({interval:o.interval});if(cfg().live)setLive(true)}
@@ -930,8 +935,8 @@ app.whenReady().then(()=>{
   // Kayitli Telegram oturumunu sessizce geri yukle.
   const c=tgCfg();
   if(c.session&&c.apiId&&c.apiHash)tg.restore({apiId:c.apiId,apiHash:dec(c.apiHash),session:dec(c.session)}).then(u=>{tgUser=u;send('state',state())}).catch(()=>{});
-  if(cfg().depthAuto)setDepthAuto(cfg().depthAuto);
-  if(cfg().live)setLive(true);
+  if(modOn('borsa')&&cfg().depthAuto)setDepthAuto(cfg().depthAuto);
+  if(modOn('borsa')&&cfg().live)setLive(true);
   trayTitle();
 });
 app.on('will-quit',()=>{globalShortcut.unregisterAll();if(shareSess)shareSess.stop('quit');try{require('./depthimg').close()}catch(e){}});

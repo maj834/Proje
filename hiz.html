@@ -136,7 +136,12 @@ function history(){
     for(const c of [new Date(x.at).toLocaleString('tr-TR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}),sp(x.down),sp(x.up),x.ping==null?'—':tr(x.ping,0)+' ms']){
       const td=document.createElement('td');td.textContent=c;tr_.append(td)}return tr_}));
 }
-hiz.on(p=>{if(!busy||!p)return;$('phase').textContent=PH[p.phase]||'';
+let ext=false;   // Neo'nun baslattigi test
+hiz.on(p=>{if(!p)return;
+  if(p.phase==='start'&&p.ext&&!busy){ext=true;$('go').disabled=true;$('err').textContent='';gauge(0);$('pct').style.width='0%';$('phase').textContent='Neo test yapıyor…';return}
+  if(p.phase==='extdone'){ext=false;$('go').disabled=false;if(p.ok&&p.result){$('phase').textContent='Bitti';gauge(p.result.down);$('pct').style.width='100%';S.history=p.history||S.history;result(p.result);history()}
+    else{$('phase').textContent='';gauge(null);$('pct').style.width='0%';if(p.error)$('err').textContent=p.error}return}
+  if(!busy&&!ext)return;$('phase').textContent=PH[p.phase]||'';
   $('pct').style.width=Math.max(0,Math.min(100,+p.pct||0))+'%';
   if(p.phase==='ping'){$('num').textContent=p.ping!=null?tr(p.ping,0):'—';$('num').nextElementSibling.textContent='ms'}
   else{$('num').nextElementSibling.textContent=p.phase==='up'?'Mb/sn ↑':'Mb/sn ↓';gauge(p.mbps,p.phase)}});

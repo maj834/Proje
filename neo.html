@@ -78,11 +78,12 @@ if(ORB){
     $('key').placeholder=(S.keys[c.brain]?'Kayıtlı · değiştirmek için yeni anahtarı yapıştır':g?'gsk_… Groq anahtarı':'sk-ant-… Claude API anahtarı');
     $('kl').style.display=g?'':'none';
     $('err').textContent=(S.keyError?S.keyError+' ':'')+(!S.hasKey?(g?'Groq anahtarı yok: "Anahtar al" → giriş yap → Create API Key → buraya yapıştır. ':'Claude API anahtarı yok. '):'')+(S.error||'')+(S.supported?'':' Neo yalnızca Mac\'te çalışır.');
+    $('wd').textContent+=S.warning?' Not: '+S.warning:'';
     const L=$('log');L.replaceChildren(...[...S.log].reverse().flatMap(x=>{const a=el('div','a',x.a);if(x.tools&&x.tools.length)a.append(el('small',null,x.tools.map(t=>TOOL[t]||t).join(' · ')));return [el('div','q',x.q),a]}));L.scrollTop=L.scrollHeight}
   neo.on(s=>{S=s;render()});neo.state().then(s=>{if(s){S=s;render()}});
   $('wake').onchange=async()=>{S=await neo.set({wake:$('wake').checked})||S;render()};
   $('voice').onchange=async()=>{S=await neo.set({voice:$('voice').value})||S;render()};
-  const ask=async()=>{const t=$('q').value.trim();if(!t)return;$('q').value='';$('go').disabled=true;S=await neo.ask(t)||S;$('go').disabled=false;render()};
+  const ask=async()=>{if($('go').disabled)return;const t=$('q').value.trim();if(!t)return;$('q').value='';$('go').disabled=true;S=await neo.ask(t)||S;$('go').disabled=false;render()};
   $('go').onclick=ask;$('q').onkeydown=e=>{if(e.key==='Enter')ask()};$('mic').onclick=()=>neo.talk();
   $('fg').onclick=async()=>{S=await neo.forget()||S;render()};
   $('brain').onchange=async()=>{S=await neo.set({brain:$('brain').value})||S;render()};

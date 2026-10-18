@@ -219,10 +219,16 @@ async function currentSsid(exec){
   return {ssid:null,redacted};
 }
 // Anahtar Zinciri'nden Wi-Fi sifresi. macOS kendi yonetici/anahtar zinciri onayini sorar. Sifre hicbir yere yazilmaz.
+// `security -w` ASCII disi (ör. Türkçe "ç") iceren sifreyi hex olarak yazar; gecerli UTF-8 ve ASCII disi bayt iceriyorsa coz
+function hexPass(p){
+  if(!/^(?:[0-9a-f]{2})+$/.test(p))return p;
+  const b=Buffer.from(p,'hex');if(!b.some(x=>x>=0x80))return p;          // saf ASCII: gercek sifre hex rakamlarindan olusuyor olabilir
+  const t=b.toString('utf8');return t.includes('\uFFFD')?p:t;
+}
 async function wifiPassword(exec,ssid){
   if(!validSsid(ssid))throw Object.assign(new Error('Geçersiz ağ adı.'),{code:'BAD'});
   try{const out=await exec('/usr/bin/security',['find-generic-password','-D','AirPort network password','-a',ssid,'-w'],{timeout:60000});
-    const p=String(out).replace(/\r?\n$/,'');if(!p)throw Object.assign(new Error('empty'),{code:44});return p}
+    const p=hexPass(String(out).replace(/\r?\n$/,''));if(!p)throw Object.assign(new Error('empty'),{code:44});return p}
   catch(e){
     const msg=String(e&&(e.stderr||e.message)||'');
     if(e&&e.killed||e&&e.signal)throw Object.assign(new Error('Onay zaman aşımına uğradı.'),{code:'TIMEOUT'});
@@ -233,4 +239,4 @@ async function wifiPassword(exec,ssid){
 }
 
 module.exports={BASE,LIMITS,DL_SIZES,UL_SIZES,HISTORY_MAX,mbps,percentile,median,jitter,windowRates,throughput,verdict,fmtMbps,
-  historyItem,pushHistory,runTest,escWifi,wifiString,parseIpconfig,parseAirport,parsePorts,validSsid,currentSsid,wifiPassword};
+  historyItem,pushHistory,runTest,escWifi,wifiString,parseIpconfig,parseAirport,parsePorts,validSsid,currentSsid,wifiPassword,hexPass};

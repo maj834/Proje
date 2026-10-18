@@ -149,7 +149,8 @@ function registerLock({ipcMain,dialog,shell,app,BrowserWindow,path,systemPrefere
   h('kl:reveal',id=>{const e=ent(id);if(!e.missing)shell.showItemInFolder(e.path)});
 
   app.on('will-quit',()=>vault.lock('quit'));
-  return {open,lock:()=>vault.lock('user'),vault,ready};
+  const close=()=>{if(win&&!win.isDestroyed())win.close()};
+  return {open,close,lock:()=>vault.lock('user'),vault,ready};
 }
 
 module.exports={registerLock};

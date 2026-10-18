@@ -70,6 +70,11 @@ function normalize(items){
   return out;
 }
 // Disk bicimi: safeStorage varsa MAGIC + sifreli JSON, yoksa duz JSON
+// Tam boy resimler de gecmis gibi sifrelenir (Anahtar Zinciri varsa): "CEMIMG1" + safeStorage(base64 PNG)
+const IMG_MAGIC=Buffer.from('CEMIMG1');
+function sealImg(png,ss){return ss?Buffer.concat([IMG_MAGIC,ss.encryptString(png.toString('base64'))]):png}
+function openImg(buf,ss){if(buf.subarray(0,IMG_MAGIC.length).equals(IMG_MAGIC)){if(!ss)throw new Error('anahtar yok');
+  return Buffer.from(ss.decryptString(buf.subarray(IMG_MAGIC.length)),'base64')}return buf}
 function encodeStore(items,ss){
   const json=JSON.stringify({v:1,items});
   if(ss&&ss.isEncryptionAvailable())return Buffer.concat([MAGIC,ss.encryptString(json)]);
@@ -117,7 +122,8 @@ function registerPano({ipcMain,app,BrowserWindow,path,clipboard,nativeImage,glob
     try{buf=fs.readFileSync(file())}catch(e){list=[];return}
     try{list=decodeStore(buf,ss())}
     catch(e){console.error('pano: gecmis okunamadi, bos baslatiliyor:',e.message);list=[];
-      try{fs.renameSync(file(),file()+'.bozuk')}catch(_){}}
+      try{fs.renameSync(file(),file()+'.bozuk')}catch(_){}
+      return}                                          // okunamadiysa (gecici anahtar sorunu olabilir) resimlere dokunma
     // Listede olmayan resim dosyalarini temizle
     try{const keep=new Set(list.filter(x=>x.type==='image').map(x=>x.id+'.png'));
       for(const f of fs.readdirSync(imgDir()))if(!keep.has(f))try{fs.unlinkSync(path.join(imgDir(),f))}catch(e){}}catch(e){}
@@ -165,7 +171,7 @@ function registerPano({ipcMain,app,BrowserWindow,path,clipboard,nativeImage,glob
     let item;try{item=capture(snap)}catch(e){console.error('pano:',e.message);return}
     if(!item)return;
     const png=item._png;delete item._png;
-    if(png){try{fs.mkdirSync(imgDir(),{recursive:true,mode:0o700});fs.writeFileSync(imgPath(item.id),png,{mode:0o600})}catch(e){console.error('pano: resim yazilamadi:',e.message);return}}
+    if(png){try{fs.mkdirSync(imgDir(),{recursive:true,mode:0o700});fs.writeFileSync(imgPath(item.id),sealImg(png,ss()),{mode:0o600})}catch(e){console.error('pano: resim yazilamadi:',e.message);return}}
     const r=addItem(list,item);if(!r.changed)return;
     list=r.list;dropFiles(r.removed);touch();
   }
@@ -208,7 +214,7 @@ function registerPano({ipcMain,app,BrowserWindow,path,clipboard,nativeImage,glob
     const it=list.find(x=>x.id===id);if(!it)return {err:'Kayıt bulunamadı.'};
     try{
       if(it.type==='text')clipboard.writeText(it.text);
-      else if(it.type==='image'){const im=nativeImage.createFromPath(imgPath(it.id));if(!im||im.isEmpty())return {err:'Resim dosyası bulunamadı.'};clipboard.writeImage(im)}
+      else if(it.type==='image'){let im=null;try{im=nativeImage.createFromBuffer(openImg(fs.readFileSync(imgPath(it.id)),ss()))}catch(e){}if(!im||im.isEmpty())return {err:'Resim dosyası bulunamadı.'};clipboard.writeImage(im)}
       else{const f=it.files.filter(p=>{try{return fs.existsSync(p)}catch(e){return false}});if(!f.length)return {err:'Dosyalar artık yerinde değil.'};
         if(process.platform==='darwin')clipboard.writeBuffer('NSFilenamesPboardType',Buffer.from(plist(f)));else clipboard.writeText(f.join('\n'))}
     }catch(e){return {err:'Panoya yazılamadı.'}}
@@ -220,11 +226,13 @@ function registerPano({ipcMain,app,BrowserWindow,path,clipboard,nativeImage,glob
   function pin(id){const it=list.find(x=>x.id===id);if(!it)return null;
     if(!it.pin&&list.filter(x=>x.pin).length>=PIN_MAX)return {err:'En fazla '+PIN_MAX+' kayıt sabitlenebilir.'};
     list=list.map(x=>x===it?{...x,pin:!x.pin}:x);touch();return null}
-  function clearAll(){list=[];dirty=true;flush();
+  function clearAll(){list=[];dirty=true;flush();try{fs.unlinkSync(file()+'.bozuk')}catch(e){}   // okunamayan eski kopya da gitsin
     try{for(const f of fs.readdirSync(imgDir()))try{fs.unlinkSync(path.join(imgDir(),f))}catch(e){}}catch(e){}push()}
 
   // --- ac/kapat --------------------------------------------------------------
-  function arm(){try{if(globalShortcut.isRegistered&&globalShortcut.isRegistered(SHORTCUT))return scOk=true;scOk=!!globalShortcut.register(SHORTCUT,open)}catch(e){scOk=false}
+  // Kisayol bizde mi: isRegistered baska bir ozelligin kaydini da 'true' gosterir; sahiplik ayrica tutulur
+  let mine=false;
+  function arm(){try{if(mine&&globalShortcut.isRegistered&&globalShortcut.isRegistered(SHORTCUT))return scOk=true;mine=!!globalShortcut.register(SHORTCUT,open);scOk=mine}catch(e){scOk=mine=false}
     if(!scOk)console.warn('pano: '+SHORTCUT+' kısayolu kaydedilemedi.');return scOk}
   function enable(){
     if(on||!isOn())return;on=true;if(!loaded)load();
@@ -232,7 +240,7 @@ function registerPano({ipcMain,app,BrowserWindow,path,clipboard,nativeImage,glob
   }
   function disable(){
     if(!on)return;on=false;clearInterval(timer);timer=null;
-    try{globalShortcut.unregister(SHORTCUT)}catch(e){}scOk=null;pausedUntil=0;
+    if(mine)try{globalShortcut.unregister(SHORTCUT)}catch(e){}mine=false;scOk=null;pausedUntil=0;
     if(win&&!win.isDestroyed())win.close();win=null;flush();
   }
   // main.js globalShortcut.unregisterAll() cagirinca ⌘⇧V'yi geri al
@@ -260,5 +268,5 @@ function registerPano({ipcMain,app,BrowserWindow,path,clipboard,nativeImage,glob
     return {ok:true,copied:{text:'yazı',image:'resim',files:'dosya'}[it.type]||it.type,preview:it.type==='text'?String(it.text).slice(0,120):'',matches:r.length}}
   return {enable,disable,open,status,rearm,tick,flush,hide,find};
 }
-module.exports={registerPano,sigOf,isConcealed,addItem,search,ago,cleanItem,normalize,encodeStore,decodeStore,readFiles,thumbOf,plist,
+module.exports={registerPano,sealImg,openImg,sigOf,isConcealed,addItem,search,ago,cleanItem,normalize,encodeStore,decodeStore,readFiles,thumbOf,plist,
   CONCEALED,MAX,PIN_MAX,TEXT_MAX,SHORTCUT};

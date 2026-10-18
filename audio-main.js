@@ -57,7 +57,8 @@ function registerAudio({ipcMain,app,BrowserWindow,path,cfg,save,isOn=()=>true}){
     send({cmd:'list'});
     return true;
   }
-  function stop(){if(!child)return;const c=child;child=null;try{c.stdin.end(JSON.stringify({cmd:'quit'})+'\n')}catch(e){}
+  function stop(now=false){if(!child)return;const c=child;child=null;try{c.stdin.end(JSON.stringify({cmd:'quit'})+'\n')}catch(e){}
+    if(now)try{c.kill('SIGTERM')}catch(e){}           // uygulama kapanirken: zamanlayici calismayabilir, hemen SIGTERM (yardimci duzgun kapanir)
     setTimeout(()=>{if(c.exitCode===null&&c.signalCode===null)try{c.kill('SIGKILL')}catch(e){}},1500)}
   // Pencere kapaninca: ayar yoksa yardimciyi kapat (ses tamamen normale doner); ayar varsa arka planda calismaya devam
   function open(){
@@ -84,17 +85,21 @@ function registerAudio({ipcMain,app,BrowserWindow,path,cfg,save,isOn=()=>true}){
   ipcMain.handle('ses:device',(e,uid)=>{if(typeof uid==='string')send({cmd:'device',uid})});
   // Uygulama acilisinda kayitli bir ayar varsa (or. Spotify %150) hemen uygula
   app.whenReady().then(()=>{if(needed())start()});
-  app.on('will-quit',stop);
+  app.on('will-quit',()=>stop(true));
   // Neo (sesli asistan) icin: uygulamayi adiyla bul ve sesini ayarla; ana ses duzeyi
   const norm=x=>String(x||'').toLocaleLowerCase('tr-TR').replace(/[^a-z0-9çğıöşü]/g,'');
   async function setByName(name,pct){
     if(!start())return {error:state.error||'Ses yardımcısı çalışmıyor.'};
     for(let i=0;i<20&&!state.apps.length;i++)await new Promise(r=>setTimeout(r,100));   // ilk liste gelsin
-    const n=norm(name),a=state.apps.find(x=>norm(x.name)===n)||state.apps.find(x=>norm(x.name).includes(n)||norm(x.bundle).includes(n));
+    const n=norm(name);if(n.length<2)return {error:'Uygulama adı anlaşılmadı.'};
+    const a=state.apps.find(x=>norm(x.name)===n)||state.apps.find(x=>norm(x.name).includes(n)||norm(x.bundle).includes(n));
     if(!a)return {error:'"'+name+'" şu an ses çalan uygulamalar arasında yok.',apps:state.apps.map(x=>x.name).slice(0,15)};
     setApp(a.bundle,{gain:Math.max(0,Math.min(200,pct))/100,mute:false});return {ok:true,app:a.name,percent:pct}}
   function master(pct,mute){if(!start())return {error:state.error||'Ses yardımcısı çalışmıyor.'};
     send({cmd:'masterVolume',value:Math.max(0,Math.min(1,pct/100))});send({cmd:'masterMute',value:!!mute});return {ok:true,percent:pct,mute:!!mute}}
-  return {open,start,stop,view,setByName,master};
+  // Merkez'den kapatma/acma: pencere kapanir; acilinca kayitli ayar varsa ses hemen yeniden islenir
+  const close=()=>{if(win&&!win.isDestroyed())win.close()};
+  const resume=()=>{if(needed())start()};
+  return {open,start,stop,view,setByName,master,close,resume};
 }
 module.exports={registerAudio,PRESETS,clampS,neutral,cleanApps};

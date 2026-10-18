@@ -11,7 +11,8 @@ const clean=c=>({wake:c.wake!==false,voice:typeof c.voice==='string'?c.voice.sli
 
 // keys: {get(beyin) -> anahtar|null, set(beyin, anahtar)}; beyin 'groq' (ucretsiz, varsayilan) ya da 'claude' (API anahtari)
 function registerNeo({ipcMain,app,BrowserWindow,path,screen,globalShortcut,Notification,shell,cfg,save,keys,actions,isOn=()=>true,brain=null}){
-  let child=null,buf='',restarts=0,orb=null,win=null,hello=null,state='off',error=null,partial='',answer='',hideT=null,busy=false,sayN=0;
+  let child=null,buf='',restarts=0,orb=null,win=null,hello=null,state='off',error=null,warning=null,partial='',answer='',hideT=null,busy=false,sayN=0,gen=0;
+  const saying=new Set(),later=[];                    // konusulmakta olan say id'leri; dinlerken gelen hatirlatmalar
   const log=[];                                          // son 30 konusma (pencerede gecmis)
   const conf=()=>clean({...DEF,...(cfg().neo||{})});
   const bin=()=>process.env.CEM_NEO_BIN||(app.isPackaged?path.join(process.resourcesPath,'bin','neo-yardimcisi'):path.join(__dirname,'build','bin','neo-yardimcisi'));
@@ -20,7 +21,7 @@ function registerNeo({ipcMain,app,BrowserWindow,path,screen,globalShortcut,Notif
   const B=()=>brain||(brains[conf().brain]=brains[conf().brain]||(conf().brain==='claude'
     ?createBrain({getKey:()=>keys.get('claude'),actions,onTool:n=>show({tool:n})})
     :createGroqBrain({getKey:()=>keys.get('groq'),actions,onTool:n=>show({tool:n})})));
-  const view=()=>({supported:process.platform==='darwin'||!!process.env.CEM_NEO_BIN,hello,state,error,conf:conf(),log,hasKey:!!keys.get(conf().brain),keys:{groq:!!keys.get('groq'),claude:!!keys.get('claude')}});
+  const view=()=>({supported:process.platform==='darwin'||!!process.env.CEM_NEO_BIN,hello,state,error,warning,conf:conf(),log,hasKey:!!keys.get(conf().brain),keys:{groq:!!keys.get('groq'),claude:!!keys.get('claude')}});
   const toWin=()=>{if(win&&!win.isDestroyed())win.webContents.send('neo:state',view())};
   // Kureye canli bilgi: durum, duyulan metin, cevap, ses duzeyi
   function show(o={}){
@@ -30,45 +31,59 @@ function registerNeo({ipcMain,app,BrowserWindow,path,screen,globalShortcut,Notif
     clearTimeout(hideT);
     if(state==='idle'||state==='off')hideT=setTimeout(()=>{if(orb&&!orb.isDestroyed())orb.hide()},answer?7000:2500);
   }
-  function setState(s){state=s;show();toWin()}
+  function setState(s){state=s;show();toWin();if((s==='idle'||s==='off')&&later.length&&child)speak(later.shift())}
+  const rest=()=>child&&conf().wake?'idle':'off';
+  function speak(t){const id='s'+(++sayN);saying.add(id);send({cmd:'say',id,text:t});answer=t;setState('speaking')}
 
   async function onCommand(text){
-    if(busy)return;busy=true;partial=text;answer='';send({cmd:'thinking'});setState('thinking');
+    // Onceki soru suruyorsa yeni girdi sessizce kaybolmasin
+    if(busy){log.unshift({at:Date.now(),q:text,a:'Önceki soruyu yanıtlıyorum; bitince tekrar sor.',tools:[]});if(log.length>30)log.pop();toWin();return}
+    const g=gen;busy=true;partial=text;answer='';send({cmd:'thinking'});setState('thinking');
     let r;try{r=await B().ask(text)}catch(e){r={text:'Bir şeyler ters gitti.'}}
-    answer=r.text;log.unshift({at:Date.now(),q:text,a:r.text,tools:r.tools||[]});if(log.length>30)log.pop();
-    busy=false;toWin();
-    if(child){const id='s'+(++sayN);send({cmd:'say',id,text:r.text});setState('speaking')}else{setState('idle')}
+    busy=false;
+    if(g!==gen||!isOn())return;                          // bu arada Neo kapatildi: cevap gosterilmez
+    answer=r.text;log.unshift({at:Date.now(),q:text,a:r.text,tools:r.tools||[]});if(log.length>30)log.pop();toWin();
+    if(child)speak(r.text);else setState('off');
   }
   function onLine(line){
     let m;try{m=JSON.parse(line)}catch(e){return}
+    if(child&&child.t0&&Date.now()-child.t0>30000)restarts=0;   // 30 sn ayakta kalan yardimci saglikli: yeniden baslatma hakki sifirlanir
     switch(m.type){
-      case 'hello':hello={wakeOnDevice:!!m.wakeOnDevice,cmdOnDevice:!!m.cmdOnDevice,voices:Array.isArray(m.voices)?m.voices.slice(0,40).map(v=>({id:String(v.id||''),name:String(v.name||''),quality:String(v.quality||'')})):[]};
-        restarts=0;error=null;configure();if(conf().wake)send({cmd:'start'});toWin();break;
-      case 'state':if(!busy&&['off','idle','listening','speaking'].includes(m.state)){if(m.state==='listening'){partial='';answer=''}setState(m.state)}break;
+      case 'hello':warning=null;hello={wakeOnDevice:!!m.wakeOnDevice,cmdOnDevice:!!m.cmdOnDevice,voices:Array.isArray(m.voices)?m.voices.slice(0,40).map(v=>({id:String(v.id||''),name:String(v.name||''),quality:String(v.quality||'')})):[]};
+        error=null;configure();if(conf().wake)send({cmd:'start'});toWin();break;
+      case 'state':if(!busy&&['off','idle','listening','speaking'].includes(m.state)){if(m.state==='listening'){partial='';answer=''}
+        if(m.state==='idle'||m.state==='listening')error=null;    // mikrofon calisiyor: eski hata gecersiz
+        if(m.state==='speaking'||!saying.size)setState(m.state)}break;
       case 'wake':partial='';answer='';show({wake:true});break;
       case 'partial':partial=String(m.text||'').slice(0,300);show();break;
       case 'level':if(orb&&!orb.isDestroyed()&&orb.isVisible())orb.webContents.send('neo:level',+m.db||-90);break;
-      case 'command':{const t=String(m.text||'').trim();if(t)onCommand(t.slice(0,1000));else{send({cmd:'idle'});setState(conf().wake?'idle':'off')}break}
-      case 'nocommand':partial='';answer='Seni duyamadım.';send({cmd:'idle'});setState(conf().wake?'idle':'off');break;
-      case 'spoken':send({cmd:'idle'});setState(conf().wake?'idle':'off');break;
-      case 'error':error=String(m.msg||m.code||'').slice(0,200);if(m.code==='mic_denied'||m.code==='speech_denied'){state='off'}show({error});toWin();break;
+      case 'command':{const t=String(m.text||'').trim();if(t)onCommand(t.slice(0,1000));else{send({cmd:'idle'});setState(rest())}break}
+      case 'nocommand':partial='';answer='Seni duyamadım.';send({cmd:'idle'});setState(rest());break;
+      // Kuyrukta baska konusma varsa bekleme durumuna gecilmez
+      case 'spoken':saying.delete(String(m.id||''));if(m.stopped&&!m.id)saying.clear();if(!saying.size&&!busy){send({cmd:'idle'});setState(rest())}break;
+      case 'error':{const msg=String(m.msg||m.code||'').slice(0,200);
+        // Ölümcul olmayan uyarilar (internetle tanima, varsayilan ses) hata sayilmaz
+        if(m.code==='no_recognizer'||m.code==='tts'){warning=msg;toWin();break}
+        error=msg;if(m.code==='mic_denied'||m.code==='speech_denied'){state='off'}show({error});toWin();break}
     }
   }
   const configure=()=>{const c=conf();send({cmd:'config',wake:WAKE,locale:'tr-TR',silenceMs:1200,maxMs:15000,voice:c.voice,rate:c.rate})};
   function start(){
     if(child)return true;if(!isOn())return false;
     if(process.platform!=='darwin'&&!process.env.CEM_NEO_BIN||!fs.existsSync(bin())){error='Neo ses yardımcısı bulunamadı. Uygulamanın Mac sürümünü GitHub\'dan indirdiğinden emin ol.';toWin();return false}
-    const c=child=spawn(bin(),[],{stdio:['pipe','pipe','pipe']});buf='';
+    const c=child=spawn(bin(),[],{stdio:['pipe','pipe','pipe']});c.t0=Date.now();buf='';
     c.stdout.setEncoding('utf8');c.stdin.on('error',()=>{});
     c.stdout.on('data',d=>{if(child!==c)return;buf+=d;let i;while((i=buf.indexOf('\n'))>=0){onLine(buf.slice(0,i));buf=buf.slice(i+1)}if(buf.length>1e6)buf=''});
     c.stderr.on('data',d=>console.error('neo-yardimcisi:',String(d).trim()));
-    c.on('exit',(code,sig)=>{if(child!==c)return;child=null;state='off';
+    c.on('exit',(code,sig)=>{if(child!==c)return;child=null;saying.clear();
+      if(orb&&!orb.isDestroyed()&&orb.isVisible())setState('off');else state='off';   // kure 'konusuyorum'da takili kalmasin
       if((code||sig)&&isOn()&&restarts<3){restarts++;setTimeout(start,2000*restarts)}
       else if(code||sig){error='Neo ses yardımcısı durdu ('+(sig||code)+').'}toWin()});
     c.on('error',e=>{if(child===c)child=null;error='Neo başlatılamadı: '+e.message;toWin()});
     return true;
   }
-  function stop(){if(!child)return;const c=child;child=null;state='off';try{c.stdin.end(JSON.stringify({cmd:'quit'})+'\n')}catch(e){}
+  function stop(now=false){if(!child)return;const c=child;child=null;state='off';try{c.stdin.end(JSON.stringify({cmd:'quit'})+'\n')}catch(e){}
+    if(now)try{c.kill('SIGTERM')}catch(e){}           // uygulama kapanirken: zamanlayici calismayabilir, hemen SIGTERM (yardimci duzgun kapanir)
     setTimeout(()=>{if(c.exitCode===null&&c.signalCode===null)try{c.kill('SIGKILL')}catch(e){}},1500)}
   // Kisayol ya da kureye tiklama: uyandirma kelimesi beklemeden dinle; konusurken basilirsa sustur
   function talk(){
@@ -103,7 +118,7 @@ function registerNeo({ipcMain,app,BrowserWindow,path,screen,globalShortcut,Notif
   let hk=null;
   function rearm(){if(!isOn())return;if(hk){try{globalShortcut.unregister(hk)}catch(e){}hk=null}const k=conf().hotkey;try{if(globalShortcut.register(k,talk))hk=k}catch(e){}}
   function enable(){if(!isOn())return;start();rearm()}
-  function disable(){stop();if(hk){try{globalShortcut.unregister(hk)}catch(e){}hk=null}if(orb&&!orb.isDestroyed())orb.close();if(win&&!win.isDestroyed())win.close();for(const k in brains)brains[k].reset()}
+  function disable(){gen++;busy=false;later.length=0;saying.clear();stop();if(hk){try{globalShortcut.unregister(hk)}catch(e){}hk=null}if(orb&&!orb.isDestroyed())orb.close();if(win&&!win.isDestroyed())win.close();for(const k in brains)brains[k].reset()}
 
   const from=e=>!!((win&&!win.isDestroyed()&&e.sender===win.webContents)||(orb&&!orb.isDestroyed()&&e.sender===orb.webContents));
   ipcMain.handle('neo:state',e=>from(e)?view():null);
@@ -121,9 +136,10 @@ function registerNeo({ipcMain,app,BrowserWindow,path,screen,globalShortcut,Notif
     keys.set(p,k||null);delete brains[p];return view()});
   ipcMain.handle('neo:link',e=>{if(from(e))shell.openExternal('https://console.groq.com/keys')});
   app.whenReady().then(()=>{if(isOn())enable()});
-  app.on('will-quit',stop);
+  app.on('will-quit',()=>stop(true));
   // Disaridan (zamanlayici) sesli bildirim
-  const say=t=>{if(!child&&!start())return;send({cmd:'say',id:'n'+(++sayN),text:String(t).slice(0,500)});answer=String(t);setState('speaking')};
+  // Disaridan (zamanlayici) sesli bildirim; kullanici o an konusuyorsa komutu bolunmesin diye sonraya birakilir
+  const say=t=>{if(!isOn())return;t=String(t).slice(0,500);if(!child&&!start())return;if(state==='listening'||busy||state==='thinking'){later.push(t);return}speak(t)};
   return {enable,disable,open,talk,stop,view,rearm,say,status:()=>error?'Sorun var':state==='idle'?'"Hey Neo" dinliyor':state==='off'?null:'Çalışıyor'};
 }
 module.exports={registerNeo,clean,WAKE};

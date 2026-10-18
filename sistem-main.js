@@ -7,7 +7,7 @@ const BAR={
   temp:{name:'İşlemci sıcaklığı',f:s=>s.cpu&&num(s.cpu.temp)!=null?Math.round(s.cpu.temp)+'°':null},
   cpu:{name:'İşlemci kullanımı',f:s=>s.cpu&&num(s.cpu.usage)!=null?'CPU '+Math.round(s.cpu.usage)+'%':null},
   gpu:{name:'Ekran kartı',f:s=>s.gpu&&num(s.gpu.usage)!=null?'GPU '+Math.round(s.gpu.usage)+'%':null},
-  ram:{name:'Bellek',f:s=>s.mem&&s.mem.total?'RAM '+Math.round(s.mem.used/s.mem.total*100)+'%':null},
+  ram:{name:'Bellek',f:s=>s.mem&&s.mem.total&&num(s.mem.used)!=null?'RAM '+Math.round(s.mem.used/s.mem.total*100)+'%':null},
   fps:{name:'FPS',f:s=>s.fps&&num(s.fps.screen)!=null?Math.round(s.fps.screen)+' fps':null},
   net:{name:'İnternet hızı',f:s=>s.net?'↓'+rate(s.net.down):null},
   fan:{name:'Fan',f:s=>Array.isArray(s.fans)&&s.fans.length?Math.round(Math.max(...s.fans))+' rpm':null},
@@ -48,17 +48,22 @@ function registerSystem({ipcMain,app,BrowserWindow,Tray,nativeImage,screen,path,
   const open=()=>!!win&&!win.isDestroyed()&&win.isVisible();
   const view=()=>({supported:process.platform==='darwin'||!!process.env.CEM_SISTEM_BIN,hello,last,hist,error,conf:conf(),
     bars:Object.entries(BAR).map(([id,b])=>({id,name:b.name}))});
-  const push=()=>{if(open())win.webContents.send('sys:data',{last,hello,hist:hist.slice(-1),error})};
+  // hist yalniz yeni olcumde gonderilir (hello/error satirlari grafige tekrar nokta eklemesin)
+  const push=(fresh=false)=>{if(open())win.webContents.send('sys:data',{last,hello,hist:fresh?hist.slice(-1):[],error})};
   function title(){if(!tray)return;const t=barTitle(last,conf().bar);tray.setTitle(t||(error?'Sistem ⚠':'Sistem'),{fontType:'monospacedDigit'})}
   // Panel acikken her saniye ve ekran FPS olcumu; kapaliyken 2 sn ve FPS kapali (az islemci)
-  function pace(){send({cmd:'interval',ms:open()?1000:2000});send({cmd:'fps',on:open()||conf().bar.includes('fps')})}
+  function pace(){const fps=open()||conf().bar.includes('fps');send({cmd:'interval',ms:open()?1000:2000});send({cmd:'fps',on:fps});if(!fps&&error&&/Ekran kaydı/.test(error))error=null}
 
   function onLine(line){
     let m;try{m=JSON.parse(line)}catch(e){return}
     if(m.type==='hello'){hello={chip:String(m.chip||'').slice(0,80),model:String(m.model||'').slice(0,40),arch:String(m.arch||'').slice(0,10),
-      cores:num(m.cores),memTotal:num(m.memTotal)};restarts=0;error=null}
+      cores:num(m.cores),memTotal:num(m.memTotal)};error=null}
     else if(m.type==='error'){error=String(m.msg||'').slice(0,200)}
-    else{const s=sanitize(m);if(!s)return;last=s;hist.push(s);if(hist.length>120)hist.shift();alarm(s)}
+    else{const s=sanitize(m);if(!s)return;last=s;hist.push(s);if(hist.length>120)hist.shift();alarm(s);
+      // en az 30 sn olcum gonderen yardimci saglikli sayilir; yeniden baslatma hakki sifirlanir
+      if(child&&child.t0&&Date.now()-child.t0>30000)restarts=0;
+      if(error&&/Ekran kaydı/.test(error)&&s.fps.screen!=null)error=null;
+      title();push(true);return}
     title();push();
   }
   // Isinma uyarisi: sicaklik esigi ya da macOS "ciddi" isil durum; 10 dk'da en fazla bir bildirim
@@ -68,19 +73,21 @@ function registerSystem({ipcMain,app,BrowserWindow,Tray,nativeImage,screen,path,
   function start(){
     if(child)return true;if(!isOn())return false;
     if(process.platform!=='darwin'&&!process.env.CEM_SISTEM_BIN||!fs.existsSync(bin())){error='Sistem yardımcısı bulunamadı. Uygulamanın Mac sürümünü GitHub\'dan indirdiğinden emin ol.';title();push();return false}
-    const c=child=spawn(bin(),[],{stdio:['pipe','pipe','pipe']});buf='';
+    const c=child=spawn(bin(),[],{stdio:['pipe','pipe','pipe']});c.t0=Date.now();buf='';
     c.stdout.setEncoding('utf8');c.stdin.on('error',()=>{});
     c.stdout.on('data',d=>{if(child!==c)return;buf+=d;let i;while((i=buf.indexOf('\n'))>=0){onLine(buf.slice(0,i));buf=buf.slice(i+1)}
       if(buf.length>1e6)buf=''});
     c.stderr.on('data',d=>console.error('sistem-yardimcisi:',String(d).trim()));
-    c.on('exit',(code,sig)=>{if(child!==c)return;child=null;
-      if((code||sig)&&isOn()&&restarts<3){restarts++;error='Sistem yardımcısı yeniden başlatılıyor…';title();push();setTimeout(start,1500*restarts)}
-      else if(code||sig){error='Sistem yardımcısı durdu ('+(sig||code)+').';title();push()}});
+    // Biz durdurmadan biten her cikis beklenmedik (Swift yardimci hata durumunda da 0 ile cikabilir); eski degerler kalmasin
+    c.on('exit',(code,sig)=>{if(child!==c)return;child=null;last=null;
+      if(isOn()&&restarts<3){restarts++;error='Sistem yardımcısı yeniden başlatılıyor…';title();push();setTimeout(start,1500*restarts)}
+      else{error='Sistem yardımcısı durdu ('+(sig||code)+').';title();push()}});
     c.on('error',e=>{if(child===c)child=null;error='Sistem yardımcısı başlatılamadı: '+e.message;title();push()});
     pace();send({cmd:'once'});
     return true;
   }
-  function stop(){if(!child)return;const c=child;child=null;try{c.stdin.end(JSON.stringify({cmd:'quit'})+'\n')}catch(e){}
+  function stop(now=false){if(!child)return;const c=child;child=null;try{c.stdin.end(JSON.stringify({cmd:'quit'})+'\n')}catch(e){}
+    if(now)try{c.kill('SIGTERM')}catch(e){}           // uygulama kapanirken: zamanlayici calismayabilir, hemen SIGTERM (yardimci duzgun kapanir)
     setTimeout(()=>{if(c.exitCode===null&&c.signalCode===null)try{c.kill('SIGKILL')}catch(e){}},1500)}
 
   function makeWin(){
@@ -98,6 +105,7 @@ function registerSystem({ipcMain,app,BrowserWindow,Tray,nativeImage,screen,path,
     const t=tray?tray.getBounds():{x:0,y:0,width:0,height:0},d=screen.getDisplayNearestPoint({x:t.x,y:t.y}).workArea,[w]=win.getSize();
     const x=Math.min(Math.max(Math.round(t.x+t.width/2-w/2),d.x+8),d.x+d.width-w-8);
     win.setPosition(x,Math.round(tray?t.y+t.height+4:d.y+8));win.show();win.focus();
+    win.webContents.send('sys:data',{last,hello,error,hist,reset:true});   // kapaliyken biriken olcumler: grafik bastan
   }
   // Panel acikken tusa basmak once blur ile gizler; hemen ardindan gelen tiklama paneli yeniden acmasin
 const toggle=()=>open()?win.hide():Date.now()-hidAt<300?null:show();
@@ -115,7 +123,7 @@ const toggle=()=>open()?win.hide():Date.now()-hidAt<300?null:show();
     save({system:clean({...conf(),...o})});title();pace();return view()});
   ipcMain.handle('sys:hide',e=>{if(fromWin(e))win.hide()});
   app.whenReady().then(()=>{if(isOn())enable()});
-  app.on('will-quit',stop);
+  app.on('will-quit',()=>stop(true));
   return {enable,disable,show,toggle,start,stop,view,status:()=>last?barTitle(last,['temp','cpu'])||null:null};
 }
 module.exports={registerSystem,sanitize,barTitle,rate,clean,BAR};

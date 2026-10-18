@@ -92,7 +92,8 @@ function bars(){if(!S)return;const on=S.conf.bar;
   $('bars').replaceChildren(...S.bars.map(b=>{const e=document.createElement('button');e.className='chip'+(on.includes(b.id)?' on':'');e.textContent=b.name;
     e.setAttribute('aria-pressed',on.includes(b.id));
     e.onclick=async()=>{const n=on.includes(b.id)?on.filter(x=>x!==b.id):[...on,b.id].slice(-4);const r=await sys.set({bar:n});if(r){S={...S,conf:r.conf};bars()}};return e}))}
-sys.on(d=>{if(!S)return;S.last=d.last;S.error=d.error;if(d.hello)S.hello=d.hello;if(d.hist&&d.hist.length){H.push(...d.hist);if(H.length>120)H.splice(0,H.length-120)}render()});
+sys.on(d=>{if(!S)return;S.last=d.last;S.error=d.error;if(d.hello)S.hello=d.hello;
+  if(d.reset)H=(d.hist||[]).slice(-120);else if(d.hist&&d.hist.length){H.push(...d.hist);if(H.length>120)H.splice(0,H.length-120)}render()});
 sys.state().then(s=>{if(!s)return;S=s;H=(s.hist||[]).slice(-120);render()});
 document.addEventListener('keydown',e=>{if(e.key==='Escape')sys.hide()});
 </script></body></html>

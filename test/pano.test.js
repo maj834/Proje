@@ -44,7 +44,7 @@ function setup(t, o = {}) {
   const ui = P.registerPano({ ipcMain: { handle: (c, f) => { handlers[c] = f; } },
     app: { getPath: () => d, whenReady: () => ({ then: (f) => { onReady = f; } }), on() {} },
     BrowserWindow: Win, path, clipboard: cb,
-    nativeImage: { createFromPath: (p) => (fs.existsSync(p) ? img(4, 4, 'disk') : empty) },
+    nativeImage: { createFromPath: (p) => (fs.existsSync(p) ? img(4, 4, 'disk') : empty), createFromBuffer: b => (b && b.length ? img(4, 4, 'disk') : empty) },
     globalShortcut: { register: (a, f) => { if (o.scFail) return false; reg[a] = f; return true; }, unregister: (a) => { delete reg[a]; }, isRegistered: (a) => !!reg[a] },
     screen: { getCursorScreenPoint: () => ({ x: 100, y: 100 }), getDisplayNearestPoint: () => ({ workArea: { x: 0, y: 0, width: 1440, height: 900 } }) },
     safeStorage: o.ss || { isEncryptionAvailable: () => false }, cfg: () => ({}), save() {}, isOn: () => true });
@@ -239,4 +239,16 @@ test('kisayol: acilista kaydolur, kapatinca kalkar, alinamazsa durumda yazar, re
   const f = setup(t, { scFail: true });
   assert.equal(f.ui.status(), '0 kayıt · ⌘⇧V kısayolu alınamadı');
   assert.equal(f.state().shortcut, false);
+});
+
+test('pano resimleri sifreli saklanir, sifresiz eski dosyalar da okunur', () => {
+  const P = require('../pano-main.js');
+  const ss = { encryptString: s => Buffer.from('X' + Buffer.from(s).toString('hex')), decryptString: b => Buffer.from(String(b).slice(1), 'hex').toString() };
+  const png = Buffer.from('\x89PNG gizli ekran');
+  const sealed = P.sealImg(png, ss);
+  assert.ok(!sealed.includes(Buffer.from('gizli')), 'duz metin yok');
+  assert.ok(P.openImg(sealed, ss).equals(png));
+  assert.ok(P.openImg(png, ss).equals(png), 'eski sifresiz dosya');
+  assert.throws(() => P.openImg(sealed, null), /anahtar yok/);
+  assert.ok(P.sealImg(png, null).equals(png), 'anahtar zinciri yoksa duz');
 });

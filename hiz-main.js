@@ -82,7 +82,10 @@ function registerHiz({ipcMain,app,BrowserWindow,path,cfg,save,isOn=()=>true,fetc
     const l=history().at(-1);return l&&l.down!=null?'Son test: ↓ '+H.fmtMbps(l.down)+' Mb/sn':null;
   }
   // Neo (sesli asistan): testi calistir, ozet sonuc dondur (pencere aciksa canli ilerleme orada da gorunur)
-  async function runForNeo(){const r=await start();if(!r.ok)return {error:r.error||'Test yapılamadı.'};const x=r.result||{};
+  // Pencere aciksa testi o da gostersin (ext: dugmeye basilmadan baslayan test); bitince sonuc ve gecmis gider
+  async function runForNeo(){toWin('hiz:evt',{phase:'start',ext:true,pct:0});const r=await start();
+    toWin('hiz:evt',{phase:'extdone',ok:!!r.ok,result:r.result||null,history:history(),error:r.error||null});
+    if(!r.ok)return {error:r.error||'Test yapılamadı.'};const x=r.result||{};
     return {download_mbit:x.down??x.download??null,upload_mbit:x.up??x.upload??null,ping_ms:x.ping??x.latency??null,jitter_ms:x.jitter??null,verdict:x.verdict||null,isp:x.isp||(x.meta&&x.meta.isp)||null}}
   return {enable,disable,open,status,run:runForNeo};
 }

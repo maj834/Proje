@@ -286,3 +286,12 @@ test('registerHiz: pencere kapaninca suren test iptal edilir; modul kapaliyken a
     assert.equal(s.ok, false); ui2.disable();
   }
 });
+
+test('hexPass: Turkce karakterli sifre hex gelirse cozulur, gercek hex sifre bozulmaz', () => {
+  const H = require('../hiz.js');
+  assert.equal(H.hexPass(Buffer.from('çay1234!', 'utf8').toString('hex')), 'çay1234!');
+  assert.equal(H.hexPass('1234abcd'), '1234abcd');
+  assert.equal(H.hexPass('deadbeef'), 'deadbeef');
+  assert.equal(H.hexPass('normal şifre'), 'normal şifre');
+  assert.equal(H.hexPass('ff00'), 'ff00', 'gecersiz UTF-8 ise dokunma');
+});

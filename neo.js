@@ -58,6 +58,8 @@ function check(name,inp){
 // actions: {feature(id), status(), appVolume(app,pct), macVolume(pct,mute), stock(sym), showStock(sym), timer(min,label), openApp(name), openUrl(url), speed(), clipboard(q)}
 async function runTool(actions,name,inp){
   const bad=check(name,inp);if(bad)return {error:bad};
+  // Groq'ta sema zorunlu degil: sayi olmayan girdi ("beş", "yüzde elli") NaN'a donup sesi kapatmasin / zamanlayiciyi hemen calmasin
+  for(const k of ['percent','minutes'])if(k in inp&&!Number.isFinite(+inp[k]))return {error:'Geçersiz sayı: '+k};
   const call={open_feature:()=>actions.feature(inp.feature),system_status:()=>actions.status(),
     set_app_volume:()=>actions.appVolume(String(inp.app).slice(0,80),Math.max(0,Math.min(200,Math.round(+inp.percent)))),
     set_mac_volume:()=>actions.macVolume(Math.max(0,Math.min(100,Math.round(+inp.percent))),!!inp.mute),
