@@ -232,3 +232,13 @@ test('Alpha Vantage: gunluk 25 istek dolunca istek atilmaz; ertesi gun sifirlani
   t.mock.timers.setTime(NOW + 86400 * 1000);
   assert.equal(M.avLeft(), 25);
 });
+
+test('candles: Yahoo bos quote nesnesi TypeError vermez (F12)', async t => {
+  const { M } = setup(t);
+  mockFetch(t, [[() => true, () => ({ body: { chart: { result: [{ meta: { regularMarketPrice: 10 }, timestamp: [1, 2], indicators: { quote: [{}] } }] } } })]]);
+  const out = await M.load('THYAO', { news: false });
+  assert.ok(!out.errors.some(e => /Cannot read|undefined/.test(e)), out.errors.join());
+  const c = await M.candles('GARAN');
+  assert.deepEqual(c.rows, []);
+  assert.equal(c.quote.price, 10);
+});

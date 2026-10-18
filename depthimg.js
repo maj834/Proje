@@ -96,10 +96,11 @@ function parseStats(text){
     if(keys.filter(Boolean).length<2)continue;
     // Bir etiket okunamadiysa (Dusuk -> Diisiik) bilinen satir duzeninden tamamla
     const row=ROWS.find(r=>r.length===keys.length&&keys.every((k,j)=>!k||k===r[j]));if(row)keys=row;
-    const vals=(lines[i+1].match(/\d[\d.,]*/g)||[]);
+    const vals=(lines[i+1].match(/-?\d[\d.,]*/g)||[]);
     if(vals.length!==keys.length)continue;
     // Fiyat alanlarinda nokta okunmadiysa (1213) iki ondalik varsay; adet/hacim tamsayidir.
-    keys.forEach((k,j)=>{if(k)st[k]=k==='totalQty'||k==='volume'?qtyOf(vals[j]):priceOf(vals[j])});i++;
+    // Gunluk degisim eksi olabilir: priceOf isareti attigi icin geri eklenir
+    keys.forEach((k,j)=>{if(!k)return;const v=k==='totalQty'||k==='volume'?qtyOf(vals[j]):priceOf(vals[j]);st[k]=k==='dayChange'&&v&&vals[j][0]==='-'?-v:v});i++;
   }
   return st;
 }
@@ -140,14 +141,13 @@ async function read(img,{ocr=defaultOcr,hint={}}={}){
   const rows=bands(s,Math.min(gl,rl)+2,Math.max(gr,rr)-2,s.top,s.bot);
   let confs=[],n=0;
   const read1=async([x0,x1],[y0,y1])=>{const c=cell(s,x0,x1,y0,y1);if(!c)return null;n++;const r=await ocr(c.png,'num');confs.push(r.conf);return r.text};
-  let lastBid=null,lastAsk=null;
-  for(const b of rows){
-    const [bq,bp,ap,aq]=[await read1(cols.bq,b),await read1(cols.bp,b),await read1(cols.ap,b),await read1(cols.aq,b)];
-    const p1=priceOf(bp,lastBid),q1=qtyOf(bq);
-    if(p1&&q1){d.bids.push({price:p1,qty:q1,orders:null});lastBid=p1}
-    const p2=priceOf(ap,lastAsk),q2=qtyOf(aq);
-    if(p2&&q2){d.asks.push({price:p2,qty:q2,orders:null});lastAsk=p2}
-  }
+  const cellsT=[];for(const b of rows)cellsT.push([await read1(cols.bq,b),await read1(cols.bp,b),await read1(cols.ap,b),await read1(cols.aq,b)]);
+  // Referans fiyat: verilen son fiyat; yoksa okunan tum fiyatlarin medyani (ilk hucre yanlis okunursa tablo kaybolmasin)
+  let ref=hint.last>0?+hint.last:null;
+  if(!ref){const raw=cellsT.flatMap(([,bp,ap])=>[priceOf(bp),priceOf(ap)]).filter(v=>v>0).sort((a,b)=>a-b);ref=raw.length?raw[raw.length>>1]:null}
+  let lastBid=ref,lastAsk=ref,rej=0;
+  const take=(pt,qt,last,arr)=>{const q=qtyOf(qt),p=priceOf(pt,last);if(p&&q){arr.push({price:p,qty:q,orders:null});return p}if(q&&priceOf(pt))rej++;return last};
+  for(const [bq,bp,ap,aq] of cellsT){lastBid=take(bp,bq,lastBid,d.bids);lastAsk=take(ap,aq,lastAsk,d.asks)}
   // Istatistikler: tablo basligindan (ADET ALIS ...) onceki gri alan
   if(s.top>40){
     const hb=bands(s,0,s.W-1,0,s.top-1);
@@ -169,7 +169,7 @@ async function read(img,{ocr=defaultOcr,hint={}}={}){
     return out.length>=Math.ceil(arr.length/2)?out:[];                   // cogu celisiyorsa tabloya guvenme
   };
   const nb=d.bids.length+d.asks.length;d.bids=mono(d.bids,-1);d.asks=mono(d.asks,1);
-  d.ocr={dropped:nb-d.bids.length-d.asks.length,cells:n,ms:Date.now()-t0,conf:confs.length?Math.round(confs.reduce((a,b)=>a+b,0)/confs.length):null};
+  d.ocr={dropped:nb-d.bids.length-d.asks.length+rej,cells:n,ms:Date.now()-t0,conf:confs.length?Math.round(confs.reduce((a,b)=>a+b,0)/confs.length):null};
   return d;
 }
 // Blok metin icin: cift dogrusal 3x buyutme, kirpma yok
@@ -239,7 +239,9 @@ function parseTradeNums(t,ref){
   const rest=s.slice(s.indexOf(tm[0])+tm[0].length).trim().split(/\s+/).filter(x=>/\d/.test(x));if(rest.length<2)return null;
   const vol=qtyOf(rest[rest.length-1]);
   // Fiyat 2 ondalikli; "16.1516.147" gibi yapisik okumada ilk 2 ondalikli kisim fiyattir
-  const pm=rest[0].match(/^(\d{1,5}[.,]\d{2})(\d[\d.,]*)?$/);let price=pm?+pm[1].replace(',','.'):priceOf(rest[0],ref);
+  // Binlik ayracli fiyat (1.234,50) yapisik sayi sanilmasin
+  const th=/^\d{1,3}(\.\d{3})+,\d{1,4}$/.test(rest[0]);
+  const pm=th?null:rest[0].match(/^(\d{1,5}[.,]\d{2})(\d[\d.,]*)?$/);let price=th?priceOf(rest[0],ref):pm?+pm[1].replace(',','.'):priceOf(rest[0],ref);
   if(ref&&price&&Math.abs(Math.log(price/ref))>Math.log(1.6))price=null;
   let qty=rest.length>=3?qtyOf(rest[rest.length-2]):pm&&pm[2]?qtyOf(pm[2]):null;
   // Hacim = fiyat x adet (TL): tutmuyorsa adedi hacimden hesapla

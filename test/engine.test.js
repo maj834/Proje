@@ -143,3 +143,45 @@ test('backtest: maliyet avgRet\'ten tam olarak dusulur; byRule ve ufuklar var', 
   assert.equal(E.backtest(rs, sigs, 5).cost, 0.2);
   assert.deepEqual(E.backtest(rs, [], 5), { count: 0, horizon: 5, cost: 0.2 });
 });
+
+test('analyzeSeries: hareketsiz seri notr ve sonlu (F7)', () => {
+  const flat = Array.from({ length: 40 }, (_, i) => ({ t: i, o: 10, h: 10, l: 10, c: 10 }));
+  const a = E.analyzeSeries(flat);
+  assert.equal(a.ind.rsi, 50);
+  assert.equal(a.score, 0);
+  assert.ok(Number.isFinite(a.confidence));
+  assert.ok(Number.isFinite(a.ind.bb.width));
+  assert.equal(a.bias, 'notr');
+});
+
+test('analyzeSeries: risk/odul fiyat birimine gore kirpilmaz (F5)', () => {
+  let s = 1; const rnd = () => { s = (s * 1103515245 + 12345) % 2147483648; return s / 2147483648; };
+  const rows = []; let p = 10;
+  for (let i = 0; i < 120; i++) { const o = p; p *= 1 + (rnd() - 0.5) * 0.04; rows.push({ t: i, o, h: Math.max(o, p) * (1 + rnd() * 0.005), l: Math.min(o, p) * (1 - rnd() * 0.005), c: p }); }
+  const r = E.analyzeSeries(rows);
+  assert.ok(r.rr != null);
+  const last = r.last_price, R = r.resistances[0].price, S = r.supports[0].price;
+  assert.ok(last - S < 1, 'destek 1 TL\'den yakin');
+  assert.ok(Math.abs(r.rr - (R - last) / (last - S)) < 0.05, r.rr + ' ~ ' + (R - last) / (last - S));
+});
+
+test('analyzeSeries: sifir/eksi fiyatli mumlar elenir', () => {
+  const rows = R.series(40, { seed: 3 }).map((r, i) => ({ t: i, o: r.o, h: r.h, l: r.l, c: r.c }));
+  const bad = [...rows.slice(0, 20), { t: 99, o: 0, h: 0, l: 0, c: 0 }, ...rows.slice(20)];
+  const a = E.analyzeSeries(bad);
+  assert.equal(a.chart_found, true);
+  assert.deepEqual(a.backtest, E.analyzeSeries(rows).backtest);
+  assert.equal(a.candles, 40);
+});
+
+test('calibrateFromSeries: ekran gecikmeli veriden yeni mumlar icerirse eksi kayma (F4)', () => {
+  let s = 3; const rnd = () => { s = (s * 1103515245 + 12345) % 2147483648; return s / 2147483648; };
+  const rows = []; let p = 50;
+  for (let i = 0; i < 100; i++) { const o = p; p *= 1 + (rnd() - 0.5) * 0.04; rows.push({ o, h: Math.max(o, p) * 1.004, l: Math.min(o, p) * 0.996, c: p }); }
+  const scr = rows.map(r => ({ hi: (60 - r.h) / 20, lo: (60 - r.l) / 20 })).slice(-60);
+  const c = E.calibrateFromSeries(scr, rows.slice(0, -2));
+  assert.ok(c, 'uyum bulunur');
+  assert.equal(c.shift, -2);
+  assert.ok(Math.abs(c.k + 20) < 1e-6);
+  assert.equal(E.calibrateFromSeries(scr, rows).shift, 0);
+});

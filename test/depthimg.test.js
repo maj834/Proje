@@ -161,3 +161,36 @@ test('readTrades: gercek BOPT islem resmi (EKIM)', { timeout: 120000 }, async (t
     assert.equal(await DI.readTrades(img, { ref: 12.13 }), null, 'derinlik resmi islem sanilmaz');
   } finally { await DI.close(); }
 });
+
+// Satir basina 4 hucre (adet, alis, satis, adet); ilk alis fiyati verilen metinle okunur.
+function fakeOcr(firstBid) {
+  let row = -1, k = 0;
+  return async (buf, mode) => {
+    if (mode !== 'num') return { text: '', conf: 0 };
+    const c = k++ % 4; if (c === 0) row++;
+    if (c === 0 || c === 3) return { text: '100', conf: 90 };
+    if (c === 1) return { text: row === 0 ? firstBid : (12.13 - row * 0.01).toFixed(2).replace('.', ','), conf: 90 };
+    return { text: (12.14 + row * 0.01).toFixed(2).replace('.', ','), conf: 90 };
+  };
+}
+
+test('read: ilk hucre yanlis okunursa tablo kaybolmaz (F6)', async () => {
+  const ok = await DI.read(img, { ocr: fakeOcr('12,13') });
+  const bad = await DI.read(img, { ocr: fakeOcr('121') });
+  assert.equal(bad.bids.length, ok.bids.length - 1);
+  assert.equal(bad.bids[0].price, 12.12);
+  assert.equal(bad.ocr.dropped, 1, 'referanstan reddedilen satir sayilir');
+  const h = await DI.read(img, { ocr: fakeOcr('121'), hint: { last: 12.13 } });
+  assert.equal(h.bids.length, ok.bids.length - 1);
+  assert.equal(h.ocr.dropped, 1);
+});
+
+test('parseTradeNums: binlik ayracli fiyat (F9)', () => {
+  assert.deepEqual(DI.parseTradeNums('10:15:01 1.234,50 100 123.450'), { time: '10:15:01', price: 1234.5, qty: 100, vol: 123450 });
+});
+
+test('parseStats: eksi gunluk degisim korunur (F11)', () => {
+  const st = DI.parseStats('G.Hacim Dusuk Taban OGunK GunFyz\n299.056.729 9.93 10.92 12.13 -1,20\n');
+  assert.equal(st.dayChange, -1.2);
+  assert.equal(st.low, 9.93);
+});

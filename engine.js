@@ -31,8 +31,8 @@ function runs(arr,gap,minVal=1){
 function ema(a,n){const k=2/(n+1),o=[];let e=a[0];for(let i=0;i<a.length;i++){e=i?a[i]*k+e*(1-k):a[0];o.push(e)}return o}
 function sma(a,n){const o=[];let s=0;for(let i=0;i<a.length;i++){s+=a[i];if(i>=n)s-=a[i-n];o.push(i>=n-1?s/n:null)}return o}
 function rsi(a,n=14){const o=new Array(a.length).fill(null);if(a.length<=n)return o;let g=0,l=0;
-  for(let i=1;i<=n;i++){const d=a[i]-a[i-1];if(d>0)g+=d;else l-=d}g/=n;l/=n;o[n]=l?100-100/(1+g/l):100;
-  for(let i=n+1;i<a.length;i++){const d=a[i]-a[i-1];g=(g*(n-1)+Math.max(d,0))/n;l=(l*(n-1)+Math.max(-d,0))/n;o[i]=l?100-100/(1+g/l):100}return o}
+  for(let i=1;i<=n;i++){const d=a[i]-a[i-1];if(d>0)g+=d;else l-=d}g/=n;l/=n;o[n]=l?100-100/(1+g/l):g?100:50;
+  for(let i=n+1;i<a.length;i++){const d=a[i]-a[i-1];g=(g*(n-1)+Math.max(d,0))/n;l=(l*(n-1)+Math.max(-d,0))/n;o[i]=l?100-100/(1+g/l):g?100:50}return o} // hareketsiz seri: 50
 
 // Son mumlardaki klasik mum formasyonlari. Degerler fiyat yonunde (yukari = buyuk).
 function candlePattern(cs){
@@ -180,7 +180,8 @@ function analyzeMask(mask,W,H){
 // Ekran icin W/H normalize eder; gercek fiyat serisi icin analyzeSeries y=-fiyat ve H=-1 verir.
 function analyzeCandles(candles,{X0,X1,Y0,Y1,W,H,minTol=3}){
   const N=candles.length;
-  const span=Y1-Y0,tol=Math.max(minTol,span*0.012);
+  // Yatay (hareketsiz) seride yukseklik 0 olur: bolmeler icin kucuk bir pozitif deger
+  const span=(Y1-Y0)||Math.abs(Y0)*0.01||1,tol=Math.max(minTol,span*0.012);
   // 5) Pivotlar.
   const k=Math.max(2,Math.round(N/30)),ph=[],pl=[];
   for(let i=k;i<N-1;i++){
@@ -254,9 +255,11 @@ function analyzeCandles(candles,{X0,X1,Y0,Y1,W,H,minTol=3}){
   const cl=candles.map(c=>-c.close),xsN=candles.map(c=>nx(c.x));
   const e20=ema(cl,20),e50=ema(cl,50),m20=sma(cl,20),R=rsi(cl,14);
   const sd=cl.map((_,i)=>{if(i<19)return null;let s2=0;for(let j=i-19;j<=i;j++)s2+=(cl[j]-m20[i])**2;return Math.sqrt(s2/20)});
-  const macd=ema(cl,12).map((v,i)=>v-ema(cl,26)[i]),sig=ema(macd,9),hist=macd.map((v,i)=>v-sig[i]);
+  const e26=ema(cl,26),macd=ema(cl,12).map((v,i)=>v-e26[i]),sig=ema(macd,9),hist=macd.map((v,i)=>v-sig[i]);
   const poly=(arr,from)=>arr.map((v,i)=>i>=from&&v!=null?[xsN[i],ny(-v)]:null).filter(Boolean);
-  const r=R[N-1],eUp=e20[N-1]>e50[N-1],aboveE20=cl[N-1]>e20[N-1];
+  // Esitlikte (yuvarlama payi icinde) yon 0: yatay seri ayi sayilmasin
+  const sgn=v=>Math.abs(v)<=span*1e-9?0:Math.sign(v);
+  const r=R[N-1],eUp=e20[N-1]>e50[N-1],eD=sgn(e20[N-1]-e50[N-1]),aD=sgn(cl[N-1]-e20[N-1]),hD=sgn(hist[N-1]);
   const crossM=hist[N-1]>0&&hist.slice(-4,-1).some(h=>h<=0)?1:hist[N-1]<0&&hist.slice(-4,-1).some(h=>h>=0)?-1:0;
   const crossE=e20[N-1]>e50[N-1]&&e20.slice(-6,-1).some((v,i)=>v<=e50[N-6+i])?1:e20[N-1]<e50[N-1]&&e20.slice(-6,-1).some((v,i)=>v>=e50[N-6+i])?-1:0;
   const bbU=m20[N-1]!=null?m20[N-1]+2*sd[N-1]:null,bbL=m20[N-1]!=null?m20[N-1]-2*sd[N-1]:null;
@@ -280,11 +283,11 @@ function analyzeCandles(candles,{X0,X1,Y0,Y1,W,H,minTol=3}){
   // 13) Teknik gorunum skoru (-100..100) ve gerekceleri.
   const F=[];const add=(v,t)=>{if(v)F.push({v,t})};
   add(bias==='yukselis'?Math.round(10+r2*15):bias==='dusus'?-Math.round(10+r2*15):0,trend);
-  add(eUp?12:-12,eUp?'EMA20 > EMA50':'EMA20 < EMA50');
+  add(eD*12,eD>0?'EMA20 > EMA50':'EMA20 < EMA50');
   add(crossE*10,crossE>0?'EMA20, EMA50\'yi yukarı kesti':'EMA20, EMA50\'yi aşağı kesti');
-  add(aboveE20?6:-6,aboveE20?'Fiyat EMA20 üzerinde':'Fiyat EMA20 altında');
+  add(aD*6,aD>0?'Fiyat EMA20 üzerinde':'Fiyat EMA20 altında');
   if(r!=null)add(r>=70?-10:r<=30?10:r>=55?6:r<=45?-6:0,r>=70?'RSI aşırı alımda ('+Math.round(r)+')':r<=30?'RSI aşırı satımda ('+Math.round(r)+')':'RSI '+Math.round(r));
-  add(hist[N-1]>0?8:-8,hist[N-1]>0?'MACD pozitif':'MACD negatif');
+  add(hD*8,hD>0?'MACD pozitif':'MACD negatif');
   add(crossM*7,crossM>0?'MACD sinyal kesişimi (yukarı)':'MACD sinyal kesişimi (aşağı)');
   if(cp)add(cp.dir*10,cp.name+' mumu');
   if(div)add(div.dir*14,div.name);
@@ -293,7 +296,7 @@ function analyzeCandles(candles,{X0,X1,Y0,Y1,W,H,minTol=3}){
   if(sup.length&&(sup[0].y-lastY)/span<0.04)add(5,'Desteğe çok yakın');
   const score=Math.max(-100,Math.min(100,F.reduce((a,f)=>a+f.v,0)));
   // Risk/odul: en yakin dirence uzaklik / en yakin destege uzaklik.
-  const riskReward=res.length&&sup.length?+((lastY-res[0].y)/Math.max(1,sup[0].y-lastY)).toFixed(2):null;
+  const riskReward=res.length&&sup.length?+((lastY-res[0].y)/Math.max(span*1e-3,sup[0].y-lastY)).toFixed(2):null;
   const ind={rsi:r!=null?Math.round(r):null,rsiSeries:R.slice(-60).map(v=>v==null?null:Math.round(v)),
     macd:hist[N-1]>0?'pozitif':'negatif',macdCross:crossM,emaTrend:eUp?'yukari':'asagi',emaCross:crossE,
     bb:bbU!=null?{pos:Math.round((cl[N-1]-bbL)/Math.max(1e-6,bbU-bbL)*100),width:Math.round((bbU-bbL)/span*100)}:null,
@@ -336,7 +339,7 @@ function analyzeCandles(candles,{X0,X1,Y0,Y1,W,H,minTol=3}){
 // Gercek OHLC serisinden analiz (Yahoo / Alpha Vantage). candles: [{t,o,h,l,c,v}] eskiden yeniye.
 // Cikti fiyat cinsindendir: seviyelerin y'si = fiyat, sinyallerin x'i = mum sirasi (t ile tarih).
 function analyzeSeries(rows,opts={}){
-  const rs=(rows||[]).filter(r=>[r.o,r.h,r.l,r.c].every(Number.isFinite));
+  const rs=(rows||[]).filter(r=>[r.o,r.h,r.l,r.c].every(Number.isFinite)&&r.c>0&&r.l>0); // sifir/eksi fiyat getiriyi bozar
   if(rs.length<30)return {chart_found:false,engine:'piyasa'};
   const candles=rs.map((r,i)=>({x:i,x0:i,x1:i,hi:-r.h,lo:-r.l,open:-r.o,close:-r.c,up:r.c>=r.o}));
   const Y0=Math.min(...candles.map(c=>c.hi)),Y1=Math.max(...candles.map(c=>c.lo));
@@ -378,8 +381,9 @@ function calibrateFromSeries(screenCandles,rows,{maxShift=4,minN=15}={}){
   let best=null;
   for(let sh=-maxShift;sh<=maxShift;sh++){
     const xs=[],ys=[];
-    for(let k=1;k<=Math.min(screenCandles.length,rows.length-Math.max(0,sh),80);k++){
-      const sc=screenCandles[screenCandles.length-k],r=rows[rows.length-k-sh];if(!sc||!r)break;
+    // Eksi kayma: ekranda veriden yeni mumlar var (gecikmeli Yahoo); karsiligi olmayanlari atla. En fazla 80 cift.
+    for(let k=1;k<=screenCandles.length&&xs.length<160;k++){
+      const sc=screenCandles[screenCandles.length-k],r=rows[rows.length-k-sh];if(!r){if(sh<0)continue;break}if(!sc)break;
       xs.push(sc.hi,sc.lo);ys.push(r.h,r.l);
     }
     if(xs.length<minN*2)continue;

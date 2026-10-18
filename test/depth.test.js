@@ -76,15 +76,15 @@ En çok satan kurumlar
 Gerçekleşen işlemler
 52,30 15.000 BofA Ziraat 🟢
 52,25 3.000 Gedik Ak 🔴`;
-  const d = D.parseText(t);
+  const d = D.parseText(t, { now: Date.UTC(2026, 9, 20, 7, 5, 9) }); // 10:05:09 TSI
   assert.equal(d.symbol, 'EREGL');
   assert.deepEqual(d.buyers, [
     { name: 'Bank of America', net: 1250000, cost: 52.3, pct: 26.7 },
     { name: 'Ziraat Yatırım', net: 800000, cost: 52.1, pct: 17.1 }]);
   assert.deepEqual(d.sellers, [{ name: 'İş Yatırım', net: 900000, cost: 52.25, pct: 19.2 }]);
   assert.deepEqual(d.trades, [
-    { price: 52.3, qty: 15000, buyer: 'BofA', seller: 'Ziraat', side: 'buy' },
-    { price: 52.25, qty: 3000, buyer: 'Gedik', seller: 'Ak', side: 'sell' }]);
+    { time: '10:05:09', est: true, price: 52.3, qty: 15000, buyer: 'BofA', seller: 'Ziraat', side: 'buy' },
+    { time: '10:05:09', est: true, price: 52.25, qty: 3000, buyer: 'Gedik', seller: 'Ak', side: 'sell' }]);
   assert.equal(d.bids.length + d.asks.length, 0);
 });
 
@@ -161,4 +161,78 @@ test('mergeTape / tapeFlow: islem akisi, tekrarlar atilir, yon ve agresif kurum'
   // Yetersiz veri -> yon yok
   assert.equal(D.tapeFlow([mk('10:00:00', 'buy', 5)]).dir, 0);
   assert.equal(D.tapeFlow([]), null);
+});
+
+test('num: isaretli binlik sayilar (F1)', () => {
+  assert.equal(D.num('-4.342.512'), -4342512);
+  assert.equal(D.num('-900.000'), -900000);
+  assert.equal(D.num('+1.250.000'), 1250000);
+  assert.equal(D.num('-1,234,567'), -1234567);
+  assert.equal(D.num('-1.234,56'), -1234.56);
+  assert.equal(D.num('--5'), null);
+});
+
+test('pressure: saticilarin eksi neti satis baskisi olur (F1)', () => {
+  const d = D.parseText(`EREGL
+En çok alan kurumlar
+Bank of America 1.250.000 lot 52,30 %26,7
+En çok satan kurumlar
+İş Yatırım -900.000 52,25 %19,2
+Gedik -4.342.512 52,20 %40,1`);
+  assert.deepEqual(d.sellers.map(x => x.net), [-900000, -4342512]);
+  const p = D.pressure(d);
+  assert.ok(p.score < 0, 'saticilar baskin');
+  const q = D.pressure({ bids: [], asks: [], trades: [], buyRatio: null, buyers: [{ net: 1000 }], sellers: [{ net: -3000 }] });
+  assert.equal(q.score, -50);
+});
+
+test('parseText: islem saatleri ve tape birikimi (F2)', () => {
+  const d = D.parseText(`THYAO
+Gerçekleşen işlemler
+10:15:30 312,50 1.500 BofA Ziraat 🟢
+10:15:28 312,25 200 Gedik Ak 🔴`);
+  assert.deepEqual(d.trades, [
+    { time: '10:15:30', price: 312.5, qty: 1500, buyer: 'BofA', seller: 'Ziraat', side: 'buy' },
+    { time: '10:15:28', price: 312.25, qty: 200, buyer: 'Gedik', seller: 'Ak', side: 'sell' }]);
+  const tape = D.mergeTape([], d.trades);
+  assert.equal(tape.length, 2);
+  assert.equal(D.tapeFlow(tape).count, 2);
+  // Saatsiz islemler alinma saatini (TSI) alir ve tape'e girer
+  const e = D.parseText('Gerçekleşen işlemler\n312,50 1.500 BofA Ziraat', { now: Date.UTC(2026, 0, 2, 21, 30, 0) });
+  assert.equal(e.trades[0].time, '00:30:00');
+  assert.equal(D.mergeTape([], e.trades).length, 1);
+});
+
+test('parseText: son fiyat hacim satirindan alinmaz (F3)', () => {
+  assert.equal(D.parseText('THYAO\nHacim: 1.234.567 TL\nSon: 312,50').last, 312.5);
+  assert.equal(D.parseText('THYAO\nTutar 9.876.543 TL\n312,50 TL').last, 312.5);
+});
+
+test('parseText: binlik ayracli fiyat kademeleri (F8)', () => {
+  const d = D.parseText(`🟢 ALIŞ
+1.234,50 | 45.200 | 120
+1.234,25 | 18.300 | 41`);
+  assert.deepEqual(d.bids.map(b => [b.price, b.qty]), [[1234.5, 45200], [1234.25, 18300]]);
+});
+
+test('parseText: sembol basliklardan secilmez, Turkce harfte kesilmez (F10)', () => {
+  assert.equal(D.parseText('KADEME DERİNLİĞİ\nGARAN\nAlış 12,13 4.500').symbol, 'GARAN');
+  assert.equal(D.parseText('DERİNLİK - THYAO').symbol, 'THYAO');
+  assert.equal(D.parseText('TOPLAM ADET\nAKBNK').symbol, 'AKBNK');
+});
+
+test('mergeTape: ortusen grupta gercek ikinci ayni islem korunur (F13)', () => {
+  const t = (time, qty) => ({ time, price: 10, qty, buyer: 'A', seller: 'B', side: 'buy' });
+  let tape = D.mergeTape([], [t('10:00:01', 5), t('10:00:00', 7)]);
+  tape = D.mergeTape(tape, [t('10:00:01', 5), t('10:00:01', 5), t('10:00:00', 7)]);
+  assert.equal(tape.length, 3, 'yalniz fazlalik eklenir');
+  assert.equal(tape.filter(x => x.qty === 5).length, 2);
+  assert.equal(D.mergeTape(tape, [t('10:00:01', 5), t('10:00:01', 5)]).length, 3);
+});
+
+test('mergeTape: saatsiz islem tekrar gelince ikinci kez sayilmaz', () => {
+  const t = '🟢 52,30 15.000 BofA Ziraat';
+  const a = D.parseText('Islemler\n' + t, { now: Date.UTC(2026, 9, 20, 7, 5, 0) }).trades;
+  const b = D.parseText('Islemler\n' + t, { now: Date.UTC(2026, 9, 20, 7, 6, 0) }).trades;
+  assert.equal(D.mergeTape(D.mergeTape([], a), b).length, a.length);
 });

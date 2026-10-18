@@ -10,14 +10,21 @@
 function num(s){
   if(s==null)return null;s=String(s).trim().replace(/[%₺TL\s]/gi,'');
   const mul=/[mM]$/.test(s)?1e6:/[kKbB]$/.test(s)?1e3:1;s=s.replace(/[mMkKbB]$/,'');
-  if(!/^[-+]?[\d.,]+$/.test(s))return null;
-  if(/^\d{1,3}(\.\d{3})+$/.test(s))return +s.replace(/\./g,'')*mul;          // 4.342.512
-  if(/^\d{1,3}(,\d{3})+$/.test(s)&&!/,\d{1,2}$/.test(s))return +s.replace(/,/g,'')*mul;
-  if(/,\d+$/.test(s))return +s.replace(/\./g,'').replace(',','.')*mul;        // 1.234,56 / 12,13
-  const v=+s*mul;return Number.isFinite(v)?v:null;
+  // Isaret once ayrilir: "-4.342.512" binlik bicimine de uysun
+  const sg=s[0]==='-'?-1:1;s=s.replace(/^[-+]/,'');
+  if(!/^[\d.,]+$/.test(s))return null;
+  if(/^\d{1,3}(\.\d{3})+$/.test(s))return sg*s.replace(/\./g,'')*mul;       // 4.342.512
+  if(/^\d{1,3}(,\d{3})+$/.test(s)&&!/,\d{1,2}$/.test(s))return sg*s.replace(/,/g,'')*mul;
+  if(/,\d+$/.test(s))return sg*s.replace(/\./g,'').replace(',','.')*mul;     // 1.234,56 / 12,13
+  const v=sg*s*mul;return Number.isFinite(v)?v:null;
 }
 const TOK=/[-+]?%?\d[\d.,]*[mMkK]?%?/g;
-const isPrice=s=>/^\d{1,6}[.,]\d{1,4}$/.test(s)&&!/^\d{1,3}\.\d{3}$/.test(s);
+const isPrice=s=>(/^\d{1,6}[.,]\d{1,4}$/.test(s)&&!/^\d{1,3}\.\d{3}$/.test(s))||/^\d{1,3}(\.\d{3})+,\d{1,4}$/.test(s); // 1.234,50
+// Sembol sanilmamasi gereken buyuk harfli basliklar
+const STOP=new Set(['KADEME','TAVAN','TABAN','TOPLAM','ALIŞ','SATIŞ','DERİNLİK','ADET','HACİM','FİYAT','PİYASA','KURUM','İŞLEM']);
+const TIME=/\b(\d{2}):(\d{2}):(\d{2})\b/;
+// Saat damgasi olmayan islemler icin alinma saati (Turkiye sabit UTC+3)
+const hms=now=>new Date((now??Date.now())+3*3600e3).toISOString().slice(11,19);
 
 const SEC=[
   [/derinlik|kademe|emir/i,'depth'],
@@ -30,32 +37,38 @@ function parseText(text,hint={}){
   const d={symbol:hint.symbol||null,last:null,change:null,ceiling:null,floor:null,buyRatio:null,bids:[],asks:[],trades:[],buyers:[],sellers:[]};
   const lines=String(text||'').split(/\r?\n/).map(l=>l.replace(/[│┃|]/g,' | ').trim()).filter(Boolean);
   let sec=null;
-  const sym=String(text).match(/\b([A-ZÇĞİÖŞÜ]{4,6})\b/);if(!d.symbol&&sym)d.symbol=sym[1];
+  const sym=(String(text).match(/(?<!\p{L})[A-ZÇĞİÖŞÜ]{4,6}(?!\p{L})/gu)||[]).find(w=>!STOP.has(w));if(!d.symbol&&sym)d.symbol=sym;
+  // Son fiyat: once acik etiket (son/fiyat/last) tum satirlarda; yoksa TL/₺ (hacim/tutar satirlari haric)
+  const kv0=(l,re)=>{const m=l.match(re);return m?num(m[1]):null},LS=lines.map(l=>l.replace(/[*_`]/g,''));
+  for(const l of LS){const v=kv0(l,/(?:son|fiyat|anl[ıi]k|last)\s*[:=]?\s*₺?\s*([\d.,]+)/i);if(v!=null){d.last=v;break}}
+  if(d.last==null)for(const l of LS){if(/hacim|tutar|ciro/i.test(l))continue;const v=kv0(l,/₺\s*([\d.,]+)/)??kv0(l,/([\d.,]+)\s*(?:TL\b|₺)/i);if(v!=null){d.last=v;break}}
+  const rcv=hms(hint.now);
   for(const raw of lines){
     const l=raw.replace(/[*_`]/g,'');
     // Ozet alanlar
-    const kv=(re)=>{const m=l.match(re);return m?num(m[1]):null};
-    d.last=d.last??kv(/(?:son|fiyat|anl[ıi]k|last)\s*[:=]?\s*₺?\s*([\d.,]+)/i)??kv(/₺\s*([\d.,]+)/)??kv(/([\d.,]+)\s*(?:TL\b|₺)/i);
+    const kv=(re)=>kv0(l,re);
     d.ceiling=d.ceiling??kv(/tavan\s*[:=]?\s*([\d.,]+)/i);d.floor=d.floor??kv(/taban\s*[:=]?\s*([\d.,]+)/i);
     d.change=d.change??kv(/([-+]\d[\d.,]*)\s*%/)??kv(/%\s*([-+]\d[\d.,]*)/);
     if(d.change==null){const m=l.match(/([-+])\s*%\s*(\d[\d.,]*)/);if(m)d.change=num(m[1]+m[2])}
     const br=l.match(/al[ıi][sş]\s*\/\s*sat[ıi][sş][^\d%]*%?\s*([\d.,]+)\s*%?/i);if(br)d.buyRatio=num(br[1]);
     if(br||/\d\s*TL\b|tavan|taban|₺|\b(son|fiyat|anl[ıi]k|last)\b\s*[:=]/i.test(l))continue; // ozet satiri
     // Bolum basligi mi?
-    const toks=l.match(TOK)||[];
+    // Islem saati (HH:MM:SS) sayi sanilmasin
+    const tm=l.match(TIME),lt=tm?l.replace(tm[0],' '):l;
+    const toks=lt.match(TOK)||[];
     const s=SEC.find(([re])=>re.test(l));
     if(s&&toks.length<2){sec=s[1];continue}
     if(toks.length<2)continue;
-    const words=l.replace(TOK,' ').replace(/[|:;=•·\-–>]+/g,' ').trim().split(/\s+/).filter(w=>/[a-zçğıöşüİĞŞÇÖÜ]{2,}/i.test(w));
+    const words=lt.replace(TOK,' ').replace(/[|:;=•·\-–>]+/g,' ').trim().split(/\s+/).filter(w=>/[a-zçğıöşüİĞŞÇÖÜ]{2,}/i.test(w));
     const name=words.join(' ').replace(/\s*(lot|adet|emir|tl)\b/gi,'').trim();
     if((sec==='buyers'||sec==='sellers')&&name){
       const nums=toks.map(num),prices=toks.filter(isPrice).map(num),pm=l.match(/%\s*([\d.,]+)/)||l.match(/([\d.,]+)\s*%/),pct=pm?num(pm[1]):null;
-      const big=nums.filter(n=>n!=null&&!prices.includes(n)&&n!==pct).sort((a,b)=>b-a)[0];
+      const big=nums.filter(n=>n!=null&&!prices.includes(n)&&n!==pct).sort((a,b)=>Math.abs(b)-Math.abs(a))[0];
       d[sec].push({name,net:big??null,cost:prices.find(x=>x!==pct)??null,pct});continue}
     if(sec==='trades'||(name.split(/\s+/).length>=2&&toks.length===2&&isPrice(toks[0]))){
       const p=toks.find(isPrice),q=toks.filter(t=>t!==p).map(num)[0];
       const ws=name.split(/\s+/);
-      if(p)d.trades.push({price:num(p),qty:q??null,buyer:ws[0]||null,seller:ws[1]||null,side:/al[ıi][sş]|🟢|↑|▲/i.test(l)?'buy':/sat[ıi][sş]|🔴|↓|▼/i.test(l)?'sell':null});
+      if(p)d.trades.push({time:tm?tm[0]:rcv,...(tm?{}:{est:true}),price:num(p),qty:q??null,buyer:ws[0]||null,seller:ws[1]||null,side:/al[ıi][sş]|🟢|↑|▲/i.test(l)?'buy':/sat[ıi][sş]|🔴|↓|▼/i.test(l)?'sell':null});
       continue}
     // Kademe satiri: tek tarafli ya da "alis | satis" iki tarafli
     const halves=l.includes(' | ')&&l.split(' | ').filter(h=>(h.match(TOK)||[]).length>=2).length===2?l.split(' | ').filter(h=>(h.match(TOK)||[]).length>=2):[l];
@@ -88,7 +101,8 @@ function pressure(d){
   const bq=sum(d.bids.slice(0,10)),aq=sum(d.asks.slice(0,10));
   if(bq+aq>0)parts.push({k:'Derinlik dengesi',v:clamp((bq-aq)/(bq+aq)),w:0.35});
   if(d.buyRatio!=null)parts.push({k:'Alış/satış oranı',v:clamp((d.buyRatio-50)/50),w:0.25});
-  const bn=d.buyers.reduce((s,x)=>s+(x.net||0),0),sn=d.sellers.reduce((s,x)=>s+(x.net||0),0);
+  // Saticilarin neti eksi isaretli gelebilir: iki tarafta da buyukluk alinir
+  const bn=d.buyers.reduce((s,x)=>s+Math.abs(x.net||0),0),sn=d.sellers.reduce((s,x)=>s+Math.abs(x.net||0),0);
   if(bn+sn>0)parts.push({k:'Kurum net akışı',v:clamp((bn-sn)/(bn+sn)),w:0.2});
   const bestB=d.bids[0]&&d.bids[0].price,bestA=d.asks[0]&&d.asks[0].price;
   let tb=0,ts=0;for(const t of d.trades){const side=t.side||(bestA&&t.price>=bestA?'buy':bestB&&t.price<=bestB?'sell':null);if(side==='buy')tb+=t.qty||1;else if(side==='sell')ts+=t.qty||1}
@@ -110,9 +124,12 @@ function trend(hist){
 // --- Islem akisi (tape) -------------------------------------------------------------
 // Bot her seferinde son ~20 islemi gonderir; yeni gelenler birikmis listeye eklenir (tekrarlar atilir).
 const sec=t=>{const m=String(t||'').match(/^(\d{1,2}):(\d{2}):(\d{2})$/);return m?+m[1]*3600+ +m[2]*60+ +m[3]:null};
-const tkey=t=>[t.time,t.price,t.qty,t.buyer,t.seller].join('|');
+// Saati olmayan islem (est) alinma saatini tasir; her mesajda degisecegi icin anahtara saat girmez.
+const tkey=t=>[t.est?'~':t.time,t.price,t.qty,t.buyer,t.seller].join('|');
+// Tekrar sayimi: ayni anahtarli islemden yeni grupta eskisinden fazlasi varsa yalniz fazlasi eklenir.
 function mergeTape(tape,trades,max=800){
-  const seen=new Set((tape||[]).map(tkey)),add=(trades||[]).filter(t=>sec(t.time)!=null&&!seen.has(tkey(t)));
+  const have=new Map(),cnt=new Map(),add=[];for(const t of tape||[]){const k=tkey(t);have.set(k,(have.get(k)||0)+1)}
+  for(const t of trades||[]){if(sec(t.time)==null)continue;const k=tkey(t),c=(cnt.get(k)||0)+1;cnt.set(k,c);if(c>(have.get(k)||0))add.push(t)}
   return [...add,...(tape||[])].sort((a,b)=>sec(b.time)-sec(a.time)).slice(0,max);
 }
 // Aktif alis/satis dengesi, hacim agirlikli ortalama fiyat (VWAP), kumulatif hacim farki (CVD) ve en agresif kurum.

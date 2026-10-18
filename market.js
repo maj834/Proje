@@ -50,7 +50,8 @@ async function candles(symbol,tf='1g',mkt='BIST'){
     const res=j&&j.chart&&j.chart.result&&j.chart.result[0];
     if(!res){const e=j&&j.chart&&j.chart.error;throw new Error(e&&e.description?('Yahoo: '+e.description):'Yahoo bu sembol için veri döndürmedi.')}
     const q=(res.indicators&&res.indicators.quote&&res.indicators.quote[0])||{},ts=res.timestamp||[];
-    const rows=ts.map((t,i)=>({t:t*1000,o:q.open[i],h:q.high[i],l:q.low[i],c:q.close[i],v:q.volume?q.volume[i]:null})).filter(r=>[r.o,r.h,r.l,r.c].every(Number.isFinite));
+    const A=k=>q[k]||[]; // eksik alan (quote:[{}]) TypeError vermesin
+    const rows=ts.map((t,i)=>({t:t*1000,o:A('open')[i],h:A('high')[i],l:A('low')[i],c:A('close')[i],v:q.volume?q.volume[i]:null})).filter(r=>[r.o,r.h,r.l,r.c].every(Number.isFinite));
     const m=res.meta||{};
     return {source:'yahoo',symbol:y,tf,rows,quote:{price:m.regularMarketPrice??(rows.length?rows[rows.length-1].c:null),prev:m.chartPreviousClose??m.previousClose??null,
       currency:m.currency||null,name:m.shortName||m.longName||null,exchange:m.exchangeName||null,time:m.regularMarketTime?m.regularMarketTime*1000:null,
