@@ -110,7 +110,7 @@ function thumbOf(img){
 }
 
 function registerPano({ipcMain,app,BrowserWindow,path,clipboard,nativeImage,globalShortcut,screen,safeStorage,cfg,save,isOn=()=>true}){
-  let list=[],on=false,loaded=false,timer=null,lastSig=null,pausedUntil=0,scOk=null,win=null,saveT=null,dirty=false;
+  let list=[],on=false,loaded=false,readOnly=false,timer=null,lastSig=null,pausedUntil=0,scOk=null,win=null,saveT=null,dirty=false;
   const dir=()=>path.join(app.getPath('userData'),'pano'),file=()=>path.join(dir(),'gecmis.json'),imgDir=()=>path.join(dir(),'img');
   const imgPath=id=>path.join(imgDir(),id+'.png');
   const paused=()=>pausedUntil>Date.now();
@@ -122,14 +122,19 @@ function registerPano({ipcMain,app,BrowserWindow,path,clipboard,nativeImage,glob
     try{buf=fs.readFileSync(file())}catch(e){list=[];return}
     try{list=decodeStore(buf,ss())}
     catch(e){console.error('pano: gecmis okunamadi, bos baslatiliyor:',e.message);list=[];
-      try{fs.renameSync(file(),file()+'.bozuk')}catch(_){}
-      return}                                          // okunamadiysa (gecici anahtar sorunu olabilir) resimlere dokunma
-    // Listede olmayan resim dosyalarini temizle
+      // Anahtar (Anahtar Zinciri) su an yoksa gecici bir sorundur: dosyaya ve resimlere dokunma, bu oturum diske yazma
+      // (yoksa yeni dosya eskisini ezer ve bir sonraki acilista eski resimler sahipsiz sayilip silinirdi).
+      if(buf.subarray(0,MAGIC.length).equals(MAGIC)&&!ss()){readOnly=true;return}
+      // Anahtar var ama cozulemiyor (gercekten bozuk): zaman damgali yedege al, hicbir yedek digerini ezmesin
+      try{fs.renameSync(file(),file()+'.bozuk-'+Date.now())}catch(_){}
+      return}                                          // bu acilista resimlere dokunma
+    // Listede olmayan resim dosyalarini temizle (bozuk yedek gecmis varsa onun resimleri de korunur)
+    try{if(fs.readdirSync(dir()).some(f=>/^gecmis\.json\.bozuk/.test(f)))return;}catch(e){}
     try{const keep=new Set(list.filter(x=>x.type==='image').map(x=>x.id+'.png'));
       for(const f of fs.readdirSync(imgDir()))if(!keep.has(f))try{fs.unlinkSync(path.join(imgDir(),f))}catch(e){}}catch(e){}
   }
   function flush(){
-    clearTimeout(saveT);saveT=null;if(!dirty)return;dirty=false;
+    clearTimeout(saveT);saveT=null;if(!dirty||readOnly)return;dirty=false;
     try{fs.mkdirSync(dir(),{recursive:true,mode:0o700});
       const tmp=file()+'.'+process.pid+'.tmp';
       fs.writeFileSync(tmp,encodeStore(list,ss()),{mode:0o600});fs.renameSync(tmp,file())}
@@ -143,7 +148,11 @@ function registerPano({ipcMain,app,BrowserWindow,path,clipboard,nativeImage,glob
     let formats=[],text='',img=null;
     try{formats=clipboard.availableFormats()||[]}catch(e){}
     try{text=clipboard.readText()||''}catch(e){}
-    if(formats.some(f=>/^image\//.test(f))){try{const im=clipboard.readImage();if(im&&!im.isEmpty()){const s=im.getSize();img=s.width+'x'+s.height}}catch(e){}}
+    if(formats.some(f=>/^image\//.test(f))){
+      // Ucuz imza: ham PNG/TIFF bayt sayisi (buyuk resmi her 700 ms'de cozmemek icin); okunamazsa resmi coz
+      let n=0;try{if(clipboard.readBuffer)n=(clipboard.readBuffer('public.png')||[]).length||(clipboard.readBuffer('public.tiff')||[]).length}catch(e){}
+      if(n)img='b'+n;
+      else try{const im=clipboard.readImage();if(im&&!im.isEmpty()){const s=im.getSize();img=s.width+'x'+s.height}}catch(e){}}
     return {formats,text,img};
   }
   function capture(snap){
@@ -208,7 +217,9 @@ function registerPano({ipcMain,app,BrowserWindow,path,clipboard,nativeImage,glob
   function hide(){
     if(!visible())return;win.hide();
     // Mac'te onceki uygulamaya don ki hemen ⌘V yapilabilsin (uygulamanin baska acik penceresi yoksa)
-    try{if(process.platform==='darwin'&&app.hide&&!(BrowserWindow.getAllWindows?BrowserWindow.getAllWindows():[]).some(w=>w!==win&&w.isVisible()))app.hide()}catch(e){}
+    // Odak almayan pencereler (Borsa katmani, Neo baloncugu) engel sayilmaz; app.hide sonrasi yeniden (odaksiz) gosterilir
+    try{if(process.platform==='darwin'&&app.hide){const others=(BrowserWindow.getAllWindows?BrowserWindow.getAllWindows():[]).filter(w=>w!==win&&!w.isDestroyed()&&w.isVisible());
+      if(others.every(w=>w.isFocusable&&!w.isFocusable())){app.hide();setTimeout(()=>{for(const w of others)try{if(!w.isDestroyed())w.showInactive()}catch(_){}},150)}}}catch(e){}
   }
   function copyBack(id){
     const it=list.find(x=>x.id===id);if(!it)return {err:'Kayıt bulunamadı.'};

@@ -126,6 +126,8 @@ function registerNeo({ipcMain,app,BrowserWindow,path,screen,globalShortcut,Notif
   ipcMain.handle('neo:talk',e=>{if(from(e))talk()});
   ipcMain.handle('neo:ask',(e,t)=>from(e)?typed(t):null);
   ipcMain.handle('neo:set',(e,o)=>{if(!from(e)||!o||typeof o!=='object')return null;const before=conf();
+    // Pano Gecmisi kisayolu (⌘⇧V) alinamaz
+    if(typeof o.hotkey==='string'&&/^(commandorcontrol|cmdorctrl|command|cmd)\+shift\+v$|^shift\+(commandorcontrol|cmdorctrl|command|cmd)\+v$/i.test(o.hotkey))o={...o,hotkey:before.hotkey};
     save({neo:clean({...before,...o})});const c=conf();configure();
     if(c.wake!==before.wake)send({cmd:c.wake?'start':'stop'});
     if(c.hotkey!==before.hotkey&&isOn()){if(hk){try{globalShortcut.unregister(hk)}catch(e){}hk=null}try{if(globalShortcut.register(c.hotkey,talk))hk=c.hotkey}catch(e){}}

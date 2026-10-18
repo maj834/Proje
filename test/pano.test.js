@@ -219,7 +219,9 @@ test('registerPano: kalicilik (duz JSON 0600, atomik) ve bozuk dosyadan kurtarma
   fs.writeFileSync(file, '{"v":1,"items":[bozuk');
   const c = setup(t1, { dir: d, clip: clip() });
   assert.equal(c.state().items.length, 0);
-  assert.equal(fs.readFileSync(file + '.bozuk', 'utf8'), '{"v":1,"items":[bozuk');
+  const bak = fs.readdirSync(path.dirname(file)).filter(n => /^gecmis\.json\.bozuk-\d+$/.test(n));
+  assert.equal(bak.length, 1);
+  assert.equal(fs.readFileSync(path.join(path.dirname(file), bak[0]), 'utf8'), '{"v":1,"items":[bozuk');
 });
 
 test('registerPano: sifreli kayit safeStorage varsa duz metin icermez', (t) => {
@@ -251,4 +253,27 @@ test('pano resimleri sifreli saklanir, sifresiz eski dosyalar da okunur', () => 
   assert.ok(P.openImg(png, ss).equals(png), 'eski sifresiz dosya');
   assert.throws(() => P.openImg(sealed, null), /anahtar yok/);
   assert.ok(P.sealImg(png, null).equals(png), 'anahtar zinciri yoksa duz');
+});
+
+test('registerPano: Anahtar Zinciri gecici yoksa sifreli gecmis ezilmez, resimler silinmez', () => {
+  const d = tmpDir();
+  try {
+    const img = (w, seed = 'a') => ({ isEmpty: () => false, getSize: () => ({ width: w, height: w }), toPNG: () => Buffer.from('png:' + seed + w),
+      resize: (o) => img(o.width, seed), toDataURL: () => 'data:image/png;base64,AAAA', toJPEG: () => Buffer.from('j') });
+    const empty = { isEmpty: () => true, getSize: () => ({ width: 0, height: 0 }) };
+    const c = { text: '', im: null, formats: [], availableFormats: () => c.formats, readText: () => c.text, readImage: () => c.im || empty,
+      read: () => '', has: () => false, writeText(t) { c.text = t; c.im = null; c.formats = ['text/plain']; } };
+    const setImg = (i) => { c.text = ''; c.im = i; c.formats = ['image/png']; };
+    const ssOk = { isEncryptionAvailable: () => true, encryptString: (s) => Buffer.from('E' + s), decryptString: (b) => { const s = b.toString(); if (s[0] !== 'E') throw new Error('x'); return s.slice(1); } };
+    const ssBad = { isEncryptionAvailable: () => false };
+    const sess = (ss) => { let ready; const W = function () { return { webContents: { send() {}, setWindowOpenHandler() {}, on() {}, isDevToolsOpened: () => false }, loadFile() {}, isDestroyed: () => false, isVisible: () => false, getSize: () => [1, 1], setPosition() {}, show() {}, hide() {}, focus() {}, close() {}, on() {} }; }; W.getAllWindows = () => [];
+      const ui = P.registerPano({ ipcMain: { handle() {} }, app: { getPath: () => d, whenReady: () => ({ then: (f) => { ready = f; } }), on() {} }, BrowserWindow: W, path, clipboard: c, nativeImage: {},
+        globalShortcut: { register: () => true, unregister() {}, isRegistered: () => true }, screen: {}, safeStorage: ss, cfg: () => ({}), save() {}, isOn: () => true }); ready(); return ui; };
+    let ui = sess(ssOk); setImg(img(10)); ui.tick(); c.writeText('gizli bir'); ui.tick(); ui.disable();
+    const before = fs.readFileSync(path.join(d, 'pano', 'gecmis.json'));
+    ui = sess(ssBad); c.writeText('yeni iki'); ui.tick(); ui.disable();               // anahtar yok: bu oturum diske yazmaz
+    assert.ok(before.equals(fs.readFileSync(path.join(d, 'pano', 'gecmis.json'))));
+    ui = sess(ssOk); ui.disable();                                                     // anahtar geri geldi: eski gecmis ve resmi yerinde
+    assert.equal(fs.readdirSync(path.join(d, 'pano', 'img')).length, 1);
+  } finally { fs.rmSync(d, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }); }
 });

@@ -246,7 +246,8 @@ function syncOverlay(){
 // --- bulut yedek (Supabase) kayitlari: yalnizca hesaplanmis ciktilar, ham derinlik/mesaj degil ---
 let lastSigKey='';
 function recordSignal(sig,a){
-  const sym=(a&&a.symbol)||(lastDepth&&lastDepth.symbol)||currentSymbol()||'';
+  // Canli sinyal derinlikten uretilir: hisse derinligin hissesidir; grafik alanlari yalnizca ayni hisseyse yazilir
+  const sym=(lastDepth&&lastDepth.symbol)||'';a=sameStock(a,lastDepth)?a:{};
   if(!cfg().sbOn||!sig||!sym){if(!sig)lastSigKey='';return}
   const key=sym+':'+sig.dir;if(key===lastSigKey)return;lastSigKey=key; // yalnizca yon degisince kaydet
   sync.enqueue('signals',{symbol:sym,timeframe:a.timeframe||null,dir:sig.dir,strength:+sig.strength.toFixed(2),source:a.engine||'canli',why:sig.why||[],
@@ -637,9 +638,10 @@ async function scorecard(days=30){
 }
 const currentSymbol=()=>cfg().symbol||(lastAi&&lastAi.symbol)||(lastDepth&&lastDepth.symbol)||cfg().depthSymbol||'';
 
+let depthNext=null;   // suren istek varken gelen elle/Neo istegi: bitince calisir (sessizce dusmesin)
 async function fetchDepth(opts={}){
-  if(depthBusy)return;depthBusy=true;
-  const symbol=String(opts.symbol||currentSymbol()||'').toUpperCase().replace(/[^A-ZÇĞİÖŞÜ0-9]/g,'');
+  if(depthBusy){if(!opts.auto)depthNext=opts;return}depthBusy=true;
+  const symbol=bistCode(opts.symbol||(opts.auto&&cfg().depthSymbol)||currentSymbol());
   const source=opts.source||cfg().depthSource||'telegram';
   try{
     if(!symbol)throw new Error('Hisse kodu yaz (ör. PRZMA) ya da önce grafiği Claude ile analiz et.');
@@ -693,6 +695,7 @@ async function fetchDepth(opts={}){
     const flow=(d.buyers||[]).reduce((s,x)=>s+Math.abs(x.net||0),0)-(d.sellers||[]).reduce((s,x)=>s+Math.abs(x.net||0),0);
     if((d.buyers.length||d.sellers.length)&&(fresh||kind==='akd')){const f=flowHist[symbol]=(flowHist[symbol]||[]);f.push({t:Date.now(),v:flow});if(f.length>120)f.shift()}
     const fh=flowHist[symbol]||[],fd=fh.length>1?fh[fh.length-1].v-fh[0].v:0;
+    if(!modOn('borsa'))return;   // istek surerken Borsa kapatildi: sonuc gosterilmez/kaydedilmez
     lastDepth={...d,symbol,at:dataAt,source,walls:depthLib.walls(d),pressure:pr,trend:depthLib.trend(depthHist[symbol]||[]),history:(depthHist[symbol]||[]).slice(-40),
       flow:{net:flow,change:fd,top:(d.buyers[0]||null)},safe:safeInfo()};
     lastDepth.signal=liveSignal();lastDepth.live=liveView();
@@ -700,7 +703,7 @@ async function fetchDepth(opts={}){
     send('depth',{...lastDepth,messages:messages.map(m=>({...m,photo:thumb(m.photo)})),usage:state().usage});
     pushDepthOverlay();if(!opts.auto||!newsCache[bistCode(symbol)]||Date.now()-newsCache[bistCode(symbol)].at>600000)pushNews(symbol);
   }catch(e){send('depthErr',{msg:ai.errorText(e)})}
-  finally{depthBusy=false}
+  finally{depthBusy=false;if(depthNext){const n=depthNext;depthNext=null;if(modOn('borsa'))fetchDepth(n)}}
 }
 // Derinligi grafigin uzerine: fiyat olcegi varsa seviyelere, yoksa kose kartina.
 function pushDepthOverlay(){
@@ -712,8 +715,12 @@ function pushDepthOverlay(){
 }
 // Canli AL/SAT: islem akisi (aktif alis/satis, VWAP, agresif kurum) + derinlik baskisi ve trendi + kurum akisi
 // + varsa grafik teknik skoru. Grafik analizi olmadan da calisir.
+// Grafik ve derinlik ayni hisseye ait mi (grafikte kod yoksa eslesmez sayilir)
+const sameStock=(a,d)=>!!(a&&d&&a.symbol&&d.symbol&&bistCode(a.symbol)===bistCode(d.symbol));
+const DEPTH_FRESH=5*60*1000;   // bundan eski derinlik canli sinyale katilmaz
 function liveView(){
-  const a=lastResult&&lastResult.chart_found?lastResult:null,d=lastDepth;if(!d)return null;
+  const d=lastDepth;if(!d||(d.at&&Date.now()-d.at>DEPTH_FRESH))return null;
+  const a=lastResult&&lastResult.chart_found&&sameStock(lastResult,d)?lastResult:null;
   const why=[];let v=0;
   const tf=d.tape;if(tf&&tf.enough){v+=tf.score/40;why.push(...tf.why.slice(0,2))}
   if(a&&typeof a.score==='number'){v+=a.score/50;if(Math.abs(a.score)>=20)why.push('Teknik skor '+(a.score>0?'+':'')+a.score)}
@@ -835,8 +842,12 @@ app.whenReady().then(()=>{
   // Dosya kilidi: ev ve veri klasorlerini okudugu icin uygulama hazir olunca kaydedilir
   lockUi=require('./lock-main').registerLock({ipcMain,dialog,shell,app,BrowserWindow,path,systemPreferences,safeStorage});
   // Cozunurluk/olcek degisince imza degisir: katmanin durdugu ekranin cizimlerini yeni imzaya tasi.
-  screen.on('display-metrics-changed',(e,d)=>{if(d.id!==ovDisplay||!ovKey)return;if(ovKey===dkey(d))return placeOverlay(d);const all=cfg().drawings||{},nk=dkey(d);
-    if(all[ovKey]&&!(all[nk]||[]).length){const o={...all,[nk]:all[ovKey]};delete o[ovKey];save({drawings:o})}placeOverlay(d)});
+  // Her ekranin son imzasi tutulur: katmanin o an durmadigi ekranin cizimleri de tasinir.
+  const dispKeys=new Map(screen.getAllDisplays().map(x=>[x.id,dkey(x)]));
+  screen.on('display-added',(e,d)=>dispKeys.set(d.id,dkey(d)));
+  screen.on('display-metrics-changed',(e,d)=>{const nk=dkey(d),old=d.id===ovDisplay&&ovKey?ovKey:dispKeys.get(d.id);dispKeys.set(d.id,nk);
+    if(old&&old!==nk){const all=cfg().drawings||{};if(all[old]&&!(all[nk]||[]).length){const o={...all,[nk]:all[old]};delete o[old];save({drawings:o})}}
+    if(d.id===ovDisplay&&ovKey)placeOverlay(d)});
   tray=new Tray(trayIcon());tray.setToolTip(APP_NAME);
   tray.on('click',()=>modOn('borsa')?toggle():hubUi.open());
   tray.on('right-click',()=>tray.popUpContextMenu(Menu.buildFromTemplate([
