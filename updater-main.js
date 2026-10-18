@@ -8,7 +8,9 @@ const U = require('./updater.js');
 const FIRST_DELAY = 30 * 1000, EVERY = 6 * 60 * 60 * 1000;
 // Acilis isareti: uygulama 'ready'den bu kadar sonra hatasiz calisiyorsa <dir>/started-<surum> yazilir. Kurulum betigi yeni surumu
 // actiktan sonra bu dosyayi bekler (STARTED_WAIT sn); gelmezse yeni surumu kapatir, yedegi geri yukler ve eskiyi acar.
-const STARTED_DELAY = 3 * 1000, STARTED_WAIT = 60;
+// STARTED_WAIT: acik ama isaret yazmayan (takilan) surum ancak bu kadar sn sonra geri alinir. Uzun: imzasiz surumde macOS
+// Anahtar Zinciri izni sorarken uygulama cevap bekler. Cokme ve acilis hatasi ise hemen anlasilir (betik + .bad isareti).
+const STARTED_DELAY = 3 * 1000, STARTED_WAIT = 600;
 const DEF = { auto: true, onQuit: true, skip: '' };
 const clean = c => ({ auto: typeof c.auto === 'boolean' ? c.auto : DEF.auto, onQuit: typeof c.onQuit === 'boolean' ? c.onQuit : DEF.onQuit,
   skip: typeof c.skip === 'string' && U.parseVersion(c.skip) ? c.skip : '' });
@@ -44,8 +46,10 @@ function registerUpdater({ ipcMain, app, path, Notification, shell, cfg, save, s
   if (enabled()) { armed = true; proc.on('uncaughtExceptionMonitor', onStartErr); }
   function markStarted() {
     disarm();
-    if (startErr || !enabled()) return false;
+    if (!enabled()) return false;
     const v = st.current;
+    // Acilista hata: kurulum betigi bekliyorsa hemen geri alsin (10 dk takilma beklemesi olmadan)
+    if (startErr) { try { fs.mkdirSync(dir(), { recursive: true }); fs.writeFileSync(startedFile(v) + '.bad', String(Date.now())); } catch (e) {} return false; }
     try {
       fs.mkdirSync(dir(), { recursive: true });
       const tmp = startedFile(v) + '.tmp';

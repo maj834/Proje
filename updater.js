@@ -287,67 +287,61 @@ else
   [ "$RELAUNCH" = 1 ] && open -n "$OLD"
   exit 1
 fi
+# Yeni surumu geri al: calisani kapat, yedegi geri koy, eskiyi ac, "$MARK.failed" yaz (otomatik denetim o surumu atlar)
+rollback() {
+  log "geri aliniyor: $1"
+  stop_new
+  [ -n "$MARK" ] && printf '%s\\n' "$(date '+%s')" > "$MARK.failed" 2>/dev/null
+  if [ "$had_old" = 1 ]; then
+    rm -rf -- "$OLD"
+    if mv -- "$BAK" "$OLD"; then log "eski surum geri yuklendi"; open -n "$OLD"; else log "GERI YUKLENEMEDI, yedek: $BAK"; fi
+  fi
+  exit 1
+}
+# Yeni surumun acilisini izle. Basari: acilis isareti ($MARK). Basarisizlik:
+#  - uygulama kendi acilis hatasini bildirdi ($MARK.bad), ya da
+#  - acildiktan sonra isaret yazmadan kapandi (coktu), ya da
+#  - acik ama $WAIT sn boyunca isaret yazmadi (takildi). $WAIT uzun tutulur: imzasiz surumde macOS
+#    Anahtar Zinciri izni sorarken uygulama cevap beklenir; kullanici dusunurken saglam surum geri alinmasin.
+# $1: uygulama hic gorulmezse en fazla bu kadar sn beklenir. Donus: 0 basarili, 2 hic acilmadi (rollback cagirilirsa cikilir).
+NAME=$(basename -- "$OLD" .app)
+await_start() {
+  t=0; seen=-1; gone=0
+  while :; do
+    if [ -e "$MARK" ]; then rm -f -- "$MARK"; log "yeni surum basariyla acildi"; return 0; fi
+    if [ -e "$MARK.bad" ]; then rm -f -- "$MARK.bad"; rollback "yeni surum acilista hata bildirdi"; fi
+    if pgrep -x -- "$NAME" >/dev/null 2>&1; then
+      if [ "$seen" -lt 0 ]; then seen=$t; log "yeni surum calisiyor; acilis isareti bekleniyor"; fi
+      gone=0
+    elif [ "$seen" -ge 0 ]; then
+      gone=$((gone + 1))
+      [ "$gone" -ge 3 ] && rollback "yeni surum acilis isareti yazmadan kapandi"
+    fi
+    [ "$seen" -ge 0 ] && [ $((t - seen)) -gt "$WAIT" ] && rollback "yeni surum $WAIT sn icinde acilis isareti yazmadi"
+    [ "$seen" -lt 0 ] && [ "$t" -ge "$1" ] && return 2
+    if [ "$seen" -ge 0 ]; then sleep 1; t=$((t + 1)); else sleep 2; t=$((t + 2)); fi
+  done
+}
 if [ "$RELAUNCH" = 1 ]; then
   if open -n "$OLD"; then
     log "yeni surum acildi"
     if [ -n "$MARK" ]; then
-      # Yeni surumun basariyla actigini bildiren isareti bekle; gelmezse geri al
-      i=0
-      while [ ! -e "$MARK" ]; do
-        i=$((i + 1))
-        if [ "$i" -gt $((WAIT * 2)) ]; then
-          log "yeni surum $WAIT sn icinde acilis isareti yazmadi; geri aliniyor"
-          stop_new
-          printf '%s\\n' "$(date '+%s')" > "$MARK.failed" 2>/dev/null
-          if [ "$had_old" = 1 ]; then
-            rm -rf -- "$OLD"
-            if mv -- "$BAK" "$OLD"; then log "eski surum geri yuklendi"; open -n "$OLD"; else log "GERI YUKLENEMEDI, yedek: $BAK"; fi
-          fi
-          exit 1
-        fi
-        sleep 0.5
-      done
-      rm -f -- "$MARK"
-      log "yeni surum basariyla acildi"
+      await_start 45
+      [ "$?" = 2 ] && rollback "yeni surum 45 sn icinde baslamadi"
     else
       sleep "$DELAY"
     fi
   else
-    log "yeni surum acilamadi; geri aliniyor"
-    if [ "$had_old" = 1 ]; then
-      rm -rf -- "$OLD"
-      if mv -- "$BAK" "$OLD"; then log "eski surum geri yuklendi"; open -n "$OLD"; else log "GERI YUKLENEMEDI, yedek: $BAK"; fi
-    fi
-    exit 1
+    log "yeni surum acilamadi"
+    MARK=""
+    rollback "open basarisiz"
   fi
-fi
-# Kapanista kuruldu (yeniden acilmadi): betik arka planda bekler; kullanici uygulamayi actiginda yeni surum $WAIT sn
-# icinde acilis isareti yazmazsa (acilista coktu / takildi) eski surum geri yuklenir. En fazla $WATCH sn izlenir;
-# sure dolarsa yedek kalir (yeni surum basariyla acildiginda kendisi siler).
-if [ "$RELAUNCH" = 0 ] && [ -n "$MARK" ] && [ "$had_old" = 1 ]; then
-  NAME=$(basename -- "$OLD" .app)
+elif [ -n "$MARK" ] && [ "$had_old" = 1 ]; then
+  # Kapanista kuruldu (yeniden acilmadi): betik arka planda kullanicinin ilk acilisini en fazla $WATCH sn izler.
+  # Sure dolarsa yedek kalir (yeni surum basariyla acildiginda kendisi siler).
   log "kapanista kuruldu; ilk acilis izleniyor"
-  t=0
-  seen=-1
-  while [ "$t" -lt "$WATCH" ]; do
-    if [ -e "$MARK" ]; then
-      rm -f -- "$MARK"
-      log "yeni surum basariyla acildi"
-      break
-    fi
-    if [ "$seen" -lt 0 ] && pgrep -x -- "$NAME" >/dev/null 2>&1; then seen=$t; log "yeni surum acildi; isaret bekleniyor"; fi
-    if [ "$seen" -ge 0 ] && [ $((t - seen)) -gt "$WAIT" ]; then
-      log "yeni surum $WAIT sn icinde acilis isareti yazmadi; geri aliniyor"
-      stop_new
-      printf '%s\\n' "$(date '+%s')" > "$MARK.failed" 2>/dev/null
-      rm -rf -- "$OLD"
-      if mv -- "$BAK" "$OLD"; then log "eski surum geri yuklendi"; open -n "$OLD"; else log "GERI YUKLENEMEDI, yedek: $BAK"; fi
-      exit 1
-    fi
-    sleep 2
-    t=$((t + 2))
-  done
-  if [ "$t" -ge "$WATCH" ]; then log "izleme suresi doldu; yedek korunuyor"; exit 0; fi
+  await_start "$WATCH"
+  if [ "$?" = 2 ]; then log "izleme suresi doldu; yedek korunuyor"; exit 0; fi
 fi
 rm -rf -- "$BAK"
 log "tamam"

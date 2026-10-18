@@ -232,7 +232,7 @@ test('canInstall: DMG, App Translocation, .app degil, yazma izni', (t) => {
 });
 
 // --- kurulum betigi: gercekten calistirilir (open/mv/ditto PATH ile taklit) ---
-function scriptEnv(t, { failNew = false, failOpen = false, writeMarker = false, lsofPid = 0 } = {}) {
+function scriptEnv(t, { failNew = false, failOpen = false, writeMarker = false, lsofPid = 0, pgrep = 0 } = {}) {
   const d = tmpDir(); t.after(() => fs.rmSync(d, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }));
   const weird = path.join(d, `Uyg "tırnak" 'tek' $(touch PWNED) \`touch PWNED2\` ; x`);
   const bin = path.join(d, 'bin'), openLog = path.join(d, 'open.log');
@@ -243,6 +243,7 @@ function scriptEnv(t, { failNew = false, failOpen = false, writeMarker = false, 
   sh('open', `printf '%s\\n' "$@" >> ${JSON.stringify(openLog)}\n` +
     (writeMarker ? `[ -e ${JSON.stringify(openLog + '.1')} ] || { : > ${JSON.stringify(openLog + '.1')}; : > ${JSON.stringify(marker)}; }\n` : '') + `exit ${failOpen ? 1 : 0}\n`);
   if (lsofPid) sh('lsof', `echo ${lsofPid}\n`);
+  sh('pgrep', `exit ${pgrep}\n`);                      // 0: yeni surum calisiyor gorunur
   if (failNew) {
     sh('mv', 'for a; do case "$a" in *YENI*) exit 1;; esac; done\nexec /bin/mv "$@"\n');
     sh('ditto', 'exit 1\n');
@@ -363,7 +364,7 @@ test('registerUpdater: 30 sn + 6 saat; denetle -> indir -> hazir -> bildirim -> 
   const [script, oldApp, newApp, pid, backupDir, relaunch, delay, marker, wait] = sp.args;
   assert.equal(oldApp, h.appPath); assert.match(newApp, /Cem App\.app$/); assert.ok(fs.existsSync(newApp));
   assert.equal(pid, '4242'); assert.equal(backupDir, path.join(h.d, 'upd', 'yedek')); assert.equal(relaunch, '1'); assert.equal(delay, '10');
-  assert.equal(marker, path.join(h.d, 'upd', 'started-2.0.10')); assert.equal(wait, '60');
+  assert.equal(marker, path.join(h.d, 'upd', 'started-2.0.10')); assert.equal(wait, '600');
   assert.equal(fs.statSync(script).mode & 0o777, 0o700); assert.equal(fs.readFileSync(script, 'utf8'), U.installScript({}));
   await new Promise(r => setImmediate(r));
   assert.equal(h.quits(), 1);
@@ -437,6 +438,30 @@ test('installScript: yeni surum acilis isaretini yazarsa yedek silinir, isaret t
   assert.deepEqual(e.opened(), ['-n', e.oldApp]); assert.match(e.log(), /basariyla acildi/); assert.equal(e.pwned(), false);
 });
 
+test('installScript: yavas acilis (izin penceresi) geri alinmaz; cokme ve acilis hatasi hemen geri alinir', async (t) => {
+  // 1) uygulama calisiyor, isareti 3 sn sonra yaziyor (or. Anahtar Zinciri izni bekledi): bekleme siniri (30) icinde -> basarili
+  let e = scriptEnv(t);
+  setTimeout(() => fs.writeFileSync(e.marker, ''), 3000);
+  let r = await e.run(deadPid(), true, { marker: e.marker, wait: 30 });
+  assert.equal(r.code, 0, r.err + e.log()); assert.equal(e.ver(), 'yeni'); assert.deepEqual(e.opened(), ['-n', e.oldApp]);
+  // 2) acildi, isaret yazmadan kapandi (coktu): 600 sn beklemeden geri alinir
+  e = scriptEnv(t);
+  const cnt = path.join(e.d, 'pgrep.n');
+  fs.writeFileSync(path.join(e.d, 'bin', 'pgrep'), `#!/bin/sh\nn=$(cat ${JSON.stringify(cnt)} 2>/dev/null || echo 0)\necho $((n + 1)) > ${JSON.stringify(cnt)}\n[ "$n" -lt 2 ]\n`);
+  let t0 = Date.now();
+  r = await e.run(deadPid(), true, { marker: e.marker, wait: 600 });
+  assert.equal(r.code, 1, r.err + e.log()); assert.ok(Date.now() - t0 < 20000);
+  assert.equal(e.ver(), 'eski'); assert.ok(fs.existsSync(e.marker + '.failed')); assert.match(e.log(), /yazmadan kapandi/);
+  // 3) uygulama acilis hatasini bildirdi (.bad): hemen geri alinir
+  e = scriptEnv(t);
+  setTimeout(() => fs.writeFileSync(e.marker + '.bad', '1'), 1000);
+  t0 = Date.now();
+  r = await e.run(deadPid(), false, { marker: e.marker, wait: 600 });
+  assert.equal(r.code, 1, r.err + e.log()); assert.ok(Date.now() - t0 < 20000);
+  assert.equal(e.ver(), 'eski'); assert.ok(!fs.existsSync(e.marker + '.bad')); assert.match(e.log(), /hata bildirdi/);
+  assert.deepEqual(e.opened(), ['-n', e.oldApp]);
+});
+
 test('installScript: kapanista kurulumda ilk acilis izlenir; isaret gelirse yedek silinir, gelmezse eskiye donulur', async (t) => {
   const pg = (e, code) => { const f = path.join(e.d, 'bin', 'pgrep'); fs.writeFileSync(f, `#!/bin/sh\nexit ${code}\n`); fs.chmodSync(f, 0o755); };
   // 1) kullanici acti, yeni surum isareti yazdi: yedek silinir, hicbir sey acilmaz
@@ -491,6 +516,7 @@ test('registerUpdater: acilis isareti ready + 3 sn sonra yazilir; acilista hata 
   assert.equal(proc.listenerCount('unhandledRejection'), 0, 'promise reddi acilisi basarisiz saymaz');
   proc.emit('uncaughtExceptionMonitor', new Error('acilis hatasi'));
   assert.equal(h2.ui.markStarted(), false); assert.ok(!fs.existsSync(path.join(h2.d, 'upd', 'started-2.0.5')));
+  assert.ok(fs.existsSync(path.join(h2.d, 'upd', 'started-2.0.5.bad')), 'betik hemen geri alsin diye hata bildirilir');
   assert.equal(proc.listenerCount('uncaughtExceptionMonitor'), 0, 'dinleyici birakilir');
 });
 
