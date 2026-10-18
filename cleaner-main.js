@@ -23,7 +23,6 @@ function runningBundleIds(){
     });
   });
 }
-const emptyTrash=()=>new Promise((ok,no)=>execFile('/usr/bin/osascript',['-e','tell application "Finder" to empty trash'],{timeout:120000},e=>e?no(e):ok()));
 
 function registerCleaner({ipcMain,dialog,shell,app,BrowserWindow,path}){
   let win=null,ctl=null,dups=null,junk=null,busy=false;
@@ -93,13 +92,13 @@ function registerCleaner({ipcMain,dialog,shell,app,BrowserWindow,path}){
   h('cl:clean',ids=>lock(async()=>{
     if(!junk)return {ok:false,msg:'Önce tarama yap.'};
     ids=Array.isArray(ids)?ids.filter(x=>typeof x==='string'):[];
-    // Cop Sepeti once bosaltilir ki bu temizlikte Cop'e tasinan yukleyiciler geri alinabilir kalsin
+    // Cop Sepeti once: yalnizca taramada gorulen ogeler silinir (Finder ile bosaltma yok), bu temizlikte Cop'e tasinanlar kalir
     const cats=junk.categories.filter(c=>ids.includes(c.id)&&c.items.length).sort((a,b)=>(b.mode==='trash-empty')-(a.mode==='trash-empty'));
     if(!cats.length)return {ok:false,msg:'Seçili kategori yok.'};
     const total=cats.reduce((s,c)=>s+c.size,0),notes=[];
     if(cats.some(c=>c.mode==='delete'))notes.push('Önbellekler, günlükler ve boş klasörler kalıcı olarak silinir; uygulamalar gerektiğinde yeniden oluşturur.');
     if(cats.some(c=>c.mode==='trash'))notes.push('Eski yükleyiciler Çöp Sepeti’ne taşınır.');
-    if(cats.some(c=>c.mode==='trash-empty'))notes.push('Çöp Sepeti boşaltılır; içindekiler geri alınamaz.');
+    if(cats.some(c=>c.mode==='trash-empty'))notes.push('Taramada Çöp Sepeti’nde görülen öğeler kalıcı silinir, geri alınamaz; sonradan atılanlara dokunulmaz.');
     if(!await ask('Seçilenler temizlensin mi? ('+C.human(total)+')',cats.map(c=>'• '+c.title+' — '+C.human(c.size)).join('\n')+'\n\n'+notes.join(' '),'Temizle'))
       return {ok:false,cancelled:true};
     // Tarama ile temizlik arasinda acilan uygulamalarin onbelleklerine dokunma
@@ -107,15 +106,10 @@ function registerCleaner({ipcMain,dialog,shell,app,BrowserWindow,path}){
     let freed=0,count=0;const failed=[];
     for(const c of cats){
       send({type:'progress',phase:'temizle',id:c.id,title:c.title});
-      if(c.mode==='trash-empty'){
-        try{await emptyTrash();freed+=c.size;count+=c.items.length;C.appendLog(logFile(),{path:path.join(home(),'.Trash'),size:c.size,mode:'trash-empty'})}
-        catch(e){failed.push({path:'Çöp Sepeti',error:'Çöp Sepeti boşaltılamadı: '+(e.message||e)})}
-        continue;
-      }
       let items=c.items;
       if(c.id==='cache')items=items.filter(it=>!C.runningMatch(path.basename(it.path),running));
       if(c.id==='browser')items=items.filter(it=>{const b=C.browserOf(it.path,home());return !b||!running.includes(b.toLowerCase())});
-      const r=await C.removeItems(items,{mode:c.mode,trash,home:home(),logFile:logFile()});
+      const r=await C.removeItems(items,{mode:c.mode,cat:c.id,trash,home:home(),logFile:logFile()});
       freed+=r.freed;count+=r.removed.length;failed.push(...r.failed);
     }
     junk=null;   // durum degisti: yeni temizlik icin yeniden taranmali

@@ -267,3 +267,100 @@ test('scanJunk + removeItems uctan uca: yalnizca secilen kategori temizlenir', a
   assert.ok(fs.existsSync(path.join(h, 'Library', 'Caches')));
   assert.equal(readLog(log).length, 1);
 });
+
+test('Cop Sepeti: yalnizca taramada gorulen ve degismemis ogeler silinir, sonradan atilanlar kalir (F6)', async (t) => {
+  const h = fakeHome(t), out = setup(t), log = path.join(out, 'log.jsonl'), T = path.join(h, '.Trash');
+  put(path.join(T, 'eski.txt'), rnd(300)); put(path.join(T, 'klasor', 'ic.txt'), rnd(200));
+  put(path.join(T, 'degisecek.txt'), rnd(100)); put(path.join(T, 'yeniden.txt'), rnd(50));
+  const r = await C.scanJunk(h);
+  const cat = r.categories.find(c => c.id === 'trash');
+  assert.equal(cat.items.length, 4);
+  // taramadan sonra: yeni bir oge atildi, biri degisti, biri silinip ayni adla baska dosya atildi
+  put(path.join(T, 'sonradan.txt'), rnd(500));
+  put(path.join(T, 'degisecek.txt'), rnd(101));
+  fs.rmSync(path.join(T, 'yeniden.txt')); put(path.join(T, 'yeniden.txt'), rnd(50));
+  const it = cat.items.find(i => i.path.endsWith('yeniden.txt')); fs.utimesSync(it.path, it.mtimeMs / 1000, it.mtimeMs / 1000);
+  const res = await C.removeItems(cat.items, { mode: 'trash-empty', cat: 'trash', home: h, logFile: log });
+  assert.deepEqual(res.removed.map(p => path.basename(p)).sort(), ['eski.txt', 'klasor']);
+  assert.equal(res.freed, 500);
+  assert.deepEqual(fs.readdirSync(T).sort(), ['degisecek.txt', 'sonradan.txt', 'yeniden.txt']);
+  assert.ok(res.failed.every(f => /değişmiş/.test(f.error)));
+  // yalnizca yol (tarama bilgisi yok), .Trash disi, alt oge reddedilir
+  const doc = put(path.join(h, 'Documents', 'a.txt'), 'x');
+  const r2 = await C.removeItems([path.join(T, 'sonradan.txt'), { path: doc, size: 1, mtimeMs: fs.statSync(doc).mtimeMs }, path.join(T, 'x', 'y')], { mode: 'trash-empty', home: h });
+  assert.equal(r2.removed.length, 0); assert.ok(fs.existsSync(doc) && fs.existsSync(path.join(T, 'sonradan.txt')));
+});
+
+test('cleaner-main: Cop Sepeti temizligi Finder "empty trash" cagirmaz, taranan ogeleri siler (F6)', async (t) => {
+  const h = fakeHome(t), ud = setup(t), T = path.join(h, '.Trash');
+  put(path.join(T, 'eski.txt'), rnd(300));
+  const cp = require('child_process'), orig = cp.execFile, calls = [];
+  cp.execFile = (...a) => { calls.push(a[0]); const cb = a.find(x => typeof x === 'function'); if (cb) cb(new Error('yok')); };
+  t.after(() => { cp.execFile = orig; });
+  delete require.cache[require.resolve('../cleaner-main.js')];
+  const { registerCleaner } = require('../cleaner-main.js');
+  const handlers = {}, wc = { send() {} };
+  const win = { webContents: wc, isDestroyed: () => false, loadFile() {}, once() {}, on() {}, show() {}, focus() {} };
+  wc.setWindowOpenHandler = () => {}; wc.on = () => {};
+  const ui = registerCleaner({ ipcMain: { handle: (ch, f) => { handlers[ch] = f; } }, dialog: { showMessageBox: async () => ({ response: 0 }) },
+    shell: { trashItem: async () => {} }, app: { getPath: k => k === 'home' ? h : ud }, BrowserWindow: function () { return win; }, path });
+  ui.open();
+  const call = (ch, ...a) => handlers[ch]({ sender: wc }, ...a);
+  const s = await call('cl:junk'); assert.equal(s.ok, true);
+  put(path.join(T, 'sonradan.txt'), rnd(100));   // tarama ile temizlik arasinda atildi
+  const r = await call('cl:clean', ['trash']);
+  assert.equal(r.ok, true); assert.equal(r.count, 1);
+  assert.deepEqual(fs.readdirSync(T), ['sonradan.txt']);
+  assert.ok(!calls.some(c => /osascript/.test(String(c))), 'Finder ile bosaltma yok');
+});
+
+test('kopyalar: sembolik bagli yol uzerinden ~/Library dosyasi tasinmaz, taranmaz (F9)', async (t) => {
+  const d = setup(t), data = rnd(5000), tr = fakeTrash(d);
+  const as = path.join(d, 'Library', 'Application Support', 'App');
+  put(path.join(as, 'db.sqlite'), data); put(path.join(d, 'Documents', 'copy.sqlite'), data);
+  fs.symlinkSync(path.join(d, 'Library'), path.join(d, 'Lib'));
+  const via = path.join(d, 'Lib', 'Application Support', 'App', 'db.sqlite');
+  // tarama: sembolik bagli kok uzerinden Library taranmaz
+  assert.deepEqual(await C.findDuplicates([path.join(d, 'Lib', 'Application Support'), path.join(d, 'Documents')], { home: d }), []);
+  // eski/elle olusturulmus grup ile de tasinamaz
+  const g = { size: 5000, hash: crypto.createHash('sha256').update(data).digest('hex'), keep: path.join(d, 'Documents', 'copy.sqlite'),
+    files: [{ path: via }, { path: path.join(d, 'Documents', 'copy.sqlite') }] };
+  const r = await C.removeDuplicates([g], [via], { trash: tr.fn, home: d });
+  assert.equal(r.removed.length, 0); assert.match(r.failed[0].error, /Library/);
+  assert.ok(fs.existsSync(path.join(as, 'db.sqlite'))); assert.equal(tr.calls.length, 0);
+});
+
+test('kopyalar: ust klasor sembolik bagla kalan kopyaya yonlendirilirse tasinmaz (F10)', async (t) => {
+  const d = setup(t), data = rnd(5000), tr = fakeTrash(d);
+  const a = path.join(d, 'Photos'), b = path.join(d, 'Backup');
+  put(path.join(a, 'img.jpg'), data); put(path.join(b, 'img.jpg'), data);
+  const g = (await C.findDuplicates([d], { home: d }))[0];
+  const del = g.files.find(f => f.path !== g.keep);
+  fs.rmSync(path.dirname(del.path), { recursive: true }); fs.symlinkSync(path.dirname(g.keep), path.dirname(del.path));
+  const r = await C.removeDuplicates([g], [del.path], { trash: tr.fn, home: d });
+  assert.equal(r.removed.length, 0); assert.match(r.failed[0].error, /aynı dosya/);
+  assert.ok(fs.existsSync(g.keep)); assert.equal(tr.calls.length, 0);
+});
+
+test('eski taramadan gelen yukleyici ve gunluk temizlik aninda yeniden denetlenir', async (t) => {
+  const h = fakeHome(t), out = setup(t), tr = fakeTrash(out);
+  const dmg = put(path.join(h, 'Downloads', 'eski.dmg'), rnd(100), 40);
+  const lg = put(path.join(h, 'Library', 'Logs', 'eski.log'), rnd(100), 30);
+  const r = await C.scanJunk(h);
+  const inst = r.categories.find(c => c.id === 'installers').items, logs = r.categories.find(c => c.id === 'logs').items;
+  assert.equal(inst.length, 1); assert.equal(logs.length, 1);
+  // tarama sonrasi kullanici ayni adla yeni bir dosya indirdi / gunluk yeniden yazildi
+  fs.writeFileSync(dmg, 'yeni'); fs.appendFileSync(lg, 'yeni satir');
+  let x = await C.removeItems(inst, { mode: 'trash', cat: 'installers', trash: tr.fn, home: h });
+  assert.equal(x.removed.length, 0); assert.match(x.failed[0].error, /yükleyici/); assert.equal(tr.calls.length, 0);
+  x = await C.removeItems(logs, { mode: 'delete', cat: 'logs', home: h });
+  assert.equal(x.removed.length, 0); assert.match(x.failed[0].error, /yakın zamanda/); assert.ok(fs.existsSync(lg));
+  // uzanti/konum: Indirilenler kokunde olmayan ya da yukleyici olmayan dosya
+  const zip = put(path.join(h, 'Downloads', 'eski.zip'), 'x', 40), sub = put(path.join(h, 'Downloads', 'k', 'a.dmg'), 'x', 40);
+  x = await C.removeItems([zip, sub], { mode: 'trash', cat: 'installers', trash: tr.fn, home: h });
+  assert.equal(x.removed.length, 0);
+  // kosul hala saglaniyorsa temizlenir
+  const t0 = new Date(Date.now() - 40 * DAY); fs.utimesSync(dmg, t0, t0); fs.utimesSync(lg, t0, t0);
+  assert.equal((await C.removeItems(inst, { mode: 'trash', cat: 'installers', trash: tr.fn, home: h })).removed.length, 1);
+  assert.equal((await C.removeItems(logs, { mode: 'delete', cat: 'logs', home: h })).removed.length, 1);
+});

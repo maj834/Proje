@@ -31,13 +31,13 @@ input[type=range].boost{background:linear-gradient(90deg,var(--line) 50%,var(--a
   <div><div class="t">Çıkış</div><div class="c">
     <div class="row"><select id="dev" title="Ses çıkış aygıtı"></select></div>
     <div class="row"><button class="ib" id="mmute" title="Sesi kapat"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6h2.5l3.5-3v10l-3.5-3H2.5z"/><path id="mw" d="M11 5.5a3.5 3.5 0 0 1 0 5M12.8 3.7a6 6 0 0 1 0 8.6"/></svg></button>
-      <input type="range" id="mvol" min="0" max="100" step="1"><span class="v" id="mvolv"></span></div>
+      <input type="range" id="mvol" aria-label="Ana ses" min="0" max="100" step="1"><span class="v" id="mvolv"></span></div>
   </div></div>
   <div><div class="t">Ses efekti (tüm uygulamalar)</div><div class="c">
     <div class="chips" id="pre"></div>
-    <div class="row" style="margin-top:6px"><span class="lbl">Bas</span><input type="range" id="gb" min="-12" max="12" step="1"><span class="v" id="gbv"></span></div>
-    <div class="row"><span class="lbl">Tiz</span><input type="range" id="gt" min="-12" max="12" step="1"><span class="v" id="gtv"></span></div>
-    <div class="row"><span class="lbl">Güç</span><input type="range" class="boost" id="gg" min="0" max="200" step="5"><span class="v" id="ggv"></span></div>
+    <div class="row" style="margin-top:6px"><span class="lbl">Bas</span><input type="range" id="gb" aria-label="Genel bas" min="-12" max="12" step="1"><span class="v" id="gbv"></span></div>
+    <div class="row"><span class="lbl">Tiz</span><input type="range" id="gt" aria-label="Genel tiz" min="-12" max="12" step="1"><span class="v" id="gtv"></span></div>
+    <div class="row"><span class="lbl">Güç</span><input type="range" class="boost" id="gg" aria-label="Genel güç" min="0" max="200" step="5"><span class="v" id="ggv"></span></div>
   </div></div>
   <div><div class="row"><div class="t f1" style="margin:0">Uygulamalar</div><button class="btn" id="reset">Hepsini sıfırla</button></div>
     <div class="c" style="margin-top:var(--s2)" id="apps"></div>
@@ -82,13 +82,13 @@ function render(){
     const more=el('button','ib');more.title='Bas ve tiz';more.innerHTML='<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M3 4h10M3 8h10M3 12h10"/><circle cx="6" cy="4" r="1.4" fill="currentColor"/><circle cx="10" cy="8" r="1.4" fill="currentColor"/><circle cx="5" cy="12" r="1.4" fill="currentColor"/></svg>';
     more.onclick=()=>{open.has(a.bundle)?open.delete(a.bundle):open.add(a.bundle);render()};
     top.append(el('span','dot'+(a.playing?' on':'')),ic,nm,more,mute);
-    const vr=el('div','row'),sl=Object.assign(el('input','boost'),{type:'range',min:0,max:200,step:5,value:Math.round(a.gain*100)}),v=el('span','v'+(a.gain>1.001?' hi':''),pct(a.gain));
+    const vr=el('div','row'),sl=Object.assign(el('input','boost'),{type:'range',min:0,max:200,step:5,value:Math.round(a.gain*100),ariaLabel:a.name+' ses düzeyi'}),v=el('span','v'+(a.gain>1.001?' hi':''),pct(a.gain));
     sl.oninput=()=>{dragging='app';v.textContent=sl.value+'%';v.classList.toggle('hi',+sl.value>100);sendApp(a.bundle,{gain:+sl.value/100,mute:false})};
     sl.onchange=()=>{dragging=null;ses.app(a.bundle,{gain:+sl.value/100,mute:false}).then(apply)};
     sl.ondblclick=()=>{sl.value=100;sl.onchange()};sl.title='Çift tık: %100';
     vr.append(sl,v);
     const mo=el('div','more');
-    for(const [k,lab] of [['bass','Bas'],['treble','Tiz']]){const rr=el('div','row'),s2=Object.assign(el('input'),{type:'range',min:-12,max:12,step:1,value:a[k]}),vv=el('span','v',db(a[k]));
+    for(const [k,lab] of [['bass','Bas'],['treble','Tiz']]){const rr=el('div','row'),s2=Object.assign(el('input'),{type:'range',min:-12,max:12,step:1,value:a[k],ariaLabel:a.name+' '+lab}),vv=el('span','v',db(a[k]));
       s2.oninput=()=>{dragging='app';vv.textContent=db(+s2.value);sendApp(a.bundle,{[k]:+s2.value})};s2.onchange=()=>{dragging=null;ses.app(a.bundle,{[k]:+s2.value}).then(apply)};
       rr.append(el('span','lbl',lab),s2,vv);mo.append(rr)}
     r.append(top,vr,mo);box.append(r);

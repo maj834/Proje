@@ -12,8 +12,10 @@ const CHUNK=1024*1024,TAG=16,SALT=16,IVL=12,MAXHDR=64*1024,MAXCHUNK=64*1024*1024
 const PRE=MAGIC.length+1+SALT;               // magic + surum + tuz (baslik AAD'si)
 const IDLE=5*60*1000;                        // 5 dk islem yoksa kilitlenir
 const RESERVE=64*1024*1024;                  // kilitlerken diskte dosya boyutu + 64 MB bos alan olsun
-const MAXFAIL=5,WAIT=30*1000,MINPW=6;
-const SCRYPT={N:2**15,r:8,p:1,maxmem:64*1024*1024};
+const MAXFAIL=5,WAIT=30*1000,MAXWAIT=15*60*1000,MINPW=8;  // 5 yanlista 30 sn, her yeni turda iki kati (en fazla 15 dk)
+const SCRYPT={N:2**17,r:8,p:1,maxmem:256*1024*1024};      // yeni kasalar; eskiler vault.json'daki N/r/p ile acilir
+const TMPPRE='gokilit-';                     // gecici acik kopya klasorlerinin oneki (tmp kokunde yalnizca bunlar silinir)
+const PARTIAL=/^\..+\.[0-9a-f]{8}\.(aciliyor|kilitleniyor|yenileniyor)$/;  // yarida kalmis islem dosyalari
 
 const E=(msg,code)=>Object.assign(new Error(msg),{code});
 const bad=()=>E('Kilitli dosya bozuk ya da değiştirilmiş; açılamadı.','TAMPER');
@@ -203,16 +205,18 @@ async function decryptToFile(dk,locked,dest,o={}){
 }
 
 // o: {dir, protect(buf)->string, unprotect(string)->buf, biometric(reason)->Promise, chflags(path,on)->Promise,
-//     trash(path)->Promise, home, chunk, idleMs, freeBytes(dir), tmpRoot, now, onEvent(e)}
+//     trash(path)->Promise, home, chunk, idleMs, freeBytes(dir), tmpRoot (varsayilan dir/tmp), now, onEvent(e), scryptN (test icin)}
 function createVault(o={}){
   if(!o.dir)throw E('Kasa klasörü gerekli.','ARG');
-  const dir=o.dir,vf=path.join(dir,'vault.json'),rf=path.join(dir,'registry.json');
+  const dir=o.dir,vf=path.join(dir,'vault.json'),rf=path.join(dir,'registry.json'),af=path.join(dir,'attempts.json');
   const now=o.now||Date.now,idleMs=o.idleMs||IDLE,home=o.home||os.homedir(),chunk=o.chunk||CHUNK;
-  const freeBytes=o.freeBytes||freeBytesOf;
-  let dk=null,timer=null,deadline=0,fails=0,until=0,busy=0;
+  const freeBytes=o.freeBytes||freeBytesOf,tmpRoot=o.tmpRoot||path.join(dir,'tmp');
+  const KDF={...SCRYPT,N:o.scryptN||SCRYPT.N};
+  let dk=null,timer=null,deadline=0,busy=0,gen=0;  // gen: her kilitlemede artar (suren acma islemi bunu gorur)
   const temps=new Map();                     // gecici acik kopya yolu -> {dir, locked}
   const ev=e=>{try{o.onEvent&&o.onEvent(e)}catch(_){}};
   fs.mkdirSync(dir,{recursive:true,mode:0o700});try{fs.chmodSync(dir,0o700)}catch(e){}
+  fs.mkdirSync(tmpRoot,{recursive:true,mode:0o700});
 
   const read=()=>{try{const v=JSON.parse(fs.readFileSync(vf,'utf8'));return v&&v.pw?v:null}catch(e){return null}};
   const kcv=k=>crypto.createHmac('sha256',k).update('gokilit-kcv').digest().subarray(0,16).toString('base64');
@@ -220,11 +224,13 @@ function createVault(o={}){
   function wrap(key,k){const iv=crypto.randomBytes(IVL),c=crypto.createCipheriv('aes-256-gcm',key,iv);c.setAAD(VAAD);
     const ct=Buffer.concat([c.update(k),c.final()]);return {iv:iv.toString('base64'),ct:ct.toString('base64'),tag:c.getAuthTag().toString('base64')}}
   async function newPw(pw){
-    const salt=crypto.randomBytes(16),key=await scryptAsync(pw,salt,SCRYPT);
-    return {key,kdf:{name:'scrypt',N:SCRYPT.N,r:SCRYPT.r,p:SCRYPT.p,salt:salt.toString('base64')}};
+    const salt=crypto.randomBytes(16),key=await scryptAsync(pw,salt,KDF);
+    return {key,kdf:{name:'scrypt',N:KDF.N,r:KDF.r,p:KDF.p,salt:salt.toString('base64')}};
   }
   async function unwrapPw(v,pw){
-    const k=v.kdf,key=await scryptAsync(pw,Buffer.from(k.salt,'base64'),{N:k.N,r:k.r,p:k.p,maxmem:SCRYPT.maxmem});
+    const k=v.kdf||{};
+    if(!Number.isSafeInteger(k.N)||k.N<2**14||k.N>2**20||!(k.r>=1&&k.r<=32)||!(k.p>=1&&k.p<=4))throw E('Kasa dosyası bozuk.','FORMAT');
+    const key=await scryptAsync(pw,Buffer.from(String(k.salt),'base64'),{N:k.N,r:k.r,p:k.p,maxmem:Math.max(SCRYPT.maxmem,256*k.N*k.r*k.p)});
     try{const d=crypto.createDecipheriv('aes-256-gcm',key,Buffer.from(v.pw.iv,'base64'));d.setAAD(VAAD);d.setAuthTag(Buffer.from(v.pw.tag,'base64'));
       return Buffer.concat([d.update(Buffer.from(v.pw.ct,'base64')),d.final()])}catch(e){return null}finally{key.fill(0)}
   }
@@ -233,11 +239,20 @@ function createVault(o={}){
     if(typeof pw!=='string'||[...pw].length<MINPW)throw E(`Şifre en az ${MINPW} karakter olmalı.`,'WEAK');
     if([...pw].length>1024)throw E('Şifre çok uzun.','WEAK');
   }
-  function gate(){const t=now();if(until>t)throw E(`Çok fazla yanlış deneme. ${Math.ceil((until-t)/1000)} saniye bekle.`,'WAIT')}
+  // Yanlis deneme sayaci kasa klasorunde saklanir: uygulamayi yeniden baslatmak sayaci sifirlamaz
+  function att(){try{const a=JSON.parse(fs.readFileSync(af,'utf8'));return {fails:+a.fails||0,until:+a.until||0,rounds:+a.rounds||0}}catch(e){return {fails:0,until:0,rounds:0}}}
+  function attSave(a){try{if(!a.fails&&!a.until&&!a.rounds)fs.rmSync(af,{force:true});else writeJson(af,a)}catch(e){}}
+  const secs=ms=>{const s=Math.ceil(ms/1000);return s>=120?Math.ceil(s/60)+' dakika':s+' saniye'};
+  function gate(){const t=now(),a=att();
+    // saat geri alinsa da bekleme en fazla MAXWAIT surer
+    if(a.until>t)throw E(`Çok fazla yanlış deneme. ${secs(Math.min(a.until-t,MAXWAIT))} bekle.`,'WAIT')}
   function wrong(){
-    if(++fails>=MAXFAIL){fails=0;until=now()+WAIT;return E(`Şifre yanlış. Çok fazla deneme: ${WAIT/1000} saniye bekle.`,'WAIT')}
-    return E(`Şifre yanlış. ${MAXFAIL-fails} deneme hakkın kaldı.`,'WRONG');
+    const a=att();
+    if(++a.fails>=MAXFAIL){const w=Math.min(WAIT*2**a.rounds,MAXWAIT);a.fails=0;a.rounds++;a.until=now()+w;attSave(a);
+      return E(`Şifre yanlış. Çok fazla deneme: ${secs(w)} bekle.`,'WAIT')}
+    attSave(a);return E(`Şifre yanlış. ${MAXFAIL-a.fails} deneme hakkın kaldı.`,'WRONG');
   }
+  const right=()=>attSave({fails:0,until:0,rounds:0});
 
   function touch(){
     if(!dk)return;
@@ -246,12 +261,17 @@ function createVault(o={}){
   }
   function start(k){if(dk&&dk!==k)dk.fill(0);dk=k;touch();ev({type:'unlocked'})}
   function need(){if(!dk)throw E('Kasa kilitli. Önce Touch ID ya da şifreyle aç.','LOCKED');touch()}
-  function closeTemps(){for(const t of temps.values())try{fs.rmSync(t.dir,{recursive:true,force:true})}catch(e){}temps.clear()}
+  // Tum gecici acik kopyalar tek bir kokte (tmpRoot/gokilit-*): kayitli olsun olmasin (suren acma, onceki cokus) hepsi silinir
+  function wipeTemps(){
+    for(const t of temps.values())try{fs.rmSync(t.dir,{recursive:true,force:true})}catch(e){}temps.clear();
+    let names=[];try{names=fs.readdirSync(tmpRoot)}catch(e){}
+    for(const n of names)if(n.startsWith(TMPPRE))try{fs.rmSync(path.join(tmpRoot,n),{recursive:true,force:true})}catch(e){}
+  }
   // Oturumu kapat: DK sifirlanir, gecici acik kopyalar silinir
   function lock(reason='user'){
-    clearTimeout(timer);timer=null;
+    clearTimeout(timer);timer=null;gen++;
     const was=!!dk;if(dk){dk.fill(0);dk=null}
-    closeTemps();
+    wipeTemps();
     if(was)ev({type:'locked',reason});
   }
 
@@ -267,7 +287,7 @@ function createVault(o={}){
     if(typeof pw!=='string'||!pw)throw E('Şifreyi gir.','WRONG');
     const k=await unwrapPw(v,pw);
     if(!k)throw wrong();
-    fails=0;
+    right();
     if(!v.bio){const b=tryProtect(k);if(b){v.bio=b;try{writeJson(vf,v)}catch(e){}}}   // Touch ID kaydini onar
     start(k);return true;
   }
@@ -295,7 +315,7 @@ function createVault(o={}){
     checkPw(nw);
     const k=typeof old==='string'&&old?await unwrapPw(v,old):null;
     if(!k)throw wrong();
-    fails=0;try{await rewrap(v,k,nw)}finally{k.fill(0)}
+    right();try{await rewrap(v,k,nw)}finally{k.fill(0)}
     touch();return true;
   }
   // Acik oturumda (ornegin taze Touch ID dogrulamasindan sonra) yeni sifre koy
@@ -315,7 +335,8 @@ function createVault(o={}){
 
   const header=async p=>{need();checkLocked(p);return decryptStream(dk,p,null,{headerOnly:true})};
   const verify=async p=>{need();checkLocked(p);return decryptStream(dk,p,null)};
-  async function decryptTo(p,dest,x={}){need();checkLocked(p);busy++;try{return await decryptToFile(dk,p,dest,x)}finally{busy--;touch()}}
+  async function decryptTo(p,dest,x={}){need();checkLocked(p);const g=gen;busy++;
+    try{return await decryptToFile(dk,p,dest,x)}catch(e){throw g!==gen?E('Kasa kilitlendi; işlem yarıda kaldı.','LOCKED'):e}finally{busy--;touch()}}
   function space(dirp,size){if(size+RESERVE>freeBytes(dirp))throw E(`Yeterli boş alan yok (${human(size+RESERVE)} gerekli).`,'SPACE')}
   const prog=f=>(d,t)=>{touch();if(f)f(d,t)};
 
@@ -400,14 +421,18 @@ function createVault(o={}){
     return true;
   }
 
-  // Ac: ozel gecici klasore (0700) cozer; oturum kilitlenince silinir
+  // Ac: ozel gecici klasore (0700) cozer; oturum kilitlenince silinir. Cozme surerken kasa kilitlenirse kopya birakilmaz.
   async function openTemp(p,x={}){
     need();checkLocked(p);
     for(const [k,t] of temps)if(t.locked===p&&exists(k))return k;
-    const meta=await header(p);
-    const td=fs.mkdtempSync(path.join(o.tmpRoot||os.tmpdir(),'gokilit-'));fs.chmodSync(td,0o700);
+    const g=gen,locked=()=>E('Kasa kilitlendi; dosya açılmadı.','LOCKED');
+    let meta;try{meta=await header(p)}catch(e){throw g!==gen?locked():e}
+    if(g!==gen||!dk)throw locked();
+    fs.mkdirSync(tmpRoot,{recursive:true,mode:0o700});
+    const td=fs.mkdtempSync(path.join(tmpRoot,TMPPRE));fs.chmodSync(td,0o700);
     const tp=path.join(td,safeName(meta.name));
-    try{await decryptTo(p,tp,{onProgress:x.onProgress})}catch(e){fs.rmSync(td,{recursive:true,force:true});throw e}
+    try{await decryptTo(p,tp,{onProgress:x.onProgress})}catch(e){fs.rmSync(td,{recursive:true,force:true});throw g!==gen?locked():e}
+    if(g!==gen||!dk){fs.rmSync(td,{recursive:true,force:true});throw locked()}
     temps.set(tp,{dir:td,locked:p});return tp;
   }
   async function saveTemp(p,x={}){
@@ -422,6 +447,15 @@ function createVault(o={}){
     const old=regRead().find(e=>e.path===real);if(old)return old;
     return regAdd({id:rand(8),path:real,name:meta.name,size:meta.size,lockedAt:now()});
   }
+
+  // Acilista: onceki oturumdan (cokus) kalan acik kopyalari ve kayitli dosyalarin yanindaki yarim islem dosyalarini sil
+  function sweep(){
+    wipeTemps();
+    const dirs=new Set(regRead().map(e=>path.dirname(String(e.path||''))).filter(d=>path.isAbsolute(d)));
+    for(const d of dirs){let names=[];try{names=fs.readdirSync(d)}catch(e){continue}
+      for(const n of names)if(PARTIAL.test(n))try{const q=path.join(d,n);if(fs.lstatSync(q).isFile())fs.rmSync(q,{force:true})}catch(e){}}
+  }
+  sweep();
 
   return {setup,hasPassword:()=>!!read(),hasBiometric:()=>!!(read()||{}).bio&&!!o.unprotect,
     unlockWithPassword,unlockWithKey,unlockBiometric,lock,isUnlocked:()=>!!dk,changePassword,resetPassword,

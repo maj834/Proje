@@ -27,6 +27,16 @@ const insideCI=(c,p)=>inside(c.toLowerCase(),p.toLowerCase())||c.toLowerCase()==
 const fmt=v=>v.toFixed(1).replace('.',',');
 const human=n=>{n=Math.max(0,+n||0);return n>=1024**4?fmt(n/1024**4)+' TB':n>=1024**3?fmt(n/1024**3)+' GB':n>=1024**2?fmt(n/1024**2)+' MB':n>=1024?Math.round(n/1024)+' KB':n+' B'};
 async function lstatOk(p){try{return await fsp.lstat(p)}catch(e){return null}}
+// Ust klasorleri (sembolik baglar dahil) cozulmus gercek yol; dosyanin kendisi izlenmez
+async function realParent(p){return path.join(await fsp.realpath(path.dirname(p)),path.basename(p))}
+// ~/Library'nin olasi tum yazimlari: duz, ev klasoru cozulmus, Library cozulmus
+async function libPaths(home){
+  const out=[path.join(home,'Library')];
+  try{out.push(path.join(await fsp.realpath(home),'Library'))}catch(e){}
+  try{out.push(await fsp.realpath(path.join(home,'Library')))}catch(e){}
+  return out;
+}
+const inLib=(p,libs)=>libs.some(l=>insideCI(p,l));
 const isDir=st=>st&&st.isDirectory()&&!st.isSymbolicLink();
 
 // Temizlik kaydi: her kaldirma bir JSON satiri
@@ -39,10 +49,13 @@ function appendLog(logFile,rec){
 
 // Klasorleri gez: sembolik baglar izlenmez, gizli/paket klasorleri ve ~/Library atlanir, ayni inode bir kez sayilir
 async function walkFiles(roots,{minSize,signal,exclude,home,onFile}){
-  const lib=path.join(home,'Library'),ex=exclude.map(p=>path.resolve(p)),seen=new Set();
+  const lib=path.join(home,'Library'),ex=exclude.map(p=>path.resolve(p)),seen=new Set(),libs=await libPaths(home);
   const excluded=p=>ex.some(e=>p===e||inside(p,e));
   const stack=[];let n=0;
-  for(const r of roots){const p=path.resolve(r);if(isDir(await lstatOk(p))&&!excluded(p))stack.push(p)}
+  // Kok bir sembolik bag uzerinden ~/Library icine gidiyorsa taranmaz
+  for(const r of roots){const p=path.resolve(r);if(!isDir(await lstatOk(p))||excluded(p))continue;
+    let real=p;try{real=await fsp.realpath(p)}catch(e){continue}
+    if(!inLib(p,libs)&&!inLib(real,libs))stack.push(p)}
   while(stack.length){
     if(signal&&signal.aborted)throw abortErr();
     const dir=stack.pop();let ents;
@@ -179,7 +192,7 @@ const CATS={
   dev:{title:'Geliştirici önbellekleri',desc:'Xcode, simülatör, npm, Yarn, pip, Gradle ve Homebrew ara dosyaları; bir sonraki derleme ya da kurulumda yeniden indirilir veya oluşturulur.',mode:'delete',default:false},
   browser:{title:'Tarayıcı önbellekleri',desc:'Chrome, Firefox, Edge ve Brave’in sayfa önbelleği; geçmiş, çerez, parola ve yer imlerine dokunulmaz. Açık tarayıcılar atlanır.',mode:'delete',default:false},
   installers:{title:'Eski yükleyiciler',desc:'İndirilenler klasöründe 30 günden eski .dmg, .pkg, .xip ve .iso dosyaları; Çöp Sepeti’ne taşınır, gerekirse geri alınabilir.',mode:'trash',default:false},
-  trash:{title:'Çöp Sepeti',desc:'Çöp Sepeti’ndeki öğeler; boşaltılınca geri alınamaz, bu yüzden kendiliğinden seçilmez.',mode:'trash-empty',default:false},
+  trash:{title:'Çöp Sepeti',desc:'Taramada Çöp Sepeti’nde görülen öğeler kalıcı silinir, geri alınamaz; bu yüzden kendiliğinden seçilmez. Taramadan sonra atılanlara dokunulmaz.',mode:'trash-empty',default:false},
   emptydirs:{title:'Boş klasörler',desc:'İndirilenler, Masaüstü ve Belgeler içindeki hiçbir dosya içermeyen klasörler; yalnızca hâlâ boşlarsa kaldırılır.',mode:'delete',default:false},
 };
 
@@ -189,7 +202,9 @@ async function scanJunk(home=os.homedir(),o={}){
   const L=path.join(home,'Library'),C=path.join(L,'Caches');
   const prog=id=>{try{onProgress&&onProgress({phase:'sistem',id,title:CATS[id].title})}catch(e){}};
   const measure=async(paths,filter)=>{const out=[];for(const p of paths){const st=await lstatOk(p);if(!st||st.isSymbolicLink())continue;
-    const s=await sizeOf(p);stats.skipped+=s.skipped;if(!filter||filter(s,st))out.push({path:p,size:s.size});}return out};
+    const s=await sizeOf(p);stats.skipped+=s.skipped;
+    // mtimeMs/ctimeMs/newest/dev/ino: temizlik aninda ogenin taramadakiyle ayni oldugunu denetlemek icin
+    if(!filter||filter(s,st))out.push({path:p,size:s.size,mtimeMs:st.mtimeMs,ctimeMs:st.ctimeMs,newest:s.newest,dev:st.dev,ino:st.ino});}return out};
   const cats=[];
   const add=(id,items,extra)=>{items.sort((a,b)=>b.size-a.size);cats.push({id,...CATS[id],items,size:items.reduce((s,i)=>s+i.size,0),...extra})};
 
@@ -228,7 +243,7 @@ async function scanJunk(home=os.homedir(),o={}){
   const inst=(await children(dl,stats)).filter(p=>/\.(dmg|pkg|xip|iso)$/i.test(p));
   add('installers',await measure(inst,(s,st)=>st.mtimeMs<now-30*DAY));
 
-  // f) Cop Sepeti: yalnizca boyut; bosaltmayi Electron tarafi yapar
+  // f) Cop Sepeti: yalnizca burada listelenen ogeler (temizlikte yeniden denetlenip) silinir; Finder ile bosaltma yok
   prog('trash');
   const tr=path.join(home,'.Trash');let trItems=[];
   try{trItems=(await fsp.readdir(tr)).filter(n=>n!=='.DS_Store').map(n=>path.join(tr,n))}catch(e){if(perm(e))stats.skipped++}
@@ -275,6 +290,10 @@ async function guard(p,mode,home){
     if(!inside(p,home))deny('Ev klasörünün dışında; taşınmadı.');
     if(insideCI(p,A.lib))deny('Kitaplık (Library) klasörü Çöp Sepeti’ne taşınmaz.');
     root=home;kind='trash';
+  }else if(mode==='trash-empty'){
+    root=path.join(home,'.Trash');
+    if(path.dirname(p)!==root)deny('Çöp Sepeti’nin doğrudan içinde değil; silinmedi.');
+    kind='rm-trash';
   }else deny('Bilinmeyen temizlik kipi.');
   // Ust klasorlerdeki sembolik baglarla izinli kokun disina cikilmasin
   let real,realRoot;
@@ -302,14 +321,33 @@ async function removeEmptyDir(dir){
   return size;
 }
 
+// Eski taramadan gelen oge hala kategorinin kosulunu sagliyor mu (yukleyici: Indirilenler kokunde, uzanti, 30 gun; gunluk: 7 gun)
+async function stillJunk(cat,p,st,home,now){
+  if(cat==='installers'&&(path.dirname(p)!==path.join(home,'Downloads')||!/\.(dmg|pkg|xip|iso)$/i.test(p)||!(st.mtimeMs<now-30*DAY)))
+    deny('Artık eski bir yükleyici değil; taşınmadı.');
+  if(cat==='logs'){
+    if(path.dirname(p)!==path.join(home,'Library','Logs'))deny('Günlük klasöründe değil; silinmedi.');
+    if(!((await sizeOf(p)).newest<now-7*DAY))deny('Günlük yakın zamanda değişmiş; silinmedi.');
+  }
+}
+
+// o: {mode, trash, home, logFile, cat (kategori kimligi: yeniden denetim icin), now}
 async function removeItems(items,o={}){
-  const {mode,trash,home=os.homedir(),logFile}=o;
+  const {mode,trash,home=os.homedir(),logFile,cat}=o,now=o.now||Date.now();
   const removed=[],failed=[];let freed=0;
   for(const it of Array.isArray(items)?items:[]){
     const p=typeof it==='string'?it:it&&it.path;
     try{
-      const {kind}=await guard(p,mode,home);let size=0;
-      if(kind==='trash'){
+      const {kind,st}=await guard(p,mode,home);let size=0;
+      await stillJunk(cat,p,st,home,now);
+      if(kind==='rm-trash'){
+        // Yalnizca taramada gorulen oge: ayni dosya (dev/ino), ayni degisiklik/durum zamani ve boyut; sonradan atilanlar silinmez
+        if(!it||typeof it!=='object'||!Number.isFinite(it.size)||!Number.isFinite(it.mtimeMs))deny('Tarama bilgisi yok; silinmedi.');
+        const s=await sizeOf(p);
+        if((it.ino!=null&&(st.ino!==it.ino||st.dev!==it.dev))||st.mtimeMs!==it.mtimeMs||(it.ctimeMs!=null&&st.ctimeMs!==it.ctimeMs)||s.size!==it.size||(it.newest!=null&&s.newest!==it.newest))
+          deny('Öğe taramadan sonra değişmiş ya da yeni atılmış; silinmedi.');
+        size=s.size;await fsp.rm(p,{recursive:true});
+      }else if(kind==='trash'){
         if(typeof trash!=='function')deny('Çöp Sepeti işlevi yok.');
         size=(await sizeOf(p)).size;await trash(p);
       }else if(kind==='emptydir')size=await removeEmptyDir(p);
@@ -331,7 +369,7 @@ async function sameContent(p,g){
 async function removeDuplicates(groups,selectedPaths,o={}){
   const {trash,home=os.homedir(),logFile}=o;
   const sel=new Set((Array.isArray(selectedPaths)?selectedPaths:[]).filter(p=>typeof p==='string'));
-  const removed=[],failed=[],known=new Set();let freed=0;
+  const removed=[],failed=[],known=new Set(),libs=await libPaths(home);let freed=0;
   const fail=(p,m)=>failed.push({path:p,error:m});
   for(const g of Array.isArray(groups)?groups:[]){
     const mine=g.files.filter(f=>sel.has(f.path)&&!known.has(f.path));mine.forEach(f=>known.add(f.path));
@@ -347,10 +385,17 @@ async function removeDuplicates(groups,selectedPaths,o={}){
         const p=f.path;
         if(typeof trash!=='function')deny('Çöp Sepeti işlevi yok.');
         if(!path.isAbsolute(p)||path.resolve(p)!==p||p.split(/[\/\\]/).includes('..'))deny('Yol normal biçimde değil.');
-        if(insideCI(p,path.join(home,'Library')))deny('Kitaplık (Library) içindeki dosyalara dokunulmaz.');
         const st=await lstatOk(p);
         if(!st)deny('Dosya artık yok.');
         if(st.isSymbolicLink()||!st.isFile())deny('Normal bir dosya değil.');
+        // ~/Library korumasi gercek yol uzerinden (sembolik bagli ust klasorle kacilamaz)
+        let real;try{real=await realParent(p)}catch(e){deny('Yol çözümlenemedi.')}
+        if(inLib(p,libs)||inLib(real,libs))deny('Kitaplık (Library) içindeki dosyalara dokunulmaz.');
+        // Kalan kopya ile tasinacak dosya ayni dosya olmamali (ust klasor sembolik bagla degistirilmis olabilir)
+        const ks=await lstatOk(ok.path);
+        if(!ks||ks.isSymbolicLink()||!ks.isFile())deny('Kalan kopya artık yok; taşınmadı.');
+        let rk=null;try{rk=await realParent(ok.path)}catch(e){}
+        if((ks.dev===st.dev&&ks.ino===st.ino)||rk===real)deny('Kalan kopya ile aynı dosya; taşınmadı.');
         if(!await sameContent(p,g))deny('Dosya taramadan sonra değişmiş; taşınmadı.');
         await trash(p);
         removed.push(p);freed+=g.size;appendLog(logFile,{path:p,size:g.size,mode:'trash',kind:'kopya',kept:ok.path});

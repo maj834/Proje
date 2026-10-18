@@ -29,7 +29,7 @@ h1{font:600 15px var(--font);margin:0}.m{color:var(--fg-3);font-size:12px}.f1{fl
   <div class="drop" id="drop">Telefona göndermek istediğin dosyaları buraya sürükle<br><button class="btn pri" id="pick" style="margin-top:8px">Dosya seç</button></div>
   <div><div class="t" id="sh">Gönderilenler</div><div class="list" id="files"></div></div>
   <div><div class="t" id="rh">Telefondan gelenler · İndirilenler klasörü</div><div class="list" id="recv"></div><div id="prog"></div></div>
-  <div class="row" style="margin-top:auto"><span class="m f1">Paylaşım 10 dakika işlem olmazsa kendiliğinden kapanır.</span><button class="btn" id="stop">Paylaşımı kapat</button></div>
+  <div class="row" style="margin-top:auto"><span class="m f1">Paylaşım 10 dakika işlem olmazsa, her durumda en geç 2 saatte kendiliğinden kapanır.</span><button class="btn" id="stop">Paylaşımı kapat</button></div>
 </div>
 <script>
 const $=id=>document.getElementById(id);
@@ -50,7 +50,7 @@ function render(){
 }
 function countdown(){clearInterval(tick);left=600;tick=setInterval(()=>{left=Math.max(0,left-1);$('ttl').textContent=S.running?'Kapanmasına '+Math.floor(left/60)+':'+String(left%60).padStart(2,'0'):'Kapalı'},1000)}
 function fail(m){$('err').textContent=m;$('err').style.display='block'}
-async function start(){const r=await share.start();if(!r.ok){fail(r.msg);S={running:false};document.body.classList.add('off');return}S=r;render();countdown()}
+async function start(){const r=await share.start();if(!r.ok){S={running:false};render();fail(r.msg);return}S=r;render();countdown()}
 share.on(e=>{
   if(e.type==='stop'){S.running=false;render();$('ttl').textContent=e.reason==='time'?'Süre doldu, kapandı':'Kapalı';clearInterval(tick);return}
   if(['visit','download','upload-progress','upload-start'].includes(e.type))left=600;

@@ -24,7 +24,7 @@ async function setup(t, extra = {}) {
   const flags = [], kc = fakeKeychain(), trashed = [];
   const chflags = async (p, on) => { flags.push([p, on]); };
   const trash = async p => { const d = path.join(root, 'Trash'); fs.mkdirSync(d, { recursive: true }); fs.renameSync(p, path.join(d, path.basename(p))); trashed.push(p); };
-  const V = L.createVault({ dir: vdir, home, chflags, trash, tmpRoot, chunk: 64 * KB, protect: kc.protect, unprotect: kc.unprotect, ...extra });
+  const V = L.createVault({ dir: vdir, home, chflags, trash, tmpRoot, chunk: 64 * KB, protect: kc.protect, unprotect: kc.unprotect, scryptN: 2 ** 15, ...extra });
   t.after(() => { V.lock(); fs.rmSync(root, { recursive: true, force: true }); });
   await V.setup(PW);
   const write = (name, data) => { const p = path.join(home, name); fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, data); return p; };
@@ -122,9 +122,9 @@ test('degistirme tespit ediliyor ve geride cikti kalmiyor', async (t) => {
 
 test('yanlis sifre, deneme siniri ve 30 sn bekleme', async (t) => {
   let clock = 1_000_000;
-  const { V, vdir } = await setup(t, { now: () => clock });
+  const { V, vdir } = await setup(t, { now: () => clock, scryptN: undefined });
   V.lock(); assert.equal(V.isUnlocked(), false);
-  assert.equal(JSON.parse(fs.readFileSync(path.join(vdir, 'vault.json'))).kdf.N, 2 ** 15);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(vdir, 'vault.json'))).kdf.N, 2 ** 17, 'yeni kasalar N=2^17');
   assert.equal(fs.statSync(path.join(vdir, 'vault.json')).mode & 0o777, 0o600);
   for (let i = 1; i <= 4; i++) await assert.rejects(V.unlockWithPassword('yanlis-' + i), { code: 'WRONG', message: new RegExp(`${5 - i} deneme`) });
   await assert.rejects(V.unlockWithPassword('yanlis-5'), { code: 'WAIT' });
@@ -139,8 +139,9 @@ test('ilk kurulum: kisa sifre reddedilir, ikinci kurulum yok', async (t) => {
   const V = L.createVault({ dir: path.join(d, 'v'), home: d });
   assert.equal(V.hasPassword(), false);
   await assert.rejects(V.setup('12345'), { code: 'WEAK' });
+  await assert.rejects(V.setup('1234567'), { code: 'WEAK', message: /en az 8/ });
   await assert.rejects(V.unlockWithPassword('abcdef'), { code: 'NOSETUP' });
-  await V.setup('123456'); assert.equal(V.hasPassword(), true); assert.equal(V.hasBiometric(), false);
+  await V.setup('12345678'); assert.equal(V.hasPassword(), true); assert.equal(V.hasBiometric(), false);
   await assert.rejects(V.setup('baska-sifre'), { code: 'EXISTS' });
   V.lock();
 });
@@ -336,4 +337,78 @@ test('safeName ve freeName', () => {
   assert.equal(path.basename(L.freeName(d, 'a.txt')), 'a (kilit açıldı).txt');
   assert.equal(path.basename(L.freeName(d, 'b.txt')), 'b.txt');
   fs.rmSync(d, { recursive: true, force: true });
+});
+
+test('yanlis deneme sayaci yeniden baslatmada sifirlanmaz, bekleme katlanir', async (t) => {
+  let clock = 5_000_000;
+  const { V, vdir, tmpRoot, home } = await setup(t, { now: () => clock });
+  V.lock();
+  const again = () => L.createVault({ dir: vdir, home, tmpRoot, now: () => clock });
+  for (let i = 1; i <= 3; i++) await assert.rejects(V.unlockWithPassword('yanlis-' + i), { code: 'WRONG' });
+  // "uygulama yeniden acildi": sayac kaldigi yerden devam eder
+  let V2 = again();
+  await assert.rejects(V2.unlockWithPassword('yanlis-4'), { code: 'WRONG', message: /1 deneme/ });
+  await assert.rejects(V2.unlockWithPassword('yanlis-5'), { code: 'WAIT', message: /30 saniye/ });
+  V2 = again();
+  await assert.rejects(V2.unlockWithPassword(PW), { code: 'WAIT' }, 'yeniden baslatma beklemeyi atlatmaz');
+  clock += 31_000;
+  for (let i = 1; i <= 4; i++) await assert.rejects(V2.unlockWithPassword('x' + i), { code: 'WRONG' });
+  await assert.rejects(V2.unlockWithPassword('x5'), { code: 'WAIT', message: /60 saniye/ });
+  clock += 61_000;
+  assert.equal(await again().unlockWithPassword(PW), true);
+  assert.ok(!fs.existsSync(path.join(vdir, 'attempts.json')), 'basarili giris sayaci sifirlar');
+  // saat ileri alinmis kayit bile en fazla 15 dk bekletir
+  fs.writeFileSync(path.join(vdir, 'attempts.json'), JSON.stringify({ fails: 0, until: clock + 1e12, rounds: 1 }));
+  await assert.rejects(again().unlockWithPassword(PW), { code: 'WAIT', message: /15 dakika/ });
+});
+
+test('eski kasa (N=2^15) yeni surumle acilir; kdf vault.json\'dan okunur', async (t) => {
+  const { V, vdir, tmpRoot, home } = await setup(t);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(vdir, 'vault.json'))).kdf.N, 2 ** 15);
+  V.lock();
+  const V2 = L.createVault({ dir: vdir, home, tmpRoot });
+  assert.equal(await V2.unlockWithPassword(PW), true); V2.lock();
+  const v = JSON.parse(fs.readFileSync(path.join(vdir, 'vault.json'))); v.kdf.N = 2 ** 30; fs.writeFileSync(path.join(vdir, 'vault.json'), JSON.stringify(v));
+  await assert.rejects(L.createVault({ dir: vdir, home, tmpRoot }).unlockWithPassword(PW), { code: 'FORMAT' });
+});
+
+test('acma surerken kasa kilitlenirse duz metin kopya kalmaz (F7)', async (t) => {
+  const { V, write, tmpRoot } = await setup(t);
+  const r = await V.lockFile(write('gizli.bin', crypto.randomBytes(8 * 1024 * KB)));
+  for (const delay of [0, 5, 20]) {
+    await V.unlockWithPassword(PW);
+    const p = V.openTemp(r.path);
+    await new Promise(ok => setTimeout(ok, delay));
+    V.lock('window');
+    await assert.rejects(p, { code: 'LOCKED' });
+    assert.deepEqual(fs.readdirSync(tmpRoot), [], 'gecici kopya kalmamali, gecikme ' + delay);
+    assert.deepEqual(V.temps(), []);
+  }
+  // kilitleme cozme bittikten hemen sonra (temps.set'ten once) olursa da
+  await V.unlockWithPassword(PW);
+  const p = V.openTemp(r.path, { onProgress: (d, tot) => { if (d === tot) V.lock('window'); } });
+  await assert.rejects(p, { code: 'LOCKED' });
+  assert.deepEqual(fs.readdirSync(tmpRoot), []);
+});
+
+test('acilista onceki oturumdan kalan acik kopyalar ve yarim dosyalar silinir (F8)', async (t) => {
+  const { V, vdir, tmpRoot, home, write } = await setup(t);
+  const r = await V.lockFile(write('d/a.txt', 'TOPSECRET'));
+  const tp = await V.openTemp(r.path);
+  assert.ok(tp.startsWith(tmpRoot + path.sep));
+  const d = path.dirname(r.path);
+  fs.writeFileSync(path.join(d, '.a.txt.0123abcd.aciliyor'), 'yarim duz metin');
+  fs.writeFileSync(path.join(d, '.b.txt.89abcdef.kilitleniyor'), 'x');
+  fs.writeFileSync(path.join(d, '.c.kilitli.deadbeef.yenileniyor'), 'x');
+  fs.writeFileSync(path.join(d, 'kullanici.aciliyor'), 'dokunma');
+  fs.writeFileSync(path.join(tmpRoot, 'baska-uygulama.txt'), 'dokunma');
+  // cokus: V kapatilmadan yeni ornek
+  L.createVault({ dir: vdir, home, tmpRoot });
+  assert.ok(!fs.existsSync(tp), 'eski duz metin kopya silinmeli');
+  assert.deepEqual(fs.readdirSync(tmpRoot), ['baska-uygulama.txt']);
+  assert.deepEqual(fs.readdirSync(d).sort(), ['a.txt.kilitli', 'kullanici.aciliyor']);
+  // varsayilan gecici kok kasa klasorunun icinde
+  const vd = path.join(home, '..', 'v3'), V3 = L.createVault({ dir: vd, home, scryptN: 2 ** 15 }); t.after(() => V3.lock());
+  await V3.setup(PW); const r3 = await V3.lockFile(write('e.txt', 'x'));
+  assert.ok((await V3.openTemp(r3.path)).startsWith(path.join(vd, 'tmp') + path.sep));
 });

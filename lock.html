@@ -41,7 +41,7 @@ details summary{cursor:pointer;color:var(--fg-2);font-size:12px}details[open] su
     <div class="card form">
       <div><b>Kasa şifresi belirle</b></div>
       <div class="m">Bu şifre, Touch ID çalışmazsa ya da başka bir Mac'te tek kurtarma yoludur. Unutursan kilitli dosyalar açılamaz.</div>
-      <input type="password" id="np1" placeholder="Şifre (en az 6 karakter)" autocomplete="new-password">
+      <input type="password" id="np1" placeholder="Şifre (en az 8 karakter)" autocomplete="new-password">
       <input type="password" id="np2" placeholder="Şifre (tekrar)" autocomplete="new-password">
       <button class="btn pri" id="doSetup">Şifreyi kaydet</button>
     </div>
@@ -68,7 +68,7 @@ details summary{cursor:pointer;color:var(--fg-2);font-size:12px}details[open] su
     <div class="note"><b>Silme koruması hakkında:</b> Kilitlenen dosyaya macOS "Kilitli" bayrağı konur; Finder silmeden önce sorar, Terminal'de <span class="mono">rm</span> başarısız olur. Ancak macOS, dosyanın sahibinin bu bayrağı kaldırmasını (Finder &gt; Bilgi Al &gt; Kilitli) engelleyemez; yani dosya %100 silinemez yapılamaz. İçerik ise her durumda şifreli kalır ve Touch ID ya da şifre olmadan okunamaz.</div>
     <details class="card"><summary>Şifreyi değiştir</summary><div class="form">
       <input type="password" id="cp0" placeholder="Mevcut şifre" autocomplete="current-password">
-      <input type="password" id="cp1" placeholder="Yeni şifre (en az 6 karakter)" autocomplete="new-password">
+      <input type="password" id="cp1" placeholder="Yeni şifre (en az 8 karakter)" autocomplete="new-password">
       <input type="password" id="cp2" placeholder="Yeni şifre (tekrar)" autocomplete="new-password">
       <div class="m" id="cpBio" style="display:none">Mevcut şifreyi boş bırakırsan Touch ID ile doğrulanır.</div>
       <button class="btn" id="doCp">Şifreyi değiştir</button></div></details>
