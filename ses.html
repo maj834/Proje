@@ -50,7 +50,8 @@ const NAMES={kapali:'Kapalı',bas:'Bas',ekstra_bas:'Ekstra bas',konusma:'Konuşm
 let S=null,open=new Set(),dragging=null;
 // Kaydirma sirasinda cok sik gonderme: en fazla 80 ms'de bir
 const throttle=(f,ms=80)=>{let t=0,last=null;return(...a)=>{last=a;if(t)return;t=setTimeout(()=>{t=0;f(...last)},ms)}};
-const sendApp=throttle((b,s)=>ses.app(b,s).then(apply));
+// Uygulama basina ayri kisitlayici: iki kaydiriciyi art arda oynatinca ilkinin son degeri kaybolmasin
+const appT={};const sendApp=(b,s)=>(appT[b]=appT[b]||throttle((bb,ss)=>ses.app(bb,ss).then(apply)))(b,s);
 const sendGlobal=throttle(s=>ses.global(s).then(apply));
 const sendVol=throttle(v=>ses.volume(v));
 const pct=g=>Math.round(g*100)+'%',db=v=>(v>0?'+':'')+v+' dB';
@@ -74,7 +75,7 @@ function render(){
     const r=el('div','app'+(open.has(a.bundle)?' open':''));
     const top=el('div','row');
     const ic=a.icon?Object.assign(el('img'),{src:a.icon,alt:''}):el('span','ph');
-    const nm=el('span','n f1',a.name);nm.title=a.bundle;
+    const nm=el('span','n f1',a.name+(a.denied?' · izin yok':''));nm.title=a.bundle;
     const mute=el('button','ib'+(a.mute?' on':''));mute.title=a.mute?'Sesi aç':'Sustur';
     mute.innerHTML='<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6h2.5l3.5-3v10l-3.5-3H2.5z"/>'+(a.mute?'<path d="M11 6l4 4M15 6l-4 4"/>':'<path d="M11 5.5a3.5 3.5 0 0 1 0 5"/>')+'</svg>';
     mute.onclick=()=>ses.app(a.bundle,{mute:!a.mute}).then(apply);

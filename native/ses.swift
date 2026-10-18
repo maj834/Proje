@@ -6,6 +6,7 @@ import Foundation
 import CoreAudio
 import AudioToolbox
 import AppKit
+import os
 
 // MARK: - JSON cikis
 let outLock = NSLock()
@@ -86,11 +87,11 @@ func setDefaultOutput(uid: String) {
 // MARK: - Ses ureten uygulamalar
 struct AudioProc { let obj: AudioObjectID; let pid: pid_t; let bundle: String; let playing: Bool }
 
-// Yardimci surecleri ana uygulamaya bagla (Chrome Helper -> Chrome, WebKit -> Safari)
+// Yardimci surecleri ana uygulamaya bagla (Chrome Helper -> Chrome). WebKit sureci Safari, Mail ve diger
+// web gorunumlerinde ortaktir: ayri bir "Web icerigi" kalemi olarak gosterilir.
 func ownerBundle(_ bundle: String, pid: pid_t) -> String {
-    if bundle.hasPrefix("com.apple.WebKit") { return "com.apple.Safari" }
+    if bundle.hasPrefix("com.apple.WebKit") { return "com.apple.WebKit" }
     if let r = bundle.range(of: ".helper", options: .caseInsensitive) { return String(bundle[..<r.lowerBound]) }
-    if let r = bundle.range(of: ".Helper") { return String(bundle[..<r.lowerBound]) }
     return bundle
 }
 func audioProcesses() -> [AudioProc] {
@@ -109,6 +110,7 @@ func audioProcesses() -> [AudioProc] {
 }
 func appInfo(_ bundle: String) -> [String: Any] {
     var d: [String: Any] = ["bundle": bundle, "name": bundle]
+    if bundle == "com.apple.WebKit" { d["name"] = "Web içeriği (Safari, Mail…)"; return d }
     if let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundle).first {
         d["name"] = app.localizedName ?? bundle
         if let p = app.bundleURL?.path { d["path"] = p }
@@ -137,67 +139,97 @@ func shelf(low: Bool, f0: Double, dB: Double, fs: Double) -> [Float] {
     return [b0 / a0, b1 / a0, b2 / a0, a1 / a0, a2 / a0].map { Float($0) }
 }
 
+// Gercek zamanli ses dizisi kurallari: geri cagirmada bellek ayirma, kilit bekleme ve Swift dizisi yok.
+// Ayarlar ana dizide hesaplanir, ses dizisine kilitsiz (trylock) aktarilir; filtre durumu sabit tamponda.
 final class Processor {
-    static let maxCh = 8
-    var target = Settings(); var fs: Double = 48000
-    private var g: Float = 1                                // yumusatilmis kazanc
-    private var lowK: [Float] = [1, 0, 0, 0, 0], highK: [Float] = [1, 0, 0, 0, 0]
-    private var lowZ = [Float](repeating: 0, count: maxCh * 2), highZ = [Float](repeating: 0, count: maxCh * 2)
-    func update(_ s: Settings) {
-        target = s
-        lowK = abs(s.bass) < 0.1 ? [1, 0, 0, 0, 0] : shelf(low: true, f0: 110, dB: Double(s.bass), fs: fs)
-        highK = abs(s.treble) < 0.1 ? [1, 0, 0, 0, 0] : shelf(low: false, f0: 7000, dB: Double(s.treble), fs: fs)
+    typealias K = (Float, Float, Float, Float, Float)
+    struct Params { var gain: Float = 1; var low: K = (1, 0, 0, 0, 0); var high: K = (1, 0, 0, 0, 0) }
+    static let maxCh = 64
+    var fs: Double = 48000
+    private(set) var last = Settings()
+    private let lock: UnsafeMutablePointer<os_unfair_lock> = { let p = UnsafeMutablePointer<os_unfair_lock>.allocate(capacity: 1); p.initialize(to: os_unfair_lock()); return p }()
+    private var pending = Params(), live = Params()
+    private let z: UnsafeMutablePointer<Float> = { let p = UnsafeMutablePointer<Float>.allocate(capacity: Processor.maxCh * 4); p.initialize(repeating: 0, count: Processor.maxCh * 4); return p }()
+    private var g: Float = 1
+    // Ses dizisinin yazdigi sayaclar (izin reddi = surekli sessiz yakalama tespiti icin)
+    var callbacks = 0, silent = 0
+    deinit { z.deallocate(); lock.deallocate() }
+    func update(_ s: Settings) {                                   // ana dizi
+        func t(_ a: [Float]) -> K { (a[0], a[1], a[2], a[3], a[4]) }
+        last = s
+        var p = Params(); p.gain = s.mute ? 0 : s.gain
+        if abs(s.bass) >= 0.1 { p.low = t(shelf(low: true, f0: 110, dB: Double(s.bass), fs: fs)) }
+        if abs(s.treble) >= 0.1 { p.high = t(shelf(low: false, f0: 7000, dB: Double(s.treble), fs: fs)) }
+        os_unfair_lock_lock(lock); pending = p; os_unfair_lock_unlock(lock)
     }
-    @inline(__always) private func biquad(_ x: Float, _ k: [Float], _ z: inout [Float], _ c: Int) -> Float {
-        let y = k[0] * x + z[c * 2]
-        z[c * 2] = k[1] * x - k[3] * y + z[c * 2 + 1]
-        z[c * 2 + 1] = k[2] * x - k[4] * y
-        return y
+    @inline(__always) private func bq(_ x: Float, _ k: K, _ st: UnsafeMutablePointer<Float>) -> Float {
+        let y = k.0 * x + st[0]; st[0] = k.1 * x - k.3 * y + st[1]; st[1] = k.2 * x - k.4 * y; return y
     }
-    // Ses kalitesi icin: 0.8 ustunu yumusakca sikistir, asla 1'i gecme (patlama/cizirti olmasin)
+    // 0.8 ustunu yumusakca sikistir, asla 1'i gecme (patlama/cizirti olmasin)
     @inline(__always) private func limit(_ x: Float) -> Float {
         let a = abs(x); if a <= 0.8 { return x }
         let y = 0.8 + 0.2 * tanh((a - 0.8) / 0.2); return x < 0 ? -y : y
     }
-    // input: yakalanan ses (tap), output: cikis aygiti tamponlari. Kanal duzeni farkli olabilir: kanal sayisina gore esle.
-    func process(_ inList: UnsafeMutableAudioBufferListPointer, _ outList: UnsafeMutableAudioBufferListPointer) {
-        // Giris kanallarini topla (araya serpistirilmis ya da ayri tamponlar)
-        var inPtrs: [(UnsafeMutablePointer<Float>, Int, Int)] = []   // (veri, adim, kanal ici ofset)
-        for b in inList { guard let d = b.mData else { continue }
-            let n = Int(b.mNumberChannels); let p = d.assumingMemoryBound(to: Float.self)
-            for c in 0..<max(1, n) { inPtrs.append((p, max(1, n), c)) } }
-        var outPtrs: [(UnsafeMutablePointer<Float>, Int, Int, Int)] = []  // (veri, adim, ofset, kare sayisi)
-        for b in outList { guard let d = b.mData else { continue }
-            let n = max(1, Int(b.mNumberChannels)); let p = d.assumingMemoryBound(to: Float.self)
+    // Yalnizca yakalama (tap) girisi acik; o da listedeki son dolu tampondur. Cikis kanallari sirayla: L, R;
+    // tek kanalli cikista L+R karisimi, cevresel kanallarda sessizlik (stereo her hoparlorden tekrar calmasin).
+    func process(_ inp: UnsafePointer<AudioBufferList>, _ out: UnsafeMutablePointer<AudioBufferList>) {
+        if os_unfair_lock_trylock(lock) { live = pending; os_unfair_lock_unlock(lock) }   // asla beklemez
+        let p = live
+        let il = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: inp))
+        let ol = UnsafeMutableAudioBufferListPointer(out)
+        var tapData: UnsafeMutableRawPointer? = nil; var tch = 1; var tbytes = 0
+        for b in il where b.mData != nil { tapData = b.mData; tch = max(1, Int(b.mNumberChannels)); tbytes = Int(b.mDataByteSize) }
+        guard let td = tapData else { for b in ol { if let d = b.mData { memset(d, 0, Int(b.mDataByteSize)) } }; return }
+        let tin = td.assumingMemoryBound(to: Float.self)
+        let inFrames = tbytes / (MemoryLayout<Float>.size * tch)
+        callbacks &+= 1
+        if inFrames > 0 && tin[0] == 0 && tin[(inFrames - 1) * tch] == 0 { silent &+= 1 } else { silent = 0 }
+        var gEnd = g; var ch = 0
+        for b in ol { guard let d = b.mData else { continue }
+            let n = max(1, Int(b.mNumberChannels)), o = d.assumingMemoryBound(to: Float.self)
             let frames = Int(b.mDataByteSize) / (MemoryLayout<Float>.size * n)
-            for c in 0..<n { outPtrs.append((p, n, c, frames)) } }
-        let tg: Float = target.mute ? 0 : target.gain
-        let frames = outPtrs.first?.3 ?? 0
-        let inFrames: Int = { guard let f = inList.first else { return 0 }
-            return Int(f.mDataByteSize) / (MemoryLayout<Float>.size * max(1, Int(f.mNumberChannels))) }()
-        for (oc, o) in outPtrs.enumerated() {
-            let ch = min(oc, Processor.maxCh - 1)
-            var gg = g
-            for i in 0..<frames {
-                gg += (tg - gg) * 0.002                         // tiklama olmasin diye kazanci yavasca degistir
-                var x: Float = 0
-                if !inPtrs.isEmpty && i < inFrames { let s = inPtrs[oc % inPtrs.count]; x = s.0[i * s.1 + s.2] }
-                x = biquad(x, lowK, &lowZ, ch); x = biquad(x, highK, &highZ, ch)
-                o.0[i * o.1 + o.2] = limit(x * gg)
+            for c in 0..<n {
+                let st = z + min(ch, Processor.maxCh - 1) * 4; var gg = g
+                let mono = n == 1 && ol.count == 1 && tch >= 2, src = ch < 2 ? ch % tch : -1
+                for i in 0..<frames {
+                    gg += (p.gain - gg) * 0.002                  // tiklama olmasin diye kazanci yavasca degistir
+                    var x: Float = 0
+                    if i < inFrames { x = mono ? 0.5 * (tin[i * tch] + tin[i * tch + 1]) : (src >= 0 ? tin[i * tch + src] : 0) }
+                    x = bq(bq(x, p.low, st), p.high, st + 2) + 1e-25   // +1e-25: Intel'de denormal yavaslamasi olmasin
+                    o[i * n + c] = limit(x * gg)
+                }
+                gEnd = gg; ch += 1
             }
-            if oc == outPtrs.count - 1 { g = gg }
         }
+        g = gEnd
     }
+}
+
+// Toplu aygitta cikis aygitinin kendi girisleri (AirPods/kulaklik mikrofonu) de vardir: yalnizca yakalama
+// girisini ac. Yoksa mikrofon cikisa karisir ve Bluetooth kulaklik dusuk kaliteli arama moduna gecer.
+func enableOnlyTapInput(_ agg: AudioObjectID, _ io: AudioDeviceIOProcID) {
+    var a = addr(kAudioDevicePropertyIOProcStreamUsage, kAudioObjectPropertyScopeInput); var size: UInt32 = 0
+    guard AudioObjectGetPropertyDataSize(agg, &a, 0, nil, &size) == noErr, size > 0 else { return }
+    let raw = UnsafeMutableRawPointer.allocate(byteCount: Int(size), alignment: 16); defer { raw.deallocate() }
+    raw.initializeMemory(as: UInt8.self, repeating: 0, count: Int(size))
+    let u = raw.bindMemory(to: AudioHardwareIOProcStreamUsage.self, capacity: 1)
+    u.pointee.mIOProc = unsafeBitCast(io, to: UnsafeMutableRawPointer.self)
+    guard AudioObjectGetPropertyData(agg, &a, 0, nil, &size, raw) == noErr else { return }
+    let n = Int(u.pointee.mNumberStreams); guard n > 1 else { return }
+    let on = (raw + MemoryLayout<AudioHardwareIOProcStreamUsage>.offset(of: \AudioHardwareIOProcStreamUsage.mStreamIsOn)!).assumingMemoryBound(to: UInt32.self)
+    for i in 0..<n { on[i] = i == n - 1 ? 1 : 0 }
+    let err = AudioObjectSetPropertyData(agg, &a, 0, nil, size, raw)
+    if err != noErr { fail("Kulaklık mikrofonu kapatılamadı; ses kalitesi düşebilir.", err) }
 }
 
 // MARK: - Uygulama basina yakalama (tap + toplu aygit)
 @available(macOS 14.2, *)
 final class AppTap {
-    let bundle: String; let objs: [AudioObjectID]; let proc = Processor()
+    let bundle: String; let objs: [AudioObjectID]; let proc = Processor(); let outputUID: String; let born = Date()
     var tapID = AudioObjectID(kAudioObjectUnknown), aggID = AudioObjectID(kAudioObjectUnknown)
     var ioProc: AudioDeviceIOProcID?
     init?(bundle: String, objs: [AudioObjectID], outputUID: String, settings: Settings) {
-        self.bundle = bundle; self.objs = objs
+        self.bundle = bundle; self.objs = objs; self.outputUID = outputUID
         let desc = CATapDescription(stereoMixdownOfProcesses: objs)
         desc.uuid = UUID(); desc.name = "ses-yardimcisi \(bundle)"; desc.isPrivate = true
         desc.muteBehavior = CATapMuteBehavior.mutedWhenTapped
@@ -216,10 +248,9 @@ final class AppTap {
         proc.fs = getF64(aggID, kAudioDevicePropertyNominalSampleRate) ?? 48000
         proc.update(settings)
         let p = proc
-        err = AudioDeviceCreateIOProcIDWithBlock(&ioProc, aggID, nil) { _, inData, _, outData, _ in
-            p.process(UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: inData)), UnsafeMutableAudioBufferListPointer(outData))
-        }
+        err = AudioDeviceCreateIOProcIDWithBlock(&ioProc, aggID, nil) { _, inData, _, outData, _ in p.process(inData, outData) }
         if err != noErr { destroy(); fail("Ses işleme başlatılamadı.", err); return nil }
+        if let io = ioProc { enableOnlyTapInput(aggID, io) }
         err = AudioDeviceStart(aggID, ioProc)
         if err != noErr { destroy(); fail("Ses işleme başlatılamadı.", err); return nil }
     }
@@ -233,36 +264,59 @@ final class AppTap {
 // MARK: - Yonetici
 final class Engine {
     var perApp: [String: Settings] = [:]; var global = Settings()
-    var taps: [String: AnyObject] = [:]; var lastOutput: String? = nil; var lastList = ""
+    var taps: [String: AnyObject] = [:]; var lastOutput: String? = nil; var lastList = "", lastDev = ""
+    var failed: [String: (Date, String)] = [:]                 // kurulamayan yakalamayi her turda tekrar deneme
+    var denied = Set<String>()                                  // izin verilmedi (surekli sessiz) uygulamalar
     func effective(_ bundle: String) -> Settings {
         var s = perApp[bundle] ?? Settings()
         s.gain *= global.gain; s.bass += global.bass; s.treble += global.treble; s.mute = s.mute || global.mute
         s.gain = min(s.gain, 2); s.bass = max(-12, min(12, s.bass)); s.treble = max(-12, min(12, s.treble))
         return s
     }
-    // Ayari notr olmayan her uygulama icin yakalama kur; surec listesi ya da cikis aygiti degistiyse yeniden kur
+    // Ayari notr olmayan uygulamalar icin yakalama kur. Yalnizca genel efekt varsa sadece ses calan uygulamalar
+    // yakalanir (her ses istemcisine ayri aygit acilmasin). Surec kumesi degisince yenisi kurulup eskisi sonra
+    // kaldirilir: arada uygulama islenmemis (or. %20 yerine %100) calmaz.
     func sync(force: Bool = false) {
         guard #available(macOS 14.2, *) else { return }
         let procs = audioProcesses()
         let outUID = defaultOutput().flatMap { getString($0, kAudioDevicePropertyDeviceUID) }
         let outChanged = outUID != lastOutput; lastOutput = outUID
-        var byBundle: [String: [AudioObjectID]] = [:]
-        for p in procs { byBundle[p.bundle, default: []].append(p.obj) }
-        for (b, t) in taps { let t = t as! AppTap
-            let want = effective(b)
-            if force || outChanged || want.neutral || byBundle[b].map({ Set($0) != Set(t.objs) }) ?? true { t.destroy(); taps[b] = nil }
-            else { t.proc.update(want) } }
-        guard let out = outUID else { return }
-        for (b, objs) in byBundle where taps[b] == nil && !effective(b).neutral {
-            if let t = AppTap(bundle: b, objs: objs, outputUID: out, settings: effective(b)) { taps[b] = t }
+        if outChanged || force { failed = [:] }
+        var byBundle: [String: [AudioObjectID]] = [:], playing = Set<String>()
+        for p in procs { byBundle[p.bundle, default: []].append(p.obj); if p.playing { playing.insert(p.bundle) } }
+        let wanted: (String) -> Bool = { b in
+            let e = self.effective(b); if e.neutral || self.denied.contains(b) { return false }
+            return self.perApp[b] != nil || playing.contains(b) || self.taps[b] != nil
         }
-        // Liste degistiyse arayuze bildir
+        for (b, t) in taps { let t = t as! AppTap
+            if force || outChanged || !wanted(b) || byBundle[b] == nil { t.destroy(); taps[b] = nil; continue }
+            // Izin reddi: 3 sn'den uzun suredir yakalama hep sessiz ama uygulama ses caliyor
+            if playing.contains(b) && t.proc.callbacks > 300 && t.proc.silent > 300 && Date().timeIntervalSince(t.born) > 3 {
+                t.destroy(); taps[b] = nil; denied.insert(b)
+                emit(["type": "error", "code": "tcc", "msg": "Uygulama sesine erişim izni yok. Sistem Ayarları › Gizlilik ve Güvenlik › Ekran ve Sistem Sesi Kaydı › Yalnızca Sistem Sesi Kaydı'nda Cem App'i aç."])
+                continue
+            }
+            let objs = byBundle[b]!
+            if Set(objs) != Set(t.objs), let out = outUID, let n = AppTap(bundle: b, objs: objs, outputUID: out, settings: effective(b)) {
+                taps[b] = n; t.destroy()                       // once yenisi, sonra eskisi
+            } else { t.proc.update(effective(b)) }
+        }
+        guard let out = outUID else { return }
+        for (b, objs) in byBundle where taps[b] == nil && wanted(b) {
+            if let f = failed[b], f.1 == out, Date().timeIntervalSince(f.0) < 30 { continue }
+            if let t = AppTap(bundle: b, objs: objs, outputUID: out, settings: effective(b)) { taps[b] = t; failed[b] = nil }
+            else { failed[b] = (Date(), out) }
+        }
+        // Liste ya da aygitlar degistiyse arayuze bildir
         var seen = Set<String>(); var apps: [[String: Any]] = []
         for p in procs where !seen.contains(p.bundle) { seen.insert(p.bundle)
-            var d = appInfo(p.bundle); d["playing"] = procs.contains { $0.bundle == p.bundle && $0.playing }
-            d["active"] = taps[p.bundle] != nil; apps.append(d) }
+            var d = appInfo(p.bundle); d["playing"] = playing.contains(p.bundle)
+            d["active"] = taps[p.bundle] != nil; d["denied"] = denied.contains(p.bundle); apps.append(d) }
         let key = apps.map { "\($0["bundle"]!)\($0["playing"]!)\($0["active"]!)" }.joined() + (outUID ?? "")
-        if key != lastList || force { lastList = key; emit(["type": "apps", "apps": apps]); emit(["type": "devices", "devices": outputDevices()]) }
+        if key != lastList || force { lastList = key; emit(["type": "apps", "apps": apps]) }
+        let devs = outputDevices()
+        let dkey = devs.map { "\($0["uid"] ?? "")\($0["default"] ?? "")\($0["volume"] ?? "")\($0["muted"] ?? "")" }.joined()
+        if dkey != lastDev || force { lastDev = dkey; emit(["type": "devices", "devices": devs]) }
     }
     func stopAll() { if #available(macOS 14.2, *) { for (_, t) in taps { (t as! AppTap).destroy() } }; taps = [:] }
 }
@@ -290,6 +344,7 @@ func handle(_ line: String) {
     case "set":
         guard let b = o["bundle"] as? String else { return }
         let s = settingsFrom(o); if s.neutral { engine.perApp[b] = nil } else { engine.perApp[b] = s }
+        engine.denied.remove(b); engine.failed[b] = nil
         if supported { engine.sync() } else { emit(["type": "unsupported"]) }
     case "global": engine.global = settingsFrom(o); if supported { engine.sync() } else { emit(["type": "unsupported"]) }
     case "reset": engine.perApp = [:]; engine.global = Settings(); engine.sync(force: true)
@@ -307,6 +362,9 @@ DispatchQueue.global().async {
 }
 // Surec/aygit degisikliklerini yakalamak icin duzenli kontrol
 Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { _ in engine.sync() }
-signal(SIGTERM) { _ in exit(0) }
+// Sinyal isleyicisinde Core Audio cagrisi yapilamaz: SIGTERM ana dizide islenir
+signal(SIGTERM, SIG_IGN)
+let term = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
+term.setEventHandler { engine.stopAll(); exit(0) }; term.resume()
 atexit { engine.stopAll() }
 RunLoop.main.run()

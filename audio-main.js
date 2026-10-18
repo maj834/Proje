@@ -10,7 +10,7 @@ const clampS=s=>({gain:Math.max(0,Math.min(2,+s.gain||0)),bass:Math.max(-12,Math
 const neutral=s=>!s.mute&&Math.abs(s.gain-1)<0.005&&Math.abs(s.bass)<0.1&&Math.abs(s.treble)<0.1;
 
 function registerAudio({ipcMain,app,BrowserWindow,path,cfg,save,isOn=()=>true}){
-  let child=null,win=null,buf='',state={supported:null,apps:[],devices:[],error:null},icons={};
+  let child=null,win=null,buf='',restarts=0,state={supported:null,apps:[],devices:[],error:null},icons={};
   const conf=()=>({apps:{},global:{gain:1,bass:0,treble:0,mute:false},preset:'kapali',...(cfg().sound||{})});
   const bin=()=>process.env.GRAFIK_SES_BIN||(app.isPackaged?path.join(process.resourcesPath,'bin','ses-yardimcisi'):path.join(__dirname,'build','bin','ses-yardimcisi'));
   const send=o=>{if(child&&child.stdin.writable)child.stdin.write(JSON.stringify(o)+'\n')};
@@ -23,7 +23,7 @@ function registerAudio({ipcMain,app,BrowserWindow,path,cfg,save,isOn=()=>true}){
   function onLine(line){
     let m;try{m=JSON.parse(line)}catch(e){return}
     if(m.type==='hello'){state.supported=!!m.supported;state.os=m.os;if(!m.supported)state.error='Uygulama başına ses ayarı macOS 14.4 (Sonoma) ve üstünü gerektirir. Bu Mac: '+m.os}
-    else if(m.type==='apps'){state.apps=m.apps||[];state.apps.forEach(icon)}
+    else if(m.type==='apps'){state.apps=m.apps||[];state.apps.forEach(icon);restarts=0;if(state.error&&!/macOS 14/.test(state.error))state.error=null}
     else if(m.type==='devices')state.devices=m.devices||[];
     else if(m.type==='error')state.error=m.msg;
     else if(m.type==='unsupported')state.error='Bu macOS sürümü uygulama başına ses ayarını desteklemiyor (14.4+ gerekir).';
@@ -33,18 +33,25 @@ function registerAudio({ipcMain,app,BrowserWindow,path,cfg,save,isOn=()=>true}){
     if(child)return true;
     if(!isOn())return false;
     if(process.platform!=='darwin'&&!process.env.GRAFIK_SES_BIN||!fs.existsSync(bin())){state.error='Ses yardımcısı bulunamadı. Uygulamanın Mac sürümünü GitHub\'dan indirdiğinden emin ol.';toWin();return false}
-    child=spawn(bin(),[],{stdio:['pipe','pipe','pipe']});buf='';state.error=null;
-    child.stdout.on('data',d=>{buf+=d;let i;while((i=buf.indexOf('\n'))>=0){onLine(buf.slice(0,i));buf=buf.slice(i+1)}});
-    child.stderr.on('data',d=>console.error('ses-yardimcisi:',String(d).trim()));
-    child.on('exit',code=>{child=null;if(code&&code!==0){state.error='Ses yardımcısı durdu (kod '+code+').';toWin()}});
-    child.on('error',e=>{child=null;state.error='Ses yardımcısı başlatılamadı: '+e.message;toWin()});
+    // Her surec kendi degiskeninde: eski yardimcinin cikis olayi yenisini kaybettirmesin
+    const c=child=spawn(bin(),[],{stdio:['pipe','pipe','pipe']});buf='';state.error=null;
+    c.stdout.setEncoding('utf8');                          // cok baytli Turkce karakterler parcalanmasin
+    c.stdin.on('error',()=>{});                            // kapanmis yardimciya yazmak ana sureci dusurmesin
+    c.stdout.on('data',d=>{if(child!==c)return;buf+=d;let i;while((i=buf.indexOf('\n'))>=0){onLine(buf.slice(0,i));buf=buf.slice(i+1)}});
+    c.stderr.on('data',d=>console.error('ses-yardimcisi:',String(d).trim()));
+    c.on('exit',(code,sig)=>{if(child!==c)return;child=null;
+      if(code||sig){state.error='Ses yardımcısı durdu ('+(sig||code)+').';toWin();
+        // Ayar varsa sinirli sayida yeniden baslat (ses yeniden islensin)
+        if(needed()&&restarts<3){restarts++;setTimeout(()=>{start();toWin()},1000*restarts)}}});
+    c.on('error',e=>{if(child===c)child=null;state.error='Ses yardımcısı başlatılamadı: '+e.message;toWin()});
     // Kayitli ayarlari uygula
-    const c=conf();send({cmd:'global',...clampS({gain:1,...c.global})});
-    for(const [bundle,s] of Object.entries(c.apps))send({cmd:'set',bundle,...clampS({gain:1,...s})});
+    const k=conf();send({cmd:'global',...clampS({gain:1,...k.global})});
+    for(const [bundle,s] of Object.entries(k.apps))send({cmd:'set',bundle,...clampS({gain:1,...s})});
     send({cmd:'list'});
     return true;
   }
-  function stop(){if(child){send({cmd:'quit'});const c=child;setTimeout(()=>{try{c.kill()}catch(e){}},1500);child=null}}
+  function stop(){if(!child)return;const c=child;child=null;try{c.stdin.end(JSON.stringify({cmd:'quit'})+'\n')}catch(e){}
+    setTimeout(()=>{if(c.exitCode===null&&c.signalCode===null)try{c.kill('SIGKILL')}catch(e){}},1500)}
   // Pencere kapaninca: ayar yoksa yardimciyi kapat (ses tamamen normale doner); ayar varsa arka planda calismaya devam
   function open(){
     if(win){win.show();win.focus();return}
@@ -57,8 +64,8 @@ function registerAudio({ipcMain,app,BrowserWindow,path,cfg,save,isOn=()=>true}){
   }
   const setApp=(bundle,s)=>{if(typeof bundle!=='string'||!/^[\w.\-]{1,200}$/.test(bundle))return view();
     const c=conf(),v=clampS({gain:1,...(c.apps[bundle]||{}),...s});const apps={...c.apps};if(neutral(v))delete apps[bundle];else apps[bundle]=v;
-    save({sound:{...c,apps}});if(start())send({cmd:'set',bundle,...v});return view()};
-  const setGlobal=(s,preset)=>{const c=conf(),v=clampS({...c.global,...s});save({sound:{...c,global:v,preset:preset||'ozel'}});if(start())send({cmd:'global',...v});return view()};
+    save({sound:{...c,apps}});const fresh=!child;if(start()&&!fresh)send({cmd:'set',bundle,...v});return view()};
+  const setGlobal=(s,preset)=>{const c=conf(),v=clampS({...c.global,...s});save({sound:{...c,global:v,preset:preset||'ozel'}});const fresh=!child;if(start()&&!fresh)send({cmd:'global',...v});return view()};
 
   ipcMain.handle('ses:state',()=>{start();return view()});
   ipcMain.handle('ses:app',(e,bundle,s)=>setApp(bundle,s||{}));
