@@ -3,6 +3,7 @@
 const {contextBridge,ipcRenderer}=require('electron');
 const path=require('path'),R=p=>require(path.join(__dirname,'..','..',p));
 const engine=R('engine.js'),D=R('bp-data.js'),lab=R('bp-strategy.js'),{summarize}=R('borsa-pro-main.js'),demo=require('./bp-demo-data.js');
+const Q=R('bp-quant.js');
 const hash=s=>[...String(s)].reduce((h,c)=>(h*31+c.charCodeAt(0))>>>0,7);
 const STEP={'5dk':5*60000,'15dk':15*60000,'1s':3600000,'1g':86400000,'1h':7*86400000};
 const N={'5dk':400,'15dk':300,'1s':400,'1g':480,'1h':260};
@@ -32,11 +33,16 @@ async function load({symbol='THYAO',tf='1g'}={}){
   const sym=String(symbol).toUpperCase(),fr={};for(const k of [tf,'1g','1h'])fr[k]=series(sym,k);
   const rows=fr[tf],pro=engine.proAnalyze(fr,{primary:tf,news:[{score:2},{score:1}],depth:{pressure:24,flow:1e6,live:1}});
   const q=await market.quote(sym),fsum={};for(const k in pro.trend.frames){const t=pro.trend.frames[k];fsum[k]={dir:t.dir,text:t.text,adx:t.adx}}
+  const h=hash(sym),hist=demo.rows({n:2500,step:86400000,start:Date.now()-2500*86400000*1.45,p0:20+h%400,seed:h+99,vol:0.02});
+  const H=[...hist.filter(r=>r.t<fr['1g'][0].t).map(r=>{const k=fr['1g'][0].o/hist.filter(x=>x.t<fr['1g'][0].t).slice(-1)[0].c;return {...r,o:r.o*k,h:r.h*k,l:r.l*k,c:r.c*k}}),...fr['1g']];
+  const quant=Q.analyze({rows,daily:fr['1g'],hist:H,pro,bench:bench,breadth:lastScan&&lastScan.breadth});const techFrames={};
+  for(const k of [tf,'1g','1h']){const t=Q.techSummary(fr[k]);if(t)techFrames[k]={overall:t.overall,ma:t.ma,osc:t.osc}}
   return {ok:true,symbol:sym,yahoo:sym+'.IS',market:'BIST',name:(D.NAMES&&D.NAMES[sym])||sym,tf,currency:'TRY',rows,pro,stats:data.stats(fr['1g'],bench),
     quote:{...q,currency:'TRY',dayHigh:null,dayLow:null,volume:null,stale:false},signals:engine.systemSignals(rows).map(s=>({t:rows[s.i].t,dir:s.dir,why:s.why})),frames:fsum,
     news:{bot:{list:[{title:'Şirket yeni uçak siparişi için anlaşma imzaladı',summary:'Şirket 2027 teslimli 20 yeni uçak için anlaşma imzaladı; kapasite artışı beklentisi olumlu.',score:3,importance:4,source:'KAP',ts:new Date(Date.now()-5*3600e3).toISOString()},
       {title:'BIST 100 güne yükselişle başladı',score:1,importance:4,source:'AA',general:true,ts:new Date(Date.now()-2*3600e3).toISOString()}],
       calendar:[{day:'2026-10-28',kind:'Bilanço',title:'3. çeyrek finansal tablolar'}],akd:{days:5,top:[{name:'Bank of America',net:1250000,buyDays:4}]}},yahoo:[]},
+    quant,techFrames,fund:process.env.BP_NOFUND?null:{raw:{sector:'Ulaştırma',pe:4.8,pb:1.1,evEbitda:5.2,roe:24.5,netMargin:11.2,debtToEquity:1.4,divYield:1.9,target:{mean:420,n:9,rec:'buy'}},score:{ok:true,valuation:{label:'Ucuz',score:0.5},quality:{label:'Güçlü',score:0.4},growth:{label:'Makul',score:0.1},health:{label:'Orta',score:-0.1},target:{mean:420,upside:20.4},flags:[],lines:['F/K 4,8 sektöre göre düşük']}},
     depth:{at:Date.now()-60e3,pressure:24,trend:'Alış baskısı artıyor',flow:{net:1.2e6},signal:{dir:1,why:['Aktif alış ağırlıklı','BofA topluyor']},
       buyers:[{name:'Bank of America',net:820000},{name:'Yapı Kredi',net:310000}],sellers:[{name:'İş Yatırım',net:-540000},{name:'Garanti BBVA',net:-210000}]},errors:[],stale:false}}
 contextBridge.exposeInMainWorld('bp',{
@@ -51,6 +57,7 @@ contextBridge.exposeInMainWorld('bp',{
   ai:async()=>({ok:true,provider:'groq',model:'openai/gpt-oss-120b',data:{ozet:'Günlük karar AL (skor +38): fiyat EMA20/50 üzerinde, haftalık trend yükselişte ve hacim yükselişi destekliyor. Fiyat en yakın direnç bölgesinin hemen altında.',
     gorunum:'olumlu',boga:'Direnç bölgesi üzerinde günlük kapanış gelirse Hedef 1 ve ardından Hedef 2 seviyeleri gündeme gelir.',ayi:'Destek bölgesinin altında kapanış, stop seviyesine doğru geri çekilme riskini artırır.',
     tetikler:['Direnç bölgesi üstünde kapanış (AL teyidi)','Destek altında kapanış (plan geçersiz)'],riskler:['RSI aşırı alıma yakın','Risk/ödül 1,5 altında'],izle:['Hacim / 20 gün ortalaması','Haftalık EMA20'],sonuc:'Koşullu olumlu görünüm; girişi geri çekilmede düşünmek daha dengeli. Yatırım tavsiyesi değildir.'},cost:0}),
+  report:async o=>({ok:true,provider:'groq',model:'openai/gpt-oss-120b',data:{not:'Al',notGerekce:'Teknik karar ve geçmiş benzer durumlar olumlu; piyasa rejimi temkin gerektiriyor.',hedef:{baz:375,dusuk:330,yuksek:400,vade:'1 ay'},ozet:'Trend güçlü, momentum yüksek.',teknik:'EMA dizilimi yükselişte.',temel:'Değerleme makul.',olasiliklar:'Hedef 1 stoptan önce %58.',senaryolar:[{ad:'Boğa',olasilik:45,kosul:'Direnç üstü kapanış',hedef:400},{ad:'Baz',olasilik:35,kosul:'Yatay seyir',hedef:360},{ad:'Ayı',olasilik:20,kosul:'Destek altı kapanış',hedef:325}],katalizorler:['Bilanço 28 Ekim'],riskler:['RSI yüksek'],izle:['Hacim'],sonuc:'Koşullu olumlu. Yatırım tavsiyesi değildir.'}}),
   ask:async o=>({ok:true,answer:'Stop seviyesi giriş bölgesinin altındaki yapı desteğine göre belirlendi. Yatırım tavsiyesi değildir.'}),
   alarm:async o=>{if(o.op==='add')alarms=[...alarms,{id:Math.random().toString(16).slice(2,10),...o.alarm,created:Date.now(),fired:null,last:null}];if(o.op==='remove')alarms=alarms.filter(a=>a.id!==o.id);return {ok:true,alarms}},
   portfolio:async o=>{if(o.op==='remove')positions=positions.filter(p=>p.id!==o.id);return {ok:true,...port()}},

@@ -51,6 +51,47 @@ const ALIAS={TRALT:'kozal koza altın',TRMET:'kozaa koza anadolu metal',TRENJ:'i
 const INDICES={XU100:'BIST 100 Endeksi',XU030:'BIST 30 Endeksi',XU050:'BIST 50 Endeksi',XBANK:'BIST Banka Endeksi',XUSIN:'BIST Sınai Endeksi',
   XHOLD:'BIST Holding Endeksi',XUTEK:'BIST Teknoloji Endeksi',XUMAL:'BIST Mali Endeksi',XUHIZ:'BIST Hizmetler Endeksi'};
 
+// --- Sektorler ---------------------------------------------------------------------------------------------------------
+// Kod -> sektor. Is modeline gore (KAP / BIST sektor endeksleriyle cogunlukla ortusur; yatirimcinin gundelik gruplamasi esas):
+//  Enerji = rafineri, akaryakit, LPG, dogalgaz dagitim; Elektrik = elektrik uretim/dagitim (yenilenebilir dahil);
+//  Enerji Ekipmanları = trafo, gunes paneli, depolama, enerji altyapi taahhut; Çimento-İnşaat = cimento, muteahhitlik ve
+//  yapi malzemesi (seramik); Finansal Hizmetler = araci kurum, faktoring, kiralama, tasarruf finansman; Havacilik havalimani ve
+//  yer hizmetlerini de kapsar. Bir kod yalniz bir sektorde. Bilinmeyen -> 'Diğer'. Eski kodlar (KOZAL, IPEKE...) kayitli listeler icin.
+const SEC_LIST={
+  'Bankacılık':'AKBNK GARAN ISCTR YKBNK HALKB VAKBN TSKB SKBNK ALBRK QNBTR QNBFB ICBCT KLNMA ISATR ISBTR ISKUR',
+  'Holding':'KCHOL SAHOL AGHOL ALARK DOHOL TKFEN BERA BRYAT RALYH GLYHO NTHOL KLRHO POLHO IHLAS DENGE ECZYT METRO GSDHO',
+  'Havacılık':'THYAO PGSUS TAVHL CLEBI',
+  'Demir-Çelik':'EREGL KRDMD KRDMA KRDMB ISDMR BRSAN KCAER CEMTS IZMDC CELHA ERBOS TUCLK',
+  'Metal-Makine':'SARKY',
+  'Otomotiv':'FROTO TOASO DOAS OTKAR TTRAK KARSN EGEEN ASUZU TMSN BRISA GOODY JANTS PARSN FMIZP DITAS',
+  'Enerji':'TUPRS AYGAZ AHGAZ ENERY TRCAS',
+  'Elektrik':'AKSEN ENJSA ZOREN ODAS AKFYE MAGEN IZENR CANTE AYDEM GWIND TATEN ESEN NATEN AKENR AYEN BIOEN HUNER ENTRA PAMEL ZEDUR ARASE MOGAN A1YEN',
+  'Enerji Ekipmanları':'ASTOR EUPWR ALFAS CWENE SMRTG GESAN YEOTK',
+  'Perakende':'BIMAS MGROS SOKM MAVI TKNSA BIZIM CRFSA KIMMR',
+  'Telekom':'TCELL TTKOM',
+  'Çimento-İnşaat':'ENKAI CIMSA OYAKC BTCIM BSOKE LMKDC GLRMK QUAGR AKCNS NUHCM KONYA BUCIM AFYON GOLTS EGSER USAK',
+  'Kimya-Petrokimya':'PETKM SASA AKSA KMPUR KLKIM ALKIM DYOBY',
+  'Savunma':'ASELS ALTNY SDTTR PAPIL KATMR',
+  'Gıda-İçecek':'AEFES CCOLA ULKER TUKAS OBAMS TABGD PNSUT TATGD BANVT KNFRT PETUN ULUUN KRVGD SOKE FRIGO DARDL ELITE EKSUN GOKNR MERKO KAYSE',
+  'Cam':'SISE',
+  'Madencilik':'TRALT TRMET TRENJ KOZAL KOZAA IPEKE PRKME',
+  'GYO':'EKGYO PSGYO HLGYO TRGYO ISGYO SNGYO ZRGYO AKFGY KZBGY OZKGY ALGYO RYGYO VKGYO YGGYO AKMGY DZGYO NUGYO OZGYO MSGYO PEKGY KLGYO',
+  'Sigorta':'ANSGR TURSG AKGRT AGESA ANHYT RAYSG',
+  'Finansal Hizmetler':'ISMEN DSTKF KTLEV ISFIN GARFA VAKFN GEDIK INFO OSMEN SEKFK LIDFA CRDFA ULUFA A1CAP GLBMD TERA OYYAT SKYMD',
+  'Teknoloji':'KONTR MIATK REEDR LOGO NETAS INDES ARDYZ KAREL ESCOM LINK FONET DGATE ATATP VBTYZ KFEIN PENTA OBASE HTTBT FORTE MTRKS ALCTL ARENA',
+  'Tekstil':'VAKKO KORDS MNDRS YUNSA BOSSA ARSAN SKTAS DESA HATEK ATEKS BLCYT DAGI',
+  'Ulaştırma-Lojistik':'PASEU GRSEL RYSAS TUREX BEYAZ GSDDE HOROZ TLMAN',
+  'Kağıt-Ambalaj':'KARTN ADEL OLMIP TIRE DURDO BAKAB ALKA VKING PRZMA',
+  'Beyaz Eşya-Elektronik':'ARCLK VESTL VESBE ARZUM SILVR',
+  'Sağlık':'MPARK ECILC GENIL DEVA SELEC LKMNH MEDTR RTALB TRILC',
+  'Turizm':'MAALT AYCES MERIT PKENT TEKTU MARTI UTPYA',
+  'Tarım-Gübre':'GUBRF HEKTS BAGFS EGGUB TARKM',
+  'Spor':'FENER GSRAY BJKAS TSPOR',
+  'Mobilya':'YATAS'
+};
+const SECTORS={};for(const [s,codes] of Object.entries(SEC_LIST))for(const c of codes.split(/\s+/))if(c&&!SECTORS[c])SECTORS[c]=s;
+const SECTOR_NAMES=[...Object.keys(SEC_LIST),'Endeks','Diğer'];
+
 const MACRO=[{sym:'XU100.IS',name:'BIST 100'},{sym:'XU030.IS',name:'BIST 30'},{sym:'USDTRY=X',name:'Dolar/TL'},{sym:'EURTRY=X',name:'Euro/TL'},
   {sym:'GC=F',name:'Altın ($/ons)'},{sym:'BZ=F',name:'Brent'},{sym:'BTC-USD',name:'Bitcoin'}];
 
@@ -124,6 +165,65 @@ function ysym(market,s,mkt){
   if(!s||!/^[A-Z0-9.=^-]{1,20}$/.test(s))return null;return /[.=^-]/.test(s)?s:mkt==='BIST'?s+'.IS':s}
 const plainOf=y=>String(y||'').replace(/\.IS$/,'');
 const nameOf=(code,mkt)=>mkt==='BIST'?NAMES[code]||INDICES[code]||null:null;
+// Kod -> sektor ('thyao', 'THYAO.IS' de olur). Listede yoksa: endeks -> 'Endeks'; kod sonu GYO/xxxGY -> GYO, BNK -> Bankacilik,
+// HOL -> Holding (BIST adlandirma aliskanligi); yine yoksa 'Diğer'.
+function sectorOf(code){
+  const k=String(code==null?'':code).trim().toLocaleUpperCase('tr-TR').replace(/[ŞÇĞÖÜİ]/g,c=>TR_UP[c]).replace(/\.IS$/,'');
+  if(!k)return 'Diğer';if(SECTORS[k])return SECTORS[k];if(INDICES[k]||/^XU\d{3}$/.test(k))return 'Endeks';
+  if(/^[A-Z0-9]{2}GYO$/.test(k)||/^[A-Z]{3}GY$/.test(k))return 'GYO';if(/^[A-Z]{2}BNK$/.test(k))return 'Bankacılık';if(/^[A-Z]{2}HOL$/.test(k))return 'Holding';
+  return 'Diğer'}
+const scoreOf=r=>r&&fin(r.score)?r.score:r&&r.verdict&&fin(r.verdict.score)?r.verdict.score:null;
+const symCmp=(a,b)=>{const x=String(a&&a.symbol||''),y=String(b&&b.symbol||'');return x<y?-1:x>y?1:0};
+const objRows=rows=>(Array.isArray(rows)?rows:[]).filter(r=>r&&typeof r==='object'&&!Array.isArray(r));
+// Yuzdelik sira 0-100 (en dusuk 0, en yuksek 100; esitler ortalama sirayi alir; tek gecerli deger 50). Sayi olmayan -> null.
+function pctRank(vals){
+  const out=vals.map(()=>null),ix=[];vals.forEach((v,i)=>{if(fin(v))ix.push(i)});const n=ix.length;if(!n)return out;
+  ix.sort((a,b)=>vals[a]-vals[b]);
+  for(let i=0;i<n;){let j=i;while(j+1<n&&vals[ix[j+1]]===vals[ix[i]])j++;const p=n>1?(i+j)/2/(n-1)*100:50;for(let k=i;k<=j;k++)out[ix[k]]=p;i=j+1}
+  return out}
+
+// Faktor siralamasi (verilen satirlar icinde yuzdelik): mom = 60g ve 120g getiri yuzdeliklerinin ortalamasinin yeniden yuzdeligi
+// (biri yoksa digeri), rs = XU100'e gore 20g goreli guc, trend = karar skoru, lowVol = dusuk ATR% (dusuk oynaklik yuksek puan).
+// total = agirlikli ortalama (mom .35, rs .25, trend .25, lowVol .15); eksik faktorde agirliklar kalanlara yeniden dagitilir,
+// kapsanan agirlik < 0,5 ise total null (cov = kapsanan agirlik). Goreli siralamadir: evren degisirse puan degisir; tahmin degildir.
+const FW={mom:0.35,rs:0.25,trend:0.25,lowVol:0.15};
+function factorRank(rows){
+  const rs=objRows(rows),pf=k=>rs.map(r=>r.perf&&fin(r.perf[k])?r.perf[k]:null);
+  const a=pctRank(pf('d60')),b=pctRank(pf('d120'));
+  const blend=rs.map((_,i)=>fin(a[i])&&fin(b[i])?(a[i]+b[i])/2:fin(a[i])?a[i]:fin(b[i])?b[i]:null);
+  const F={mom:pctRank(blend),rs:pctRank(rs.map(r=>fin(r.rs20)?r.rs20:null)),trend:pctRank(rs.map(scoreOf)),
+    lowVol:pctRank(rs.map(r=>fin(r.atrPct)&&r.atrPct>0?-r.atrPct:null))};
+  return rs.map((r,i)=>{const f={};let s=0,w=0;
+    for(const k of Object.keys(FW)){const v=F[k][i];f[k]=rnd(v,1);if(fin(v)){s+=v*FW[k];w+=FW[k]}}
+    f.total=w>=0.5-1e-9?rnd(s/w,1):null;f.cov=rnd(w,2);return {...r,factor:f}})}
+
+// Liderler: by 'total'|'mom'|'rs'|'trend'|'lowVol' (faktor; satirlarda yoksa hesaplanir) ya da 'score' (karar skoru).
+// Degeri olmayan satir listeye girmez. order 'asc' -> en zayiflar. Esitlikte skor, sonra kod.
+const LEAD_BY=['total','mom','rs','trend','lowVol','score'];
+function leaders(rows,o){o=o&&typeof o==='object'?o:{};
+  const by=LEAD_BY.includes(o.by)?o.by:'total',n=fin(+o.n)&&+o.n>=1?Math.min(500,Math.floor(+o.n)):10,sg=o.order==='asc'?-1:1;
+  let rs=objRows(rows);
+  if(by!=='score'&&!rs.every(r=>r.factor&&typeof r.factor==='object'))rs=factorRank(rs);
+  const val=by==='score'?scoreOf:r=>r.factor&&fin(r.factor[by])?r.factor[by]:null,sc=r=>fin(scoreOf(r))?scoreOf(r):-Infinity;
+  return rs.filter(r=>fin(val(r))).sort((x,y)=>sg*(val(y)-val(x))||(sc(y)-sc(x))||symCmp(x,y)).slice(0,n)}
+
+// Sektor ozeti (tarama satirlarindan). Sektor satirdaki 'sector' alanindan, yoksa koddan. Ortalamalar yalniz sayi olan
+// degerlerle (yoksa null); leaders = skora gore ilk 3 kod. Siralama: ortalama skor (azalan), sonra hisse sayisi.
+// Not: az hisseli sektorde ortalama gurultuludur (n'e bak).
+function sectorStats(rows){
+  const G=new Map();
+  for(const r of objRows(rows)){const s=typeof r.sector==='string'&&r.sector.trim()?r.sector.trim():sectorOf(r.symbol);if(!G.has(s))G.set(s,[]);G.get(s).push(r)}
+  const avg=(xs,d=2)=>{const v=xs.filter(fin);return v.length?rnd(v.reduce((x,y)=>x+y,0)/v.length,d):null};
+  const out=[];
+  for(const [sector,rs] of G){const lab=l=>rs.filter(r=>r.verdict&&r.verdict.label===l).length,sc=r=>fin(scoreOf(r))?scoreOf(r):-Infinity;
+    const named=rs.filter(r=>typeof r.symbol==='string'&&r.symbol).sort((x,y)=>sc(y)-sc(x)||symCmp(x,y));
+    out.push({sector,n:rs.length,avgChg:avg(rs.map(r=>r.chgPct)),avgD20:avg(rs.map(r=>r.perf&&r.perf.d20)),avgRs20:avg(rs.map(r=>r.rs20)),
+      avgScore:avg(rs.map(scoreOf),1),avgTotal:avg(rs.map(r=>r.factor&&r.factor.total),1),
+      al:lab('AL'),bekle:lab('BEKLE'),sat:lab('SAT'),up:rs.filter(r=>fin(r.chgPct)&&r.chgPct>=0.005).length,down:rs.filter(r=>fin(r.chgPct)&&r.chgPct<=-0.005).length,
+      leaders:named.filter(r=>fin(scoreOf(r))).slice(0,3).map(r=>r.symbol),symbols:named.map(r=>r.symbol)})}
+  const k=v=>fin(v)?v:-Infinity;
+  return out.sort((x,y)=>(k(y.avgScore)-k(x.avgScore))||(y.n-x.n)||x.sector.localeCompare(y.sector,'tr'))}
+
 const isRate=e=>/çok sık|HTTP 429|rate limit/i.test(String(e&&e.message||e));
 const isNet=e=>/Bağlantı yok|yanıt vermedi/i.test(String(e&&e.message||e));
 
@@ -155,14 +255,16 @@ function search(q){
 // --- Istatistik (gunluk mumlar varsayilir) -------------------------------------------------------------------------------
 // perf: N mum once kapanisa gore %; hi52/lo52: son 252 mumun en yuksek/dusuk fiyati; hi52Dist <= 0 (zirvenin % kac altinda), lo52Dist >= 0;
 // beta/corr: son 250 gunluk getiri, endeksle ayni gunler eslesir (en az 30 cift); rs.dN: hisse dN getirisi - endeks dN getirisi (puan);
-// atrPct: ATR(14)/fiyat %; avgVolTL20: son 20 gun ortalama TL hacim (kapanis*adet); volAnn: yillik oynaklik % (log getiri std * sqrt(252)).
+// atrPct: ATR(14)/fiyat %; avgVolTL20: son 20 gun ortalama TL hacim (kapanis*adet); volAnn: yillik oynaklik % (log getiri std * sqrt(252));
+// mom12: 12-1 ay momentumu % = 21 mum onceki kapanis / 252 mum onceki kapanis - 1 (son ay haric; en az 253 mum, yoksa null).
 function statsOf(rows,benchRows,engine){
   const P=[1,5,20,60,120,250],rs=cleanRows(rows),N=rs.length;
   const out={n:N,last:N?rs[N-1].c:null,perf:Object.fromEntries(P.map(n=>['d'+n,null])),hi52:null,lo52:null,hi52Dist:null,lo52Dist:null,
-    beta:null,corr:null,rs:{d20:null,d60:null},atrPct:null,avgVolTL20:null,volAnn:null};
+    beta:null,corr:null,rs:{d20:null,d60:null},atrPct:null,avgVolTL20:null,volAnn:null,mom12:null};
   if(!N)return out;
   const c=rs.map(r=>r.c),x=c[N-1];
   for(const n of P)if(N>n)out.perf['d'+n]=rnd((x/c[N-1-n]-1)*100);
+  if(N>252)out.mom12=rnd((c[N-22]/c[N-253]-1)*100);
   const w=rs.slice(-252);out.hi52=Math.max(...w.map(r=>r.h));out.lo52=Math.min(...w.map(r=>r.l));
   out.hi52Dist=rnd((x-out.hi52)/out.hi52*100);out.lo52Dist=rnd((x-out.lo52)/out.lo52*100);
   if(engine&&typeof engine.atrS==='function'&&N>15){const a=engine.atrS(rs,14)[N-1];if(fin(a))out.atrPct=rnd(a/x*100)}
@@ -295,11 +397,11 @@ function createData({market=require('./market'),engine=require('./engine'),now=(
     const turn=N>2&&fin(R[N-1])&&fin(R[N-2])?(R[N-1]>R[N-2]&&rows[N-1].c>rows[N-2].c?1:R[N-1]<R[N-2]&&rows[N-1].c<rows[N-2].c?-1:0):0;
     const v=pro.verdict,pl=pro.plan&&!pro.plan.wait?pro.plan:null;
     if(daily&&daily.length)putSpark(y+'|'+mkt,daily);
-    return {symbol:code,name:nameOf(code,mkt)||q.name||null,price,chgPct:prev?rnd((price-prev)/prev*100):null,
+    return {symbol:code,name:nameOf(code,mkt)||q.name||null,sector:mkt==='BIST'?sectorOf(code):'Diğer',price,chgPct:prev?rnd((price-prev)/prev*100):null,
       verdict:{label:v.label,dir:v.dir,score:v.score,confidence:v.confidence},rr:pl&&fin(pl.rr)?pl.rr:null,
       atrPct:pro.volatility?pro.volatility.atrPct:null,volRatio:pro.volume?pro.volume.ratio:null,rsi:pro.momentum?pro.momentum.rsi:null,
       adx:pro.trend.primary?pro.trend.primary.adx:null,trend:{d:td,w:tw},
-      perf:{d5:st.perf.d5,d20:st.perf.d20,d60:st.perf.d60},rs20:st.rs.d20,hi52Dist:st.hi52Dist,lo52Dist:st.lo52Dist,
+      perf:{d5:st.perf.d5,d20:st.perf.d20,d60:st.perf.d60,d120:st.perf.d120,d250:st.perf.d250},mom12:st.mom12,rs20:st.rs.d20,hi52Dist:st.hi52Dist,lo52Dist:st.lo52Dist,
       plan:pl?{dir:pl.dir,entry:pl.entry,stop:pl.stop,t1:pl.t1,rr:pl.rr}:null,
       tags:tagsOf({rows,pro,st:daily&&daily.length?st:null,tw,engine}),score:v.score,
       reasons:(v.reasons||[]).slice(0,3),rsiMin5:rl.length?rnd(Math.min(...rl),1):null,turn,time:rows[N-1].t,stale:!!(P.stale||(D&&D.stale))}}
@@ -316,7 +418,8 @@ function createData({market=require('./market'),engine=require('./engine'),now=(
     const aborted=()=>!!(signal&&signal.aborted);
     let done=0,ok=0,netFails=0,stopped=false,pauseUntil=0,backoff=5000;
     const prog=sym=>{if(typeof onProgress==='function')try{onProgress({done,total:items.length,symbol:sym})}catch(e){}};
-    const finish=()=>{out.cancelled=aborted();out.at=now();out.rows.sort((a,b)=>b.score-a.score||(a.symbol<b.symbol?-1:a.symbol>b.symbol?1:0));return out};
+    // Bitiste satirlar skora gore siralanir ve taranan evren icinde faktor puani (factorRank) eklenir.
+    const finish=()=>{out.cancelled=aborted();out.at=now();out.rows.sort((a,b)=>b.score-a.score||(a.symbol<b.symbol?-1:a.symbol>b.symbol?1:0));out.rows=factorRank(out.rows);return out};
     if(aborted())return finish();
     // Iptal sozu: beklenen her seyle yarisir (dis istek iptal edilemese de sonucu beklenmez).
     let onAbort=null;const abP=signal?new Promise(r=>{onAbort=r;signal.addEventListener('abort',r,{once:true})}):null;
@@ -347,6 +450,7 @@ function createData({market=require('./market'),engine=require('./engine'),now=(
     if(signal&&onAbort)signal.removeEventListener('abort',onAbort);
     return finish()}
 
-  return {quotes,scan,matches,stats,overview,breadth,search}}
+  return {quotes,scan,matches,stats,overview,breadth,search,sectorOf,sectorStats,factorRank,leaders}}
 
-module.exports={createData,U,NAMES,MACRO,PRESETS,TAGS,resampleWeekly,_util:{fold,statsOf,tagsOf,cleanRows,dayIdx,INDICES,ALIAS,PRESET_FN}};
+module.exports={createData,U,NAMES,MACRO,PRESETS,TAGS,resampleWeekly,SECTORS,SECTOR_NAMES,sectorOf,sectorStats,factorRank,leaders,
+  _util:{fold,statsOf,tagsOf,cleanRows,dayIdx,INDICES,ALIAS,PRESET_FN,SEC_LIST,pctRank,FW}};

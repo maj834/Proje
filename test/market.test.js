@@ -375,3 +375,161 @@ test('onbellek diske kisilarak yazilir; yenilenen kayit sona tasinir, en fazla 2
   assert.ok(!disk['yc:THYAO.IS:1g'], 'en eski dusar');
   assert.ok(disk['yc:S229X.IS:1g']);
 });
+
+// --- fundamentals(): Yahoo quoteSummary (cerez + crumb) ---------------------------------------------------------
+// Yerel sahte fetch: set-cookie basligi ve duz metin (crumb) gerekir. h(url, init) -> {status, json|text, cookies:[...]} | Error
+function fakeYahoo(t, h) {
+  const orig = global.fetch, calls = [];
+  global.fetch = async (url, init = {}) => {
+    url = String(url); calls.push({ url, init });
+    const r = await h(url, init);
+    if (r instanceof Error) throw r;
+    if (r.raw) return r.raw;                              // ham nesne (Response degil): yedek yollar icin
+    const headers = [['content-type', r.text != null ? 'text/plain' : 'application/json'], ...(r.cookies || []).map(c => ['set-cookie', c])];
+    return new Response(r.text != null ? r.text : JSON.stringify(r.json ?? {}), { status: r.status || 200, headers });
+  };
+  t.after(() => { global.fetch = orig; });
+  return calls;
+}
+const isFc = u => /^https:\/\/fc\.yahoo\.com/.test(u), isCrumb = u => /\/v1\/test\/getcrumb/.test(u), isQS = u => /\/v10\/finance\/quoteSummary\//.test(u);
+const A3 = 'A3=d=AQABBKZz&S=AQAAAk; Expires=Tue, 19 Oct 2027 10:00:00 GMT; Max-Age=31557600; Domain=.yahoo.com; Path=/; SameSite=None; Secure; HttpOnly';
+const rf = (raw, fmt) => ({ raw, fmt: fmt || String(raw) });
+const LONG = 'Türk Hava Yolları uluslararası yolcu ve kargo taşımacılığı yapar. '.repeat(15);
+function qsBody(over = {}) {
+  return { quoteSummary: { error: null, result: [{
+    summaryDetail: { currency: 'TRY', marketCap: rf(420e9), trailingPE: rf(4.123), forwardPE: rf(3.8), priceToSalesTrailing12Months: rf(0.55), dividendYield: rf(0.0345),
+      payoutRatio: rf(0.12), beta: rf(1.234) },
+    defaultKeyStatistics: { priceToBook: rf(0.95), enterpriseToEbitda: rf(5.678), forwardPE: rf(99) },
+    financialData: { financialCurrency: 'TRY', returnOnEquity: rf(0.2512), returnOnAssets: rf(0.081), grossMargins: rf(0.21), operatingMargins: rf(0.115),
+      profitMargins: rf(0.142), revenueGrowth: rf(0.385), earningsGrowth: rf(-0.12), debtToEquity: rf(123.4), currentRatio: rf(1.15),
+      targetMeanPrice: rf(420.5), targetHighPrice: rf(520), targetLowPrice: rf(330), numberOfAnalystOpinions: rf(14), recommendationKey: 'strong_buy' },
+    assetProfile: { sector: 'Industrials', industry: 'Airlines', longBusinessSummary: LONG },
+    calendarEvents: { earnings: { earningsDate: [rf(Math.floor(NOW / 1000) - 30 * 86400), rf(Math.floor(NOW / 1000) + 16 * 86400)] } },
+    ...over }] } };
+}
+function yahooFlow(t, { qs = () => ({ json: qsBody() }), crumb = () => ({ text: 'Ab1/cd.EF' }), fc = () => ({ status: 404, text: 'nf', cookies: [A3, 'A1=d=xyz; Path=/'] }) } = {}) {
+  return fakeYahoo(t, (u, init) => isFc(u) ? fc(u, init) : isCrumb(u) ? crumb(u, init) : isQS(u) ? qs(u, init) : new Error('beklenmeyen istek: ' + u));
+}
+
+test('fundamentals: cerez + crumb akisi, raw degerler, yuzdeler, oranlar, ozet kisaltma, sonraki bilanco', async t => {
+  const { M } = setup(t);
+  const calls = yahooFlow(t);
+  const f = await M.fundamentals('thyao');
+  assert.equal(calls.length, 3);
+  assert.ok(isFc(calls[0].url)); assert.equal(calls[0].init.redirect, 'manual'); assert.ok(calls[0].init.headers['user-agent']);
+  assert.ok(isCrumb(calls[1].url)); assert.equal(calls[1].init.headers.cookie, 'A3=d=AQABBKZz&S=AQAAAk; A1=d=xyz');
+  const u = new URL(calls[2].url);
+  assert.equal(u.pathname, '/v10/finance/quoteSummary/THYAO.IS');
+  assert.equal(u.searchParams.get('modules'), 'summaryDetail,defaultKeyStatistics,financialData,assetProfile,calendarEvents');
+  assert.equal(u.searchParams.get('crumb'), 'Ab1/cd.EF');
+  assert.equal(calls[2].init.headers.cookie, 'A3=d=AQABBKZz&S=AQAAAk; A1=d=xyz');
+  assert.equal(f.symbol, 'THYAO.IS'); assert.equal(f.currency, 'TRY'); assert.equal(f.financialCurrency, 'TRY');
+  assert.equal(f.sector, 'Industrials'); assert.equal(f.industry, 'Airlines');
+  assert.ok(f.summary.length <= 600 && f.summary.endsWith('…'), f.summary.length);
+  assert.equal(f.marketCap, 420e9); assert.equal(f.pe, 4.12); assert.equal(f.fwdPe, 3.8, 'summaryDetail onceligi'); assert.equal(f.pb, 0.95);
+  assert.equal(f.ps, 0.55); assert.equal(f.evEbitda, 5.68);
+  assert.equal(f.divYield, 3.45); assert.equal(f.payout, 12); assert.equal(f.roe, 25.12); assert.equal(f.roa, 8.1);
+  assert.equal(f.grossMargin, 21); assert.equal(f.opMargin, 11.5); assert.equal(f.netMargin, 14.2);
+  assert.equal(f.revenueGrowth, 38.5); assert.equal(f.earningsGrowth, -12);
+  assert.equal(f.debtToEquity, 1.234, 'Yahoo yuzde verir; oran'); assert.equal(f.currentRatio, 1.15); assert.equal(f.beta, 1.234);
+  assert.deepEqual(f.target, { mean: 420.5, high: 520, low: 330, n: 14, rec: 'strong_buy' });
+  assert.equal(f.nextEarnings, (Math.floor(NOW / 1000) + 16 * 86400) * 1000, 'gecmis tarih atlanir');
+  assert.equal(f.at, NOW); assert.equal(f.cached, undefined);
+});
+
+test('fundamentals: sonuc 12 sa, crumb 6 sa bellekte; ayni anda gelen istekler tek istege iner', async t => {
+  const { M, dir } = setup(t);
+  const calls = yahooFlow(t);
+  const n = k => calls.filter(c => k(c.url)).length;
+  const [a, b] = await Promise.all([M.fundamentals('THYAO'), M.fundamentals('thyao')]);
+  assert.equal(a.pe, 4.12); assert.equal(b.pe, 4.12);
+  assert.equal(n(isQS), 1); assert.equal(n(isFc), 1); assert.equal(n(isCrumb), 1);
+  // farkli iki sembol ayni anda: tek oturum
+  await Promise.all([M.fundamentals('GARAN'), M.fundamentals('ASELS')]);
+  assert.equal(n(isFc), 1); assert.equal(n(isQS), 3);
+  const c = await M.fundamentals('THYAO'); assert.equal(c.cached, true); assert.equal(n(isQS), 3);
+  t.mock.timers.setTime(NOW + 6 * 3600000 + 1000);            // crumb eskidi, sonuc taze
+  await M.fundamentals('THYAO'); assert.equal(n(isQS), 3); assert.equal(n(isFc), 1);
+  await M.fundamentals('EREGL'); assert.equal(n(isFc), 2, 'crumb yenilendi'); assert.equal(n(isCrumb), 2);
+  t.mock.timers.setTime(NOW + 12 * 3600000 + 1000);
+  const d = await M.fundamentals('THYAO'); assert.equal(d.cached, undefined); assert.equal(n(isQS), 5);
+  // diske yazilmaz
+  M.flush();
+  const f = path.join(dir, 'market-cache.json');
+  assert.ok(!fs.existsSync(f) || !/quoteSummary|THYAO/.test(fs.readFileSync(f, 'utf8')));
+});
+
+test('fundamentals: 401 -> oturum bir kez yenilenir; ikinci 401 hata (sonsuz deneme yok)', async t => {
+  const { M } = setup(t);
+  let crumbN = 0, deny = 1;
+  const calls = yahooFlow(t, { crumb: () => ({ text: 'crumb' + (++crumbN) }),
+    qs: u => deny-- > 0 ? { status: 401, json: { finance: { result: null, error: { code: 'Unauthorized', description: 'Invalid Crumb' } } } } : { json: qsBody() } });
+  const f = await M.fundamentals('THYAO');
+  assert.equal(f.pe, 4.12);
+  const qs = calls.filter(c => isQS(c.url));
+  assert.equal(qs.length, 2); assert.equal(calls.filter(c => isFc(c.url)).length, 2);
+  assert.equal(new URL(qs[0].url).searchParams.get('crumb'), 'crumb1'); assert.equal(new URL(qs[1].url).searchParams.get('crumb'), 'crumb2');
+  // 403 iki kez: tek yenileme, Turkce hata; sonraki cagri yeni oturum ister
+  deny = 99;
+  await assert.rejects(M.fundamentals('GARAN'), { message: 'Temel veri alınamadı: Yahoo erişimi reddetti (HTTP 401).' });
+  assert.equal(calls.filter(c => isQS(c.url)).length, 4); assert.equal(calls.filter(c => isFc(c.url)).length, 3);
+  deny = 0; await M.fundamentals('GARAN'); assert.equal(calls.filter(c => isFc(c.url)).length, 4, 'reddedilen oturum atildi');
+});
+
+test('fundamentals: eksik moduller ve bos alanlar null; hedef/bilanco tarihi yoksa null', async t => {
+  const { M } = setup(t);
+  let body = { quoteSummary: { error: null, result: [{ summaryDetail: { trailingPE: {}, priceToSalesTrailing12Months: rf(1.2), marketCap: { fmt: '1B' } },
+    financialData: { targetMeanPrice: rf(10), numberOfAnalystOpinions: rf(0), recommendationKey: 'none', debtToEquity: {} }, assetProfile: { sector: '  ', longBusinessSummary: 'Kısa.' },
+    calendarEvents: { earnings: { earningsDate: [rf(Math.floor(NOW / 1000) - 90 * 86400)] } } }] } };
+  yahooFlow(t, { qs: () => ({ json: body }) });
+  const f = await M.fundamentals('XYZW');
+  assert.equal(f.ps, 1.2); assert.equal(f.summary, 'Kısa.'); assert.equal(f.currency, 'TRY', '.IS -> TRY');
+  for (const k of ['marketCap', 'pe', 'fwdPe', 'pb', 'evEbitda', 'divYield', 'payout', 'roe', 'roa', 'grossMargin', 'opMargin', 'netMargin', 'revenueGrowth',
+    'earningsGrowth', 'debtToEquity', 'currentRatio', 'beta', 'sector', 'industry', 'financialCurrency', 'target', 'nextEarnings']) assert.equal(f[k], null, k);
+  // calendarEvents/assetProfile hic yok + ABD
+  body = { quoteSummary: { result: [{ summaryDetail: { currency: 'USD', trailingPE: rf(28.5) }, financialData: { financialCurrency: 'USD', targetMeanPrice: rf(250), recommendationKey: 'BUY' } }] } };
+  const g = await M.fundamentals('aapl', 'US');
+  assert.equal(g.symbol, 'AAPL'); assert.equal(g.currency, 'USD'); assert.equal(g.pe, 28.5); assert.equal(g.summary, null); assert.equal(g.nextEarnings, null);
+  assert.deepEqual(g.target, { mean: 250, high: null, low: null, n: null, rec: 'buy' });
+});
+
+test('fundamentals: hata JSON, 404, 429, cerez/crumb yok, cevrimdisi ve gecersiz kod mesajlari', async t => {
+  const { M } = setup(t);
+  let mode = '404';
+  const calls = yahooFlow(t, {
+    fc: () => mode === 'nocookie' ? { status: 404, text: 'x' } : mode === 'off' ? offline() : { status: 404, text: 'x', cookies: [A3] },
+    crumb: () => mode === 'crumbhtml' ? { text: '<html>consent</html>' } : mode === 'crumb429' ? { status: 429, text: '' } : { text: 'okcrumb' },
+    qs: () => mode === '404' ? { status: 404, json: { quoteSummary: { result: null, error: { code: 'Not Found', description: 'Quote not found for symbol: XYZQ.IS' } } } }
+      : mode === 'desc' ? { json: { quoteSummary: { result: null, error: { code: 'Bad Request', description: 'Invalid module' } } } }
+      : mode === 'html' ? { status: 500, text: '<html>oops</html>' } : mode === '429' ? { status: 429, text: '' } : { json: { quoteSummary: { result: [] } } } });
+  await assert.rejects(M.fundamentals('???'), { message: 'Geçerli bir hisse kodu yaz (ör. THYAO).' }); assert.equal(calls.length, 0);
+  await assert.rejects(M.fundamentals('XYZQ'), { message: 'Temel veri alınamadı: XYZQ.IS için temel veri bulunamadı.' });
+  mode = 'desc'; await assert.rejects(M.fundamentals('AAAA'), { message: 'Temel veri alınamadı: Yahoo: Invalid module' });
+  mode = 'html'; await assert.rejects(M.fundamentals('BBBB'), { message: 'Temel veri alınamadı: Yahoo hata verdi (HTTP 500).' });
+  mode = '429'; await assert.rejects(M.fundamentals('CCCC'), /çok sık istek/);
+  mode = 'empty'; await assert.rejects(M.fundamentals('DDDD'), { message: 'Temel veri alınamadı: Yahoo bu sembol için temel veri döndürmedi.' });
+  const M2 = fresh('market.js'); M2.init(tmpDir());           // yeni oturum gereken durumlar
+  mode = 'nocookie'; await assert.rejects(M2.fundamentals('EEEE'), { message: 'Temel veri alınamadı: Yahoo oturum çerezi alınamadı.' });
+  mode = 'crumbhtml'; await assert.rejects(M2.fundamentals('EEEE'), { message: 'Temel veri alınamadı: Yahoo erişim anahtarı (crumb) alınamadı.' });
+  mode = 'crumb429'; await assert.rejects(M2.fundamentals('EEEE'), /çok sık istek/);
+  mode = 'off'; await assert.rejects(M2.fundamentals('EEEE'), { message: 'Temel veri alınamadı: Bağlantı yok.' });
+  mode = 'ok'; await assert.rejects(M2.fundamentals('EEEE'), /temel veri döndürmedi/, 'hata sonrasi bekleme kaydi temizlendi, yeniden denendi');
+});
+
+test('fundamentals: suresi dolan sonuc yenilenemezse eski sonuc "stale" doner', async t => {
+  const { M } = setup(t);
+  let off = false;
+  yahooFlow(t, { qs: () => off ? offline() : { json: qsBody() } });
+  await M.fundamentals('THYAO');
+  off = true; t.mock.timers.setTime(NOW + 13 * 3600000);
+  const f = await M.fundamentals('THYAO');
+  assert.equal(f.stale, true); assert.equal(f.cached, true); assert.equal(f.staleReason, 'Bağlantı yok.'); assert.equal(f.pe, 4.12);
+});
+
+test('fundamentals: getSetCookie olmayan basliklar (birlesik set-cookie) da cozulur', async t => {
+  const { M } = setup(t);
+  const joined = A3 + ', B=abc123; Path=/, bozuk';
+  const calls = yahooFlow(t, { fc: () => ({ raw: { status: 404, ok: false, headers: { get: k => k === 'set-cookie' ? joined : null }, body: null } }) });
+  await M.fundamentals('THYAO');
+  assert.equal(calls[1].init.headers.cookie, 'A3=d=AQABBKZz&S=AQAAAk; B=abc123');
+});

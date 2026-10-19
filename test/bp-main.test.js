@@ -9,7 +9,7 @@ const realMarket = require('../market');
 const BP = require('../borsa-pro-main.js');
 
 const CHANNELS = ['bp:ai', 'bp:alarm', 'bp:ask', 'bp:capital', 'bp:lab', 'bp:load', 'bp:open', 'bp:overview', 'bp:portfolio', 'bp:prefs',
-  'bp:quotes', 'bp:scan', 'bp:scanCancel', 'bp:search', 'bp:state', 'bp:watch'];
+  'bp:quotes', 'bp:report', 'bp:scan', 'bp:scanCancel', 'bp:search', 'bp:state', 'bp:watch'];
 const T0 = Date.UTC(2026, 9, 19, 8, 0);                 // Pazartesi 11:00 Istanbul
 const flush = async (n = 5) => { for (let i = 0; i < n; i++) await new Promise(r => setImmediate(r)); };
 const deferred = () => { let ok; const p = new Promise(r => { ok = r; }); return { p, ok }; };
@@ -151,7 +151,8 @@ function harness(t, o = {}) {
     Notification: Notif, shell: { openExternal: u => opened.push(u) }, nativeTheme: { shouldUseDarkColors: o.dark !== false, on() {} },
     cfg: () => store.c, save: x => { store.c = { ...store.c, ...x }; store.saves++; }, isOn: () => h.on,
     market, engine: o.engine || engine, calendar, power, data, lab, analyst, ext, say: s => said.push(s), now: () => clock.t, timers,
-    meta: o.meta === undefined ? { U, PRESETS, TAGS: { 'kirilim-yukari': { name: 'Yukarı kırılım', dir: 1 } } } : o.meta };
+    meta: o.meta === undefined ? { U, PRESETS, TAGS: { 'kirilim-yukari': { name: 'Yukarı kırılım', dir: 1 } } } : o.meta,
+    quant: o.quant || null, history: o.history || null, fund: o.fund || null };
   h.deps = deps; h.Notif = Notif;
   h.ui = BP.registerBorsaPro(deps);
   h.call = (ch, arg) => handlers[ch]({ sender: h.win && h.win.webContents }, arg);
@@ -508,7 +509,7 @@ test('bp:ai: baglam son yuklemeden (yeniden veri cekmez), lab ozeti, pozisyon, s
   assert.equal(h.market.calls.multi.length, nm, 'son yukleme kullanilir');
   const { ctx, o } = h.analyst.calls.brief[0];
   assert.deepEqual(o, { provider: 'groq' });
-  assert.deepEqual(Object.keys(ctx).sort(), ['akd', 'depth', 'lab', 'name', 'news', 'position', 'pro', 'quote', 'stats', 'symbol', 'tf']);
+  assert.deepEqual(Object.keys(ctx).sort(), ['akd', 'depth', 'fund', 'lab', 'name', 'news', 'position', 'pro', 'quant', 'quote', 'stats', 'symbol', 'tf']);
   assert.equal(ctx.pro.ok, true); assert.equal(ctx.name, 'Türk Hava Yolları'); assert.deepEqual(ctx.akd, { days: 5, top: [] });
   assert.deepEqual(ctx.lab, { best: 'ema', results: [{ id: 'ema', name: 'EMA', stats: { trades: 6, totalRet: 12 } }] });
   assert.deepEqual(ctx.news.map(n => n.title), ['Bot özeti', 'Yahoo haberi']); assert.equal(ctx.news[0].score, 3);
@@ -847,7 +848,7 @@ test('preload: yalniz bp: kanallari, ana surecle ayni kanal kumesi; on yalniz bp
   delete require.cache[pPath]; require(pPath);
   assert.equal(exposed.k, 'bp');
   const api = exposed.v;
-  assert.deepEqual(Object.keys(api).sort(), ['ai', 'alarm', 'ask', 'capital', 'lab', 'load', 'on', 'open', 'overview', 'portfolio', 'prefs', 'quotes', 'scan', 'scanCancel', 'search', 'state', 'watch']);
+  assert.deepEqual(Object.keys(api).sort(), ['ai', 'alarm', 'ask', 'capital', 'lab', 'load', 'on', 'open', 'overview', 'portfolio', 'prefs', 'quotes', 'report', 'scan', 'scanCancel', 'search', 'state', 'watch']);
   for (const k of Object.keys(api)) if (k !== 'on') assert.equal(await api[k]({ a: 1 }), 'ok');
   const chans = [...new Set(invokes.map(x => x[0]))].sort();
   assert.deepEqual(chans, CHANNELS, 'ana surecin kaydettigi kanallarla birebir');
@@ -865,4 +866,69 @@ test('preload: yalniz bp: kanallari, ana surecle ayni kanal kumesi; on yalniz bp
   assert.equal(typeof api.on('nope'), 'function');
   // gercek ana surec kayitlariyla capraz kontrol
   const h = harness(t); assert.deepEqual(Object.keys(h.handlers).sort(), chans);
+});
+
+// --- olasilik motoru, uzun gecmis, temel veri -------------------------------------------------
+test('bp:load: olasilik motoru uzun gecmisle (son donem taze gunluk mumlar), dilim tablolari, temel veri, rapor, Neo ozeti', async (t) => {
+  const Q = require('../bp-quant.js');
+  const daily = synth(400, { drift: 0.001, wave: 0.006, period: 80 });
+  // Uzun gecmis: gunluk serinin baslangicindan once 1600 mum + ayni donemde farkli (bayat) degerler; son donem gunlukten alinmali
+  const old = synth(1600, { drift: 0.0005, wave: 0.006, period: 80, t0: daily[0].t - 1600 * 86400000, seed: 9 });
+  const stale = daily.map(r => ({ ...r, c: r.c * 0.5, o: r.o * 0.5, h: r.h * 0.5, l: r.l * 0.5 }));
+  const histCalls = [];
+  const history = { get: async y => { histCalls.push(y); return [...old, ...stale]; } };
+  let fundArgs = null;
+  const fund = { scoreFundamentals: (f, o) => { fundArgs = { f, o }; return { ok: true, valuation: { label: 'Ucuz', score: 0.5 }, lines: ['F/K düşük'] }; } };
+  const seen = [];
+  const quant = { ...Q, analyze: a => { seen.push(a); return Q.analyze(a); } };
+  const h = harness(t, { mk: { daily, price: daily.at(-1).c }, quant, history, fund });
+  h.market.fundamentals = async (y, m) => ({ symbol: y, pe: 5.1, pb: 1.2, sector: 'Ulaştırma' });
+  h.ui.open();
+  const r = await h.call('bp:load', { symbol: 'THYAO', tf: '1g' });
+  assert.equal(r.ok, true, r.error);
+  assert.deepEqual(histCalls, ['THYAO.IS']);
+  const H = seen[0].hist;
+  assert.equal(H.length, 2000, 'eski 1600 + gunluk 400');
+  assert.equal(H.at(-1).c, daily.at(-1).c, 'son donem taze gunluk mumlardan (bayat gecmis degil)');
+  assert.ok(H.slice(0, 1600).every((x, i) => x.t === old[i].t));
+  assert.ok(r.quant && r.quant.rating && ['Sat', 'Azalt', 'Tut', 'Al', 'Güçlü Al'].includes(r.quant.rating.label));
+  assert.ok(r.quant.score && r.quant.ranges && r.quant.tech);
+  assert.ok(r.techFrames && r.techFrames['1g'] && r.techFrames['1h'], 'her dilim icin teknik ozet');
+  assert.ok(['Güçlü Al', 'Al', 'Nötr', 'Sat', 'Güçlü Sat'].includes(r.techFrames['1g'].overall.label));
+  assert.deepEqual(r.fund.raw.pe, 5.1); assert.equal(r.fund.score.valuation.label, 'Ucuz'); assert.equal(fundArgs.o.last, r.quote.price);
+  assert.ok(r.report && r.report.text.includes('THYAO') && !/NaN|undefined/.test(r.report.text));
+  // Neo ozeti analist notu ve plan olasiligini da tasir
+  const an = await h.ui.analyzeSymbol('THYAO');
+  assert.equal(an.analistNotu, r.quant.rating.label);
+  if (r.quant.rating.target) assert.equal(an.birAyHedef.potansiyelYuzde, r.quant.rating.target.upside);
+  // Yapay zeka baglami quant ve temel veriyi icerir
+  await h.call('bp:ai', { symbol: 'THYAO', tf: '1g' });
+  const ctx = h.analyst.calls.brief.at(-1).ctx;
+  assert.equal(ctx.quant.rating.label, r.quant.rating.label); assert.equal(ctx.fund.valuation.label, 'Ucuz'); assert.equal(ctx.fund.raw.pe, 5.1);
+});
+
+test('bp:load: gecmis ya da temel veri alinamazsa analiz yine doner; quant hatasi yutulur', async (t) => {
+  const Q = require('../bp-quant.js');
+  const history = { get: async () => { throw new Error('Bağlantı yok.'); } };
+  const quant = { ...Q, analyze: () => { throw new Error('patladi'); } };
+  const h = harness(t, { quant, history });
+  h.market.fundamentals = async () => { throw new Error('Temel veri alınamadı'); };
+  h.ui.open();
+  const r = await h.call('bp:load', { symbol: 'THYAO' });
+  assert.equal(r.ok, true); assert.equal(r.quant, null); assert.equal(r.fund, null); assert.equal(r.pro.ok, true);
+  assert.ok(r.techFrames && r.techFrames['1g'], 'teknik tablo ayri hesaplanir');
+});
+
+test('bp:report: analist modulu report destekliyorsa onbellekli, desteklemiyorsa anlasilir hata', async (t) => {
+  const a = fakeAnalyst(['groq']); let n = 0;
+  a.report = async (ctx, o) => { n++; return { ok: true, provider: o.provider, model: 'm', data: { not: 'Al', ozet: 'x' } }; };
+  const h = harness(t, { analyst: a });
+  h.ui.open();
+  await h.call('bp:load', { symbol: 'THYAO' });
+  const r1 = await h.call('bp:report', { symbol: 'THYAO' }), r2 = await h.call('bp:report', { symbol: 'THYAO' });
+  assert.equal(r1.ok, true); assert.equal(r1.data.not, 'Al'); assert.equal(r2.cached, true); assert.equal(n, 1);
+  await h.call('bp:report', { symbol: 'THYAO', force: true }); assert.equal(n, 2);
+  const h2 = harness(t);
+  h2.ui.open();
+  assert.deepEqual(await h2.call('bp:report', { symbol: 'THYAO' }), { ok: false, error: 'Yapay zekâ raporu bu sürümde yok.' });
 });

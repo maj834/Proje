@@ -120,6 +120,97 @@ async function yahooNews(symbol,mkt='BIST'){
   });
 }
 
+// --- Yahoo temel veriler (v10 quoteSummary) --------------------------------------------------------------
+// quoteSummary cerez + crumb ister: fc.yahoo.com cevabinin set-cookie'sinden A3/A1 cerezi (yonlendirme izlenmez, cerez ilk cevaptadir),
+// sonra v1/test/getcrumb (cerezle) -> crumb. Ikisi ~6 sa bellekte; 401/403 (suresi doldu) -> bir kez yenilenip tekrar denenir.
+// Sonuc 12 sa bellekte (diske yazilmaz; temel veri gun ici degismez). Ayni anda gelen istekler tek istege iner. Cevrimdisi: eski sonuc "stale".
+// Degerler {raw,fmt}: raw alinir. Oranlar yuzdeye cevrilir (0.123 -> 12.3). debtToEquity ORANDIR (Yahoo yuzde verir: 85 -> 0.85).
+// Eksik alan null. financialCurrency: tablolarin para birimi (fiyattan farkli olabilir; ornegin USD raporlayan sirket).
+const CRUMB_TTL=6*3600000,FTTL=12*3600000,FMODS='summaryDetail,defaultKeyStatistics,financialData,assetProfile,calendarEvents';
+const RATE_MSG='Veri sağlayıcı çok sık istek uyarısı verdi; biraz bekle.';
+let yauth=null,yauthWait=null;const fcache={},fwait={};
+async function yget(url,headers={},extra={}){
+  try{return await fetch(url,{headers:{'user-agent':UA,...headers},signal:AbortSignal.timeout(15000),...extra})}
+  catch(e){throw new Error(e.name==='TimeoutError'?'Veri sağlayıcı yanıt vermedi.':'Bağlantı yok.')}
+}
+// set-cookie -> "ad=deger; ad2=deger2". getSetCookie yoksa birlesik basliktan ayrilir (Expires icindeki virgul bolunmez).
+function cookiesOf(h){
+  let a=[];try{if(h&&typeof h.getSetCookie==='function')a=h.getSetCookie()||[]}catch(e){}
+  if(!a.length){let s=null;try{s=h&&typeof h.get==='function'?h.get('set-cookie'):null}catch(e){}if(s)a=String(s).split(/,(?=\s*[\w.-]+=)/)}
+  const kv=a.map(s=>String(s).split(';')[0].trim()).filter(s=>/^[\w.-]+=\S+$/.test(s));
+  return [...new Map(kv.map(s=>[s.slice(0,s.indexOf('=')),s])).values()].join('; ');
+}
+// bad: 401 alan oturum; o hala gecerli kayitsa yenilenir (baska istek coktan yeniledi ise yenisi kullanilir).
+async function yahooAuth(bad=null){
+  if(yauth&&yauth!==bad&&Date.now()-yauth.at<CRUMB_TTL)return yauth;
+  if(yauthWait)return yauthWait;
+  yauthWait=(async()=>{try{
+    const r=await yget('https://fc.yahoo.com',{accept:'text/html'},{redirect:'manual'});   // genelde 404 doner; cerez yine gelir
+    const cookie=cookiesOf(r.headers);try{if(r.body&&typeof r.body.cancel==='function')r.body.cancel().catch(()=>{})}catch(e){}
+    if(!cookie)throw new Error('Yahoo oturum çerezi alınamadı.');
+    const c=await yget('https://query2.finance.yahoo.com/v1/test/getcrumb',{cookie,accept:'text/plain'});
+    if(c.status===429)throw new Error(RATE_MSG);
+    let crumb='';if(c.ok)try{crumb=String(await c.text()).trim()}catch(e){}
+    if(!crumb||crumb.length>64||/[\s<>{}"]/.test(crumb))throw new Error('Yahoo erişim anahtarı (crumb) alınamadı'+(c.ok?'.':' (HTTP '+c.status+').'));
+    return yauth={cookie,crumb,at:Date.now()};
+  }finally{yauthWait=null}})();
+  return yauthWait;
+}
+async function ysummary(y,a){
+  const r=await yget(`https://query2.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(y)}?modules=${FMODS}&crumb=${encodeURIComponent(a.crumb)}`,{cookie:a.cookie,accept:'application/json'});
+  let j=null;try{j=await r.json()}catch(e){}
+  return {status:r.status,ok:r.ok,j};
+}
+const rawOf=x=>x&&typeof x==='object'?fnum(x.raw):fnum(x);
+const fstr=s=>typeof s==='string'&&s.trim()?s.trim():null;
+function parseFund(y,res){
+  const o=k=>res[k]&&typeof res[k]==='object'?res[k]:{},sd=o('summaryDetail'),ks=o('defaultKeyStatistics'),fd=o('financialData'),ap=o('assetProfile'),ce=o('calendarEvents');
+  const R=(...xs)=>{for(const x of xs){const v=rawOf(x);if(v!=null)return v}return null};
+  const P=(...xs)=>{const v=R(...xs);return v==null?null:+(v*100).toFixed(2)},D=(v,d=2)=>v==null?null:+v.toFixed(d);
+  let summary=fstr(ap.longBusinessSummary);
+  if(summary&&summary.length>600){const cut=summary.slice(0,599),sp=cut.lastIndexOf(' ');summary=(sp>400?cut.slice(0,sp):cut).replace(/[\s,;:.]+$/,'')+'…'}
+  const tMean=R(fd.targetMeanPrice),tN=R(fd.numberOfAnalystOpinions),rec=fstr(fd.recommendationKey);
+  const target=tMean!=null&&tMean>0&&tN!==0?{mean:tMean,high:R(fd.targetHighPrice),low:R(fd.targetLowPrice),n:tN!=null?Math.round(tN):null,
+    rec:rec&&rec.toLowerCase()!=='none'?rec.toLowerCase():null}:null;
+  // Bilanco tarihi: Yahoo 1-2 tarih (aralik) verir, saniye; gecmis tarih (BIST'te sik eskir) "sonraki" sayilmaz.
+  const now=Date.now(),eds=(ce.earnings&&Array.isArray(ce.earnings.earningsDate)?ce.earnings.earningsDate:[]).map(rawOf)
+    .filter(v=>v!=null&&v>0).map(v=>v>1e12?v:v*1000).sort((a,b)=>a-b);
+  const de=R(fd.debtToEquity);
+  return {source:'yahoo',symbol:y,currency:fstr(sd.currency)||(/\.IS$/.test(y)?'TRY':fstr(fd.financialCurrency)),financialCurrency:fstr(fd.financialCurrency),
+    sector:fstr(ap.sector),industry:fstr(ap.industry),summary,
+    marketCap:R(sd.marketCap),pe:D(R(sd.trailingPE,ks.trailingPE)),fwdPe:D(R(sd.forwardPE,ks.forwardPE)),pb:D(R(ks.priceToBook),3),
+    ps:D(R(sd.priceToSalesTrailing12Months),3),evEbitda:D(R(ks.enterpriseToEbitda)),
+    divYield:P(sd.dividendYield,sd.trailingAnnualDividendYield),payout:P(sd.payoutRatio),roe:P(fd.returnOnEquity),roa:P(fd.returnOnAssets),
+    grossMargin:P(fd.grossMargins),opMargin:P(fd.operatingMargins),netMargin:P(fd.profitMargins,ks.profitMargins),
+    revenueGrowth:P(fd.revenueGrowth),earningsGrowth:P(fd.earningsGrowth,ks.earningsQuarterlyGrowth),
+    debtToEquity:de==null?null:+(de/100).toFixed(3),currentRatio:D(R(fd.currentRatio),3),beta:D(R(sd.beta,ks.beta),3),
+    target,nextEarnings:eds.find(t=>t>=now-86400000)??null,at:now};
+}
+async function fundamentals(symbol,mkt='BIST'){
+  const y=yahooSymbol(symbol,mkt);if(!y)throw new Error('Geçerli bir hisse kodu yaz (ör. THYAO).');
+  const c=fcache[y];if(c&&Date.now()-c.at<FTTL)return {...c.v,cached:true};
+  if(fwait[y])return fwait[y];
+  const p=(async()=>{try{
+    let a=await yahooAuth(),r=await ysummary(y,a);
+    if(r.status===401||r.status===403){a=await yahooAuth(a);r=await ysummary(y,a)}
+    if(r.status===401||r.status===403){if(yauth===a)yauth=null;throw new Error('Yahoo erişimi reddetti (HTTP '+r.status+').')}
+    if(r.status===429)throw new Error(RATE_MSG);
+    const qs=r.j&&typeof r.j==='object'?(r.j.quoteSummary||r.j.finance):null,res=qs&&Array.isArray(qs.result)?qs.result[0]:null,err=qs&&qs.error;
+    if(!res||typeof res!=='object'){
+      if(r.status===404||(err&&/not ?found/i.test(String(err.code||'')+' '+String(err.description||''))))throw new Error(y+' için temel veri bulunamadı.');
+      if(err&&err.description)throw new Error('Yahoo: '+String(err.description).slice(0,140));
+      throw new Error(r.ok?'Yahoo bu sembol için temel veri döndürmedi.':'Yahoo hata verdi (HTTP '+r.status+').');
+    }
+    const v=parseFund(y,res);
+    const keys=Object.keys(fcache);if(keys.length>300)for(const k of keys.slice(0,100))delete fcache[k];
+    fcache[y]={at:Date.now(),v};return v;
+  }catch(e){
+    if(c)return {...c.v,cached:true,stale:true,staleReason:e.message};
+    throw new Error('Temel veri alınamadı: '+e.message);
+  }finally{delete fwait[y]}})();
+  fwait[y]=p;return p;
+}
+
 // --- Alpha Vantage ------------------------------------------------------------
 const today=()=>new Date().toISOString().slice(0,10);
 function avLeft(){if(avUse.day!==today())avUse={day:today(),n:0};return AV_DAY_CAP-avUse.n}
@@ -182,4 +273,4 @@ async function load(symbol,{tf='1g',avKey=null,news=true,market='BIST'}={}){
   return out;
 }
 
-module.exports={init,flush,load,candles,quote,multi,MTF,yahooNews,avQuote,avNews,avSearch,avLeft,yahooSymbol,TF};
+module.exports={init,flush,load,candles,quote,multi,MTF,yahooNews,fundamentals,avQuote,avNews,avSearch,avLeft,yahooSymbol,TF};

@@ -142,6 +142,7 @@ function addCost(c){
 const borsaPro=require('./borsa-pro-main').registerBorsaPro({ipcMain,app,BrowserWindow,path,screen,Notification,shell,nativeTheme,
   cfg:()=>cfg(),save:o=>save(o),isOn:()=>modOn('borsa'),market,engine,calendar,power:require('./power'),
   data:require('./bp-data').createData({market,engine}),meta:require('./bp-data'),lab:require('./bp-strategy'),
+  quant:require('./bp-quant'),history:require('./bp-history').createHistory(),fund:(()=>{try{return require('./bp-fund')}catch(e){return null}})(),
   analyst:require('./bp-analyst').createAnalyst({keys:{groq:()=>dec(cfg().groqKey),claude:()=>getKey(),grok:()=>grokKey()},claudeModel:()=>model(),addCost:c=>addCost(c)}),
   ext:{botNews:s=>botNews(s),extSignals:s=>extSignals(s),depth:()=>lastDepth,riskPct:()=>+cfg().riskPct>0?+cfg().riskPct:1},
   say:t=>{try{if(modOn('neo'))neoUi.say(t)}catch(e){}}});

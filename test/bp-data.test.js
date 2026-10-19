@@ -493,3 +493,189 @@ test('quotes/scan: endeks kodu Turkce adla doner', async () => {
   const r = await d.scan(['XU030'], { bench: null });
   assert.equal(r.rows[0].name, 'BIST 30 Endeksi');
 });
+
+// --- sektorler ve liderlik tablolari ---------------------------------------------------------------------------------
+const { SECTORS, SECTOR_NAMES, sectorOf, sectorStats, factorRank, leaders } = D;
+
+test('SECTORS: tum BIST100 kodlarinin sektoru var; her kod tek sektorde; isimler SECTOR_NAMES icinde', () => {
+  const missing = U.BIST100.filter(c => !SECTORS[c] || sectorOf(c) === 'Diğer');
+  assert.deepEqual(missing, [], 'sektorsuz: ' + missing.join());
+  const all = Object.values(_util.SEC_LIST).join(' ').split(/\s+/).filter(Boolean);
+  assert.equal(new Set(all).size, all.length, 'bir kod iki sektorde: ' + all.filter((c, i) => all.indexOf(c) !== i).join());
+  for (const c of all) { assert.match(c, /^[A-Z][A-Z0-9]{3,4}$/, c); assert.equal(M.yahooSymbol(c), c + '.IS'); }
+  for (const s of Object.values(SECTORS)) assert.ok(SECTOR_NAMES.includes(s), s);
+  assert.ok(SECTOR_NAMES.includes('Diğer') && SECTOR_NAMES.includes('Endeks'));
+  for (const s of Object.keys(_util.SEC_LIST)) assert.ok(all.some(c => SECTORS[c] === s), 'bos sektor ' + s);
+  // NAMES'teki her hisse (endeks degil) de siniflandirilmis
+  assert.deepEqual(Object.keys(NAMES).filter(c => sectorOf(c) === 'Diğer'), []);
+  const exp = { THYAO: 'Havacılık', PGSUS: 'Havacılık', TAVHL: 'Havacılık', AKBNK: 'Bankacılık', GARAN: 'Bankacılık', ISCTR: 'Bankacılık', TSKB: 'Bankacılık',
+    KCHOL: 'Holding', SAHOL: 'Holding', EREGL: 'Demir-Çelik', KRDMD: 'Demir-Çelik', FROTO: 'Otomotiv', TOASO: 'Otomotiv', TTRAK: 'Otomotiv',
+    TUPRS: 'Enerji', AYGAZ: 'Enerji', AKSEN: 'Elektrik', ENJSA: 'Elektrik', ZOREN: 'Elektrik', ASTOR: 'Enerji Ekipmanları', BIMAS: 'Perakende',
+    MGROS: 'Perakende', TCELL: 'Telekom', TTKOM: 'Telekom', CIMSA: 'Çimento-İnşaat', ENKAI: 'Çimento-İnşaat', PETKM: 'Kimya-Petrokimya',
+    SASA: 'Kimya-Petrokimya', ASELS: 'Savunma', ALTNY: 'Savunma', ULKER: 'Gıda-İçecek', AEFES: 'Gıda-İçecek', SISE: 'Cam', TRALT: 'Madencilik',
+    EKGYO: 'GYO', ANSGR: 'Sigorta', TURSG: 'Sigorta', MIATK: 'Teknoloji', PASEU: 'Ulaştırma-Lojistik', KARTN: 'Kağıt-Ambalaj',
+    ARCLK: 'Beyaz Eşya-Elektronik', VESTL: 'Beyaz Eşya-Elektronik', MPARK: 'Sağlık', GUBRF: 'Tarım-Gübre', HEKTS: 'Tarım-Gübre',
+    ISMEN: 'Finansal Hizmetler', FENER: 'Spor', VAKKO: 'Tekstil', MAALT: 'Turizm' };
+  for (const [c, s] of Object.entries(exp)) assert.equal(sectorOf(c), s, c);
+  // banka/holding/elektrik gruplari anlamli buyuklukte
+  const n = s => U.BIST100.filter(c => SECTORS[c] === s).length;
+  assert.ok(n('Bankacılık') >= 8 && n('Holding') >= 8 && n('Elektrik') >= 6, [n('Bankacılık'), n('Holding'), n('Elektrik')].join());
+});
+
+test('sectorOf: kod bicimleri, endeksler, kod sonu kurallari, bilinmeyen -> Diğer', () => {
+  assert.equal(sectorOf('thyao'), 'Havacılık'); assert.equal(sectorOf(' THYAO.IS '), 'Havacılık'); assert.equal(sectorOf('şişe'), 'Cam', 'Ş/İ -> S/I (ysym gibi)');
+  assert.equal(sectorOf('sise'), 'Cam'); assert.equal(sectorOf('ısctr'), 'Bankacılık', 'Turkce i -> I');
+  assert.equal(sectorOf('XU100'), 'Endeks'); assert.equal(sectorOf('XU100.IS'), 'Endeks'); assert.equal(sectorOf('XBANK'), 'Endeks');
+  assert.equal(sectorOf('ABGYO'), 'GYO'); assert.equal(sectorOf('XYZGY'), 'GYO'); assert.equal(sectorOf('QQBNK'), 'Bankacılık'); assert.equal(sectorOf('ZZHOL'), 'Holding');
+  assert.equal(sectorOf('KOZAL'), 'Madencilik', 'eski kod');
+  for (const x of ['ZZZZ', '', '   ', null, undefined, 42, {}, [], 'X!']) assert.equal(sectorOf(x), 'Diğer', String(x));
+});
+
+test('stats: mom12 = 12-1 ay momentumu; 253 mumdan azsa null', () => {
+  const d = mk(fakeMarket());
+  const rows = fromCloses(Array.from({ length: 300 }, (_, i) => 100 + i * (i % 2 ? 1.1 : 0.9)));
+  const c = rows.map(r => r.c), N = c.length;
+  assert.equal(d.stats(rows).mom12, +((c[N - 22] / c[N - 253] - 1) * 100).toFixed(2));
+  assert.equal(d.stats(rows.slice(-253)).mom12, +((c[N - 22] / c[N - 253] - 1) * 100).toFixed(2));
+  assert.equal(d.stats(rows.slice(-252)).mom12, null);
+  assert.equal(d.stats(null).mom12, null);
+  // son ayin hareketi mom12'yi etkilemez
+  const jump = rows.map((r, i) => i >= N - 21 ? { ...r, c: r.c * 3, h: r.h * 3 } : r);
+  assert.equal(d.stats(jump).mom12, d.stats(rows).mom12);
+});
+
+test('scan: satirlara sektor, perf.d120/d250, mom12 ve faktor puani eklenir', async () => {
+  const m = fakeMarket({ rows: y => y === 'ASELS.IS' ? SC.down() : y === 'GARAN.IS' ? SC.up() : SC.flat(y.length) }), d = mk(m);
+  const r = await d.scan(['THYAO', 'GARAN', 'ASELS', 'ZZZZ'], { bench: null });
+  const row = Object.fromEntries(r.rows.map(x => [x.symbol, x]));
+  assert.equal(row.THYAO.sector, 'Havacılık'); assert.equal(row.GARAN.sector, 'Bankacılık'); assert.equal(row.ASELS.sector, 'Savunma'); assert.equal(row.ZZZZ.sector, 'Diğer');
+  const st = d.stats(SC.up(), null);
+  assert.equal(row.GARAN.perf.d120, st.perf.d120); assert.equal(row.GARAN.perf.d250, st.perf.d250); assert.ok(Number.isFinite(row.GARAN.perf.d120));
+  assert.equal(row.GARAN.mom12, st.mom12); assert.ok(Number.isFinite(row.GARAN.mom12), '300 gunluk veride mom12 var');
+  assert.deepEqual(r.rows.map(x => x.symbol), [...r.rows].sort((a, b) => b.score - a.score || (a.symbol < b.symbol ? -1 : 1)).map(x => x.symbol), 'skor sirasi korunur');
+  for (const x of r.rows) { assert.ok(x.factor && Number.isFinite(x.factor.total), x.symbol); assert.equal(x.factor.rs, null, 'bench yok'); }
+  assert.equal(row.GARAN.factor.mom, 100); assert.equal(row.ASELS.factor.mom, 0); assert.equal(row.GARAN.factor.trend, 100);
+  // Kisa veri: mom12 ve d250 null, tarama yine calisir
+  const m2 = fakeMarket({ rows: () => SC.up().slice(-200) }), r2 = await mk(m2).scan(['THYAO'], { bench: null });
+  assert.equal(r2.rows[0].mom12, null); assert.equal(r2.rows[0].perf.d250, null); assert.ok(Number.isFinite(r2.rows[0].perf.d120));
+  // ABD taramasinda sektor bilinmez
+  const r3 = await mk(fakeMarket({ rows: () => SC.up() })).scan(['LINK'], { market: 'US' });
+  assert.equal(r3.rows[0].sector, 'Diğer');
+  // createData ornegi de yeni fonksiyonlari verir
+  for (const k of ['sectorOf', 'sectorStats', 'factorRank', 'leaders']) assert.equal(typeof d[k], 'function', k);
+});
+
+test('pctRank: 0-100, esitler ortalama sira, tek deger 50, null korunur', () => {
+  const P = _util.pctRank;
+  assert.deepEqual(P([3, 1, 2]), [100, 0, 50]);
+  assert.deepEqual(P([5, null, 5, 1, NaN, 9]), [50, null, 50, 0, null, 100]);
+  assert.deepEqual(P([7]), [50]); assert.deepEqual(P([null, undefined, 'x']), [null, null, null]); assert.deepEqual(P([]), []);
+  assert.deepEqual(P([2, 2, 2, 2]), [50, 50, 50, 50]);
+  assert.deepEqual(P([1, 2, 2, 3, 4]), [0, 37.5, 37.5, 75, 100]);
+});
+
+// Tarama satiri ureteci (faktor/sektor testleri icin)
+const SR = (symbol, o = {}) => ({ symbol, sector: o.sector, chgPct: o.chg ?? null, score: o.score ?? null, verdict: o.label ? { label: o.label, score: o.score ?? null } : undefined,
+  perf: { d20: o.d20 ?? null, d60: o.d60 ?? null, d120: o.d120 ?? null }, rs20: o.rs ?? null, atrPct: o.atr ?? null });
+
+test('factorRank: yuzdelik faktorler, agirlikli toplam, eksik veriye dayaniklilik, girdi degismez', () => {
+  const rows = [
+    SR('AAAA', { d60: 30, d120: 50, rs: 10, score: 60, atr: 2 }),
+    SR('BBBB', { d60: 10, d120: 20, rs: 0, score: 0, atr: 3 }),
+    SR('CCCC', { d60: -5, d120: -10, rs: -8, score: -40, atr: 4 })
+  ];
+  const before = JSON.stringify(rows);
+  const f = factorRank(rows);
+  assert.equal(JSON.stringify(rows), before, 'girdi degismez'); assert.ok(!('factor' in rows[0]));
+  assert.deepEqual(f.map(r => r.symbol), ['AAAA', 'BBBB', 'CCCC'], 'sira korunur');
+  assert.deepEqual(f[0].factor, { mom: 100, rs: 100, trend: 100, lowVol: 100, total: 100, cov: 1 });
+  assert.deepEqual(f[1].factor, { mom: 50, rs: 50, trend: 50, lowVol: 50, total: 50, cov: 1 });
+  assert.deepEqual(f[2].factor, { mom: 0, rs: 0, trend: 0, lowVol: 0, total: 0, cov: 1 });
+  // agirliklar: mom .35 rs .25 trend .25 lowVol .15
+  const g = factorRank([SR('A', { d60: 1, d120: 1, rs: 0, score: 0, atr: 9 }), SR('B', { d60: 0, d120: 0, rs: 1, score: 1, atr: 1 })]);
+  assert.equal(g[0].factor.total, 35); assert.equal(g[1].factor.total, 65);
+  assert.equal(_util.FW.mom + _util.FW.rs + _util.FW.trend + _util.FW.lowVol, 1);
+  // mom: d60 ve d120 yuzdeliklerinin ortalamasi yeniden siralanir; biri eksikse digeri
+  const h = factorRank([SR('A', { d60: 10, d120: 0 }), SR('B', { d60: 0, d120: 10 }), SR('C', { d60: 20, d120: 30 })]);
+  assert.equal(h[0].factor.mom, 25); assert.equal(h[1].factor.mom, 25, 'esit harman'); assert.equal(h[2].factor.mom, 100);
+  const h2 = factorRank([SR('A', { d60: 10, d120: 0 }), SR('B', { d60: 0, d120: 10 }), SR('D', { d60: -9 }), SR('E', { d120: 99 })]);
+  assert.equal(h2[2].factor.mom, 0, 'yalniz d60'); assert.equal(h2[3].factor.mom, 100, 'yalniz d120');
+  // eksik faktor: agirlik kalanlara dagilir; kapsam < 0,5 -> total null
+  const k = factorRank([SR('A', { d60: 5, score: 10, atr: 2 }), SR('B', { d60: 1, score: 20, atr: 1 }), SR('C', { score: 30 }), SR('D', {})]);
+  assert.equal(k[0].factor.rs, null); assert.equal(k[0].factor.cov, 0.75);
+  assert.equal(k[0].factor.total, +((100 * 0.35 + 0 * 0.25 + 0 * 0.15) / 0.75).toFixed(1));
+  assert.equal(k[2].factor.cov, 0.25); assert.equal(k[2].factor.total, null, 'yalniz trend: yetersiz kapsam');
+  assert.deepEqual(k[3].factor, { mom: null, rs: null, trend: null, lowVol: null, total: null, cov: 0 });
+  // verdict.score yedegi; atrPct <= 0 yok sayilir
+  const v = factorRank([{ symbol: 'A', verdict: { score: 5 }, atrPct: 0 }, { symbol: 'B', verdict: { score: -5 }, atrPct: -1 }]);
+  assert.equal(v[0].factor.trend, 100); assert.equal(v[0].factor.lowVol, null);
+  // bozuk girdiler
+  for (const bad of [null, undefined, 'x', 5, {}]) assert.deepEqual(factorRank(bad), []);
+  assert.deepEqual(factorRank([null, 3, 'x', []]), []);
+  assert.equal(factorRank([null, SR('A', { d60: 1, score: 1 })]).length, 1);
+  // tum degerler esit -> herkes 50
+  assert.ok(factorRank([SR('A', { d60: 1, score: 1, atr: 1 }), SR('B', { d60: 1, score: 1, atr: 1 })]).every(r => r.factor.total === 50));
+});
+
+test('leaders: total/mom/rs/trend/lowVol/score, n, asc, faktor yoksa hesaplanir, degersiz satir disarida', () => {
+  const rows = [
+    SR('AAAA', { d60: 30, d120: 50, rs: -10, score: 60, atr: 5 }),
+    SR('BBBB', { d60: 10, d120: 20, rs: 20, score: 10, atr: 1 }),
+    SR('CCCC', { d60: -5, d120: -10, rs: 5, score: -40, atr: 3 }),
+    SR('DDDD', { score: 80 }),
+    SR('EEEE', {})
+  ];
+  const sy = a => a.map(r => r.symbol);
+  assert.deepEqual(sy(leaders(rows, { by: 'score' })), ['DDDD', 'AAAA', 'BBBB', 'CCCC']);
+  assert.deepEqual(sy(leaders(rows, { by: 'mom' })), ['AAAA', 'BBBB', 'CCCC']);
+  assert.deepEqual(sy(leaders(rows, { by: 'rs' })), ['BBBB', 'CCCC', 'AAAA']);
+  assert.deepEqual(sy(leaders(rows, { by: 'lowVol' })), ['BBBB', 'CCCC', 'AAAA']);
+  assert.deepEqual(sy(leaders(rows, { by: 'rs', n: 2 })), ['BBBB', 'CCCC']);
+  assert.deepEqual(sy(leaders(rows, { by: 'score', order: 'asc', n: 1 })), ['CCCC']);
+  const t = leaders(rows); assert.ok(t.every(r => r.factor && Number.isFinite(r.factor.total)));
+  // B: .35*50 + .25*100 + .25*33.3 + .15*100 = 65.8 > A: .35*100 + .25*66.7 = 51.7 > C; D yalniz trend (kapsam .25) -> yok
+  assert.deepEqual(sy(t), ['BBBB', 'AAAA', 'CCCC']); assert.equal(t[0].factor.total, 65.8); assert.equal(t[1].factor.total, 51.7);
+  for (let i = 1; i < t.length; i++) assert.ok(t[i - 1].factor.total >= t[i].factor.total);
+  // gecersiz secenekler: by -> total, n -> 10
+  assert.deepEqual(sy(leaders(rows, { by: 'yok', n: -3 })), sy(t)); assert.deepEqual(sy(leaders(rows, null)), sy(t)); assert.deepEqual(sy(leaders(rows, { n: 'x' })), sy(t));
+  assert.equal(leaders(Array.from({ length: 30 }, (_, i) => SR('S' + String(i).padStart(3, '0'), { score: i, d60: i, atr: 1 }))).length, 10);
+  // esitlikte skor sonra kod
+  const tie = leaders([SR('BBBB', { score: 5 }), SR('AAAA', { score: 5 }), SR('CCCC', { score: 5 })], { by: 'score' });
+  assert.deepEqual(sy(tie), ['AAAA', 'BBBB', 'CCCC']);
+  // faktoru olan satirlar yeniden hesaplanmaz
+  const pre = rows.map(r => ({ ...r, factor: { total: r.symbol === 'EEEE' ? 99 : 1 } }));
+  assert.equal(leaders(pre, { n: 1 })[0].symbol, 'EEEE');
+  for (const bad of [null, undefined, 'x', {}]) assert.deepEqual(leaders(bad), []);
+});
+
+test('sectorStats: sektor ortalamalari, karar dagilimi, liderler, siralama, bozuk girdi', () => {
+  const rows = [
+    SR('AKBNK', { chg: 2, d20: 10, rs: 4, score: 50, label: 'AL' }),
+    SR('GARAN', { chg: 1, d20: 6, rs: 2, score: 70, label: 'AL' }),
+    SR('YKBNK', { chg: -1, d20: null, rs: null, score: 10, label: 'BEKLE' }),
+    SR('HALKB', { chg: 0, d20: 2, score: -20, label: 'BEKLE' }),
+    SR('THYAO', { chg: -2, d20: -5, rs: -6, score: -50, label: 'SAT', sector: 'Havacılık' }),
+    SR('PGSUS', { chg: null, d20: null, score: null }),
+    SR('ZZZZ', { chg: 3, score: 90, label: 'AL', sector: 'Özel' }),
+    { ...SR('EREGL', { score: 5 }), symbol: undefined, sector: 'Demir-Çelik' },
+    null, 'x'
+  ];
+  const s = sectorStats(rows), by = Object.fromEntries(s.map(x => [x.sector, x]));
+  assert.deepEqual(s.map(x => x.sector), ['Özel', 'Bankacılık', 'Demir-Çelik', 'Havacılık']);
+  const b = by['Bankacılık'];
+  assert.equal(b.n, 4); assert.equal(b.avgChg, 0.5); assert.equal(b.avgD20, 6); assert.equal(b.avgRs20, 3); assert.equal(b.avgScore, 27.5);
+  assert.equal(b.al, 2); assert.equal(b.bekle, 2); assert.equal(b.sat, 0); assert.equal(b.up, 2); assert.equal(b.down, 1);
+  assert.deepEqual(b.leaders, ['GARAN', 'AKBNK', 'YKBNK']); assert.deepEqual(b.symbols, ['GARAN', 'AKBNK', 'YKBNK', 'HALKB']);
+  assert.equal(b.avgTotal, null, 'faktor yok');
+  const h = by['Havacılık'];
+  assert.equal(h.n, 2); assert.equal(h.avgChg, -2); assert.equal(h.avgScore, -50); assert.deepEqual(h.leaders, ['THYAO']); assert.deepEqual(h.symbols, ['THYAO', 'PGSUS']);
+  assert.equal(by['Demir-Çelik'].n, 1); assert.deepEqual(by['Demir-Çelik'].leaders, []);
+  for (const x of s) for (const k of ['sector', 'n', 'avgChg', 'avgD20', 'avgRs20', 'avgScore', 'al', 'bekle', 'sat', 'leaders']) assert.ok(k in x, k);
+  // skoru olmayan sektor sona; esit skorda hisse sayisi
+  const z = sectorStats([SR('PGSUS', {}), SR('AKBNK', { score: 0 }), SR('GARAN', { score: 0 }), SR('TCELL', { score: 0 })]);
+  assert.deepEqual(z.map(x => x.sector), ['Bankacılık', 'Telekom', 'Havacılık']);
+  // faktorlu satirlarda ortalama toplam
+  const f = sectorStats(factorRank(rows.filter(r => r && typeof r === 'object')));
+  assert.ok(f.every(x => x.avgTotal === null || Number.isFinite(x.avgTotal)));
+  for (const bad of [null, undefined, 'x', {}, [], [null, 1]]) assert.deepEqual(sectorStats(bad), []);
+});
