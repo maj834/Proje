@@ -67,10 +67,11 @@ test('runTool: dogrulama, sinirlar, yalniz https, arac hatasi is_error olarak do
 });
 
 test('clean: ayarlar sinirli', () => {
-  assert.deepEqual(clean({ wake: false, voice: 5, rate: 9, hotkey: 'Alt+Space; rm', brain: 'gpt' }), { wake: false, voice: '', rate: 0.7, brain: 'groq', hotkey: 'Alt+Space', wakeLang: 'auto', followUp: true });
-  assert.deepEqual(clean({ brain: 'claude', wakeLang: 'tr', followUp: false }), { wake: true, voice: '', rate: 0.5, brain: 'claude', hotkey: 'Alt+Space', wakeLang: 'tr', followUp: false });
+  assert.deepEqual(clean({ wake: false, voice: 5, rate: 9, hotkey: 'Alt+Space; rm', brain: 'gpt' }), { wake: false, voice: '', rate: 0.7, brain: 'groq', hotkey: 'Alt+Space', wakeLang: 'auto', followUp: true, batteryWake: true });
+  assert.deepEqual(clean({ brain: 'claude', wakeLang: 'tr', followUp: false }), { wake: true, voice: '', rate: 0.5, brain: 'claude', hotkey: 'Alt+Space', wakeLang: 'tr', followUp: false, batteryWake: true });
   assert.equal(clean({ wakeLang: 'xx' }).wakeLang, 'auto');
   assert.equal(clean({ followUp: 'x' }).followUp, true, 'takip dinlemesi varsayilan acik');
+  assert.equal(clean({ batteryWake: false }).batteryWake, false);
 });
 
 // Sahte ses yardimcisi + sahte Electron: uyanma -> komut -> dusunme -> konusma -> bekleme akisi

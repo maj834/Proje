@@ -1,6 +1,6 @@
 // Sistem Durumu: menu cubugunda tek tus. Basinca islemci sicakligi, FPS, CPU/GPU/RAM, fan, pil, ag ve disk paneli acilir.
 // Olcumleri native/sistem.swift (sistem-yardimcisi) yapar; root gerekmez. Menu cubugunda secilen degerler yazi olarak durur.
-const {spawn}=require('child_process'),fs=require('fs');
+const {spawn}=require('child_process'),fs=require('fs'),power=require('./power');
 
 // Menu cubugunda gosterilebilecek degerler (sira = gosterim sirasi)
 const BAR={
@@ -51,8 +51,10 @@ function registerSystem({ipcMain,app,BrowserWindow,Tray,nativeImage,screen,path,
   // hist yalniz yeni olcumde gonderilir (hello/error satirlari grafige tekrar nokta eklemesin)
   const push=(fresh=false)=>{if(open())win.webContents.send('sys:data',{last,hello,hist:fresh?hist.slice(-1):[],error})};
   function title(){if(!tray)return;const t=barTitle(last,conf().bar);tray.setTitle(t||(error?'Sistem ⚠':'Sistem'),{fontType:'monospacedDigit'})}
-  // Panel acikken her saniye ve ekran FPS olcumu; kapaliyken 2 sn ve FPS kapali (az islemci)
-  function pace(){const fps=open()||conf().bar.includes('fps');send({cmd:'interval',ms:open()?1000:2000});send({cmd:'fps',on:fps});if(!fps&&error&&/Ekran kaydı/.test(error))error=null}
+  // Panel acikken her saniye ve ekran FPS olcumu; kapaliyken 2 sn (pilde 5 sn). Ekran kilitli / Mac uykudayken
+  // 15 sn ve FPS kapali: kimse bakmazken pil harcanmasin (sicaklik alarmi yine calisir)
+  function pace(){const away=power.away(),fps=!away&&(open()||conf().bar.includes('fps'));
+    send({cmd:'interval',ms:open()?1000:away?15000:power.state().battery?5000:2000});send({cmd:'fps',on:fps});if(!fps&&error&&/Ekran kaydı/.test(error))error=null}
 
   function onLine(line){
     let m;try{m=JSON.parse(line)}catch(e){return}
@@ -122,7 +124,7 @@ const toggle=()=>open()?win.hide():Date.now()-hidAt<300?null:show();
   ipcMain.handle('sys:set',(e,o)=>{if(!fromWin(e)||!o||typeof o!=='object')return null;
     save({system:clean({...conf(),...o})});title();pace();return view()});
   ipcMain.handle('sys:hide',e=>{if(fromWin(e))win.hide()});
-  app.whenReady().then(()=>{if(isOn())enable()});
+  app.whenReady().then(()=>{power.init();power.on(()=>{if(child)pace()});if(isOn())enable()});
   app.on('will-quit',()=>stop(true));
   return {enable,disable,show,toggle,start,stop,view,status:()=>last?barTitle(last,['temp','cpu'])||null:null};
 }

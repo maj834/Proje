@@ -1,6 +1,6 @@
 // Neo: "Hey Neo" sesli asistani. Kulak ve agiz native/neo.swift (neo-yardimcisi): uyandirma kelimesi Mac'te, internetsiz.
 // Beyin neo.js (Claude + uygulama araclari). Ekranin ustunde kucuk bir kure: dinliyor / dusunuyor / konusuyor.
-const {spawn}=require('child_process'),fs=require('fs');
+const {spawn}=require('child_process'),fs=require('fs'),power=require('./power');
 const {createBrain,createGroqBrain}=require('./neo.js');
 
 const DEF={wake:true,voice:'',rate:0.5,hotkey:'Alt+Space',brain:'groq',wakeLang:'auto',followUp:true};
@@ -10,7 +10,7 @@ const BRAINS=['groq','claude'];
 const WAKE=['hey neo','hey nio','hey niyo','hey neyo','hey neo','hey nevo','hey new','hey nea','hey neu','hay neo'];
 const clean=c=>({wake:c.wake!==false,voice:typeof c.voice==='string'?c.voice.slice(0,200):'',
   rate:Math.max(0.3,Math.min(0.7,+c.rate||DEF.rate)),brain:BRAINS.includes(c.brain)?c.brain:DEF.brain,hotkey:typeof c.hotkey==='string'&&/^[\w+]{1,40}$/.test(c.hotkey)?c.hotkey:DEF.hotkey,
-  wakeLang:WAKE_LANGS.includes(c.wakeLang)?c.wakeLang:DEF.wakeLang,followUp:c.followUp!==false});
+  wakeLang:WAKE_LANGS.includes(c.wakeLang)?c.wakeLang:DEF.wakeLang,followUp:c.followUp!==false,batteryWake:c.batteryWake!==false});
 
 // keys: {get(beyin) -> anahtar|null, set(beyin, anahtar)}; beyin 'groq' (ucretsiz, varsayilan) ya da 'claude' (API anahtari)
 function registerNeo({ipcMain,app,BrowserWindow,path,screen,globalShortcut,Notification,shell,cfg,save,keys,actions,isOn=()=>true,brain=null}){
@@ -37,7 +37,12 @@ function registerNeo({ipcMain,app,BrowserWindow,path,screen,globalShortcut,Notif
     if(state==='idle'||state==='off')hideT=setTimeout(()=>{if(orb&&!orb.isDestroyed())orb.hide()},answer?7000:2500);
   }
   function setState(s){state=s;show();toWin();if((s==='idle'||s==='off')&&later.length&&child)speak(later.shift())}
-  const rest=()=>child&&conf().wake?'idle':'off';
+  // "Hey Neo" dinlemesi (surekli mikrofon) ne zaman acik: ayar acik, ekran kilitli / Mac uykuda degil ve
+  // pildeyken kapatilmamis. Kimse bakmazken mikrofon kapanir (pil + gizlilik); kisayol her zaman calisir.
+  const wantWake=()=>{const c=conf(),p=power.state();return c.wake&&!power.away()&&!(p.battery&&!c.batteryWake)};
+  let wakeSent=null;
+  const syncWake=()=>{if(!child)return;const w=wantWake();if(w===wakeSent)return;wakeSent=w;send({cmd:w?'start':'stop'})};
+  const rest=()=>child&&wantWake()?'idle':'off';
   // follow: sesli sorunun cevabi; bitince yardimci birkac saniye "Hey Neo" beklemeden dinler (ayar acikken)
   function speak(t,follow=false){const id='s'+(++sayN);saying.add(id);const fu=follow&&conf().followUp;if(fu)follows.add(id);
     send({cmd:'say',id,text:t,...(fu?{followUp:true}:{})});answer=t;setState('speaking')}
@@ -57,7 +62,7 @@ function registerNeo({ipcMain,app,BrowserWindow,path,screen,globalShortcut,Notif
     if(child&&child.t0&&Date.now()-child.t0>30000)restarts=0;   // 30 sn ayakta kalan yardimci saglikli: yeniden baslatma hakki sifirlanir
     switch(m.type){
       case 'hello':warning=null;hello={wakeOnDevice:!!m.wakeOnDevice,cmdOnDevice:!!m.cmdOnDevice,wakeLocale:String(m.wakeLocale||'').slice(0,12),voices:Array.isArray(m.voices)?m.voices.slice(0,40).map(v=>({id:String(v.id||''),name:String(v.name||''),quality:String(v.quality||'')})):[]};
-        error=null;configure();if(conf().wake)send({cmd:'start'});toWin();break;
+        error=null;configure();wakeSent=null;syncWake();toWin();break;
       // Takip dinlemesinde (followUp) onceki cevap kurede kalir: kullanici okuyup cevap verebilsin
       case 'state':if(!busy&&['off','idle','listening','speaking'].includes(m.state)){followListen=m.state==='listening'&&!!m.followUp;if(m.state==='listening'){partial='';if(!followListen)answer=''}
         if(m.state==='idle'||m.state==='listening')error=null;    // mikrofon calisiyor: eski hata gecersiz
@@ -142,7 +147,7 @@ function registerNeo({ipcMain,app,BrowserWindow,path,screen,globalShortcut,Notif
     // Pano Gecmisi kisayolu (⌘⇧V) alinamaz
     if(typeof o.hotkey==='string'&&/^(commandorcontrol|cmdorctrl|command|cmd)\+shift\+v$|^shift\+(commandorcontrol|cmdorctrl|command|cmd)\+v$/i.test(o.hotkey))o={...o,hotkey:before.hotkey};
     save({neo:clean({...before,...o})});const c=conf();configure();
-    if(c.wake!==before.wake)send({cmd:c.wake?'start':'stop'});
+    syncWake();
     if(c.hotkey!==before.hotkey&&isOn()){if(hk){try{globalShortcut.unregister(hk)}catch(e){}hk=null}try{if(globalShortcut.register(c.hotkey,talk))hk=c.hotkey}catch(e){}}
     toWin();return view()});
   ipcMain.handle('neo:forget',e=>{if(!from(e))return null;for(const k in brains)brains[k].reset();log.length=0;return view()});
@@ -153,7 +158,7 @@ function registerNeo({ipcMain,app,BrowserWindow,path,screen,globalShortcut,Notif
     if((p==='groq'?!/^gsk_[A-Za-z0-9]{20,100}$/.test(k):!/^sk-ant-[\w-]{20,200}$/.test(k)))return {...view(),keyError:p==='groq'?'Groq anahtarı "gsk_" ile başlar.':'Claude anahtarı "sk-ant-" ile başlar.'};
     keys.set(p,k);delete brains[p];return view()});
   ipcMain.handle('neo:link',e=>{if(from(e))shell.openExternal('https://console.groq.com/keys')});
-  app.whenReady().then(()=>{if(isOn())enable()});
+  app.whenReady().then(()=>{power.init();power.on(()=>{syncWake();toWin()});if(isOn())enable()});
   app.on('will-quit',()=>stop(true));
   // Disaridan (zamanlayici) sesli bildirim
   // Disaridan (zamanlayici) sesli bildirim; kullanici o an konusuyorsa komutu bolunmesin diye sonraya birakilir

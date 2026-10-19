@@ -277,3 +277,20 @@ test('registerPano: Anahtar Zinciri gecici yoksa sifreli gecmis ezilmez, resimle
     assert.equal(fs.readdirSync(path.join(d, 'pano', 'img')).length, 1);
   } finally { fs.rmSync(d, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }); }
 });
+
+test('pil / kilit: ekran kilitliyken pano yoklanmaz, acilinca hemen yakalanir', async (t) => {
+  const power = require('../power.js');
+  const reset = () => power._set({ battery: false, locked: false, asleep: false });
+  reset(); t.after(reset);
+  const e = setup(t);
+  e.cb.set({ text: 'once' });
+  const texts = () => e.state().items.map(x => x.text);
+  const wait = async (f, ms = 5000) => { const end = Date.now() + ms; while (!f()) { if (Date.now() > end) throw new Error('zaman asimi'); await new Promise(r => setTimeout(r, 30)); } };
+  await wait(() => texts().includes('once'));
+  power._set({ locked: true });
+  e.cb.set({ text: 'kilitliyken' });
+  await new Promise(r => setTimeout(r, 1600));                          // iki yoklama araligi
+  assert.ok(!texts().includes('kilitliyken'), 'kilitliyken yoklama durur');
+  power._set({ locked: false });                                        // acilinca hemen bir kez bakar
+  assert.ok(texts().includes('kilitliyken'));
+});

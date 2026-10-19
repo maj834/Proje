@@ -169,3 +169,26 @@ test('sistem.html: olcum kalmayinca (last=null) kutular "—" olur, eski degerle
   assert.equal(els.th.style.display, 'none');
   assert.equal(els.err.textContent, 'Sistem yardımcısı yeniden başlatılıyor…');
 });
+
+test('pil / kilit: kapali panelde olcum araligi pilde 5 sn, ekran kilitliyken 15 sn ve FPS kapali', async (t) => {
+  const power = require('../power.js');
+  const reset = () => power._set({ battery: false, locked: false, asleep: false });
+  reset(); t.after(reset);
+  const d = tmpDir(); t.after(() => fs.rmSync(d, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }));
+  const log = path.join(d, 'pace.log');
+  const { wait } = sysHarness(t, `
+const fs = require('fs'), w = o => process.stdout.write(JSON.stringify(o) + '\\n');
+w({ type: 'hello', chip: 'M1', cores: 8 });
+require('readline').createInterface({ input: process.stdin }).on('line', l => { const m = JSON.parse(l);
+  if (m.cmd === 'interval' || m.cmd === 'fps') fs.appendFileSync(${JSON.stringify(log)}, l + '\\n');
+  if (m.cmd === 'quit') process.exit(0) }).on('close', () => process.exit(0));`, { bar: ['temp', 'fps'] });
+  const last = k => { if (!fs.existsSync(log)) return undefined; const r = fs.readFileSync(log, 'utf8').split('\n').filter(Boolean).map(JSON.parse).filter(x => x.cmd === k); return r.length ? r[r.length - 1] : undefined; };
+  await wait(() => last('interval') && last('interval').ms === 2000);
+  assert.equal(last('fps').on, true, 'menu cubugunda FPS secili');
+  power._set({ battery: true });
+  await wait(() => last('interval').ms === 5000);
+  power._set({ locked: true });
+  await wait(() => last('interval').ms === 15000 && last('fps').on === false);
+  power._set({ locked: false, battery: false });
+  await wait(() => last('interval').ms === 2000 && last('fps').on === true);
+});
