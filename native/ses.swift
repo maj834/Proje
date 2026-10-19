@@ -1,6 +1,6 @@
 // Ses yardimcisi: uygulama basina ses seviyesi (%0-200), bas/tiz ayari, cikis aygiti ve ana ses.
 // macOS 14.4+ Core Audio "process tap" ile calisir: hedef uygulamanin sesi yakalanip orijinali susturulur,
-// islenmis hali (kazanc + bas/tiz + yumusak sinirlayici) cikis aygitina verilir. Ayari notr olan uygulamaya dokunulmaz.
+// islenmis hali (kazanc + bas/tiz + tepe sinirlayici) cikis aygitina verilir. Ayari notr olan uygulamaya dokunulmaz.
 // Iletisim: stdin satir basina JSON komut, stdout satir basina JSON olay (Electron ana sureci yonetir).
 import Foundation
 import CoreAudio
@@ -163,7 +163,7 @@ func appInfo(_ bundle: String) -> [String: Any] {
     return d
 }
 
-// MARK: - Isleme (kazanc + raf filtreleri + yumusak sinirlayici)
+// MARK: - Isleme (kazanc + raf filtreleri + ileri bakisli tepe sinirlayici)
 struct Settings: Equatable { var gain: Float = 1; var bass: Float = 0; var treble: Float = 0; var mute = false
     var neutral: Bool { !mute && abs(gain - 1) < 0.005 && abs(bass) < 0.1 && abs(treble) < 0.1 } }
 
@@ -185,28 +185,56 @@ func shelf(low: Bool, f0: Double, dB: Double, fs: Double) -> [Float] {
 }
 
 // Gercek zamanli ses dizisi kurallari: geri cagirmada bellek ayirma, kilit bekleme ve Swift dizisi yok.
-// Ayarlar ana dizide hesaplanir, ses dizisine kilitsiz (trylock) aktarilir; filtre durumu sabit tamponda.
+// Ayarlar ana dizide hesaplanir, ses dizisine kilitsiz (trylock) aktarilir; filtre/sinirlayici durumu sabit tamponda.
+//
+// Sinirlayici: eskiden her ornek 0,8 ustunde tanh ile egiliyordu (dalga bicimi bozma): %100'de bile yuksek sesli
+// muzik siddetle bozuluyordu. Simdi ornek basina dalga sekli degistirilmez; L-1 ornek (~1,5 ms) geciktirilen sese
+// dogrusal bir kazanc egrisi uygulanir: gerekli kazanc = esik / tepe, son L karenin minimumu (tepe gelmeden once
+// iner), 20 ms bekleme + yavas birakma (~100 ms) ve L uzunlugunda kayan ortalama (yumusak, tiksiz rampa). Esik yalnizca sesi
+// yukseltebilecek ayarda (kazanc > %100 ya da bas/tiz artirma) etkin; aksi halde kazanc egrisi tam 1 ve ses bit bit
+// ayni gecer (yalnizca sabit L-1 ornek gecikme; sabit kaldigi icin acma/kapamada tik olmaz).
 final class Processor {
     typealias K = (Float, Float, Float, Float, Float)
-    struct Params { var gain: Float = 1; var low: K = (1, 0, 0, 0, 0); var high: K = (1, 0, 0, 0, 0) }
+    struct Params {
+        var gain: Float = 1; var low: K = (1, 0, 0, 0, 0); var high: K = (1, 0, 0, 0, 0)
+        var eq = false                                          // raf filtrelerinden en az biri etkin
+        var thr: Float = .infinity                              // sinirlayici esigi (sonsuz: hic dokunmaz)
+        var look = 2                                            // ileri bakis penceresi L (kare)
+        var rel: Float = 0                                      // birakma katsayisi (ornek basina)
+        var hold = 0                                            // birakmadan once bekleme (kare): bas dalgasini dalgalandirmasin
+    }
     static let maxCh = 64
+    static let maxLook = 512                                    // 1,5 ms 384 kHz'e kadar sigar
     private(set) var fs: Double = 48000                         // cikis aygitinin guncel hizi (yalnizca ana dizi)
     private(set) var last = Settings()
     private let lock: UnsafeMutablePointer<os_unfair_lock> = { let p = UnsafeMutablePointer<os_unfair_lock>.allocate(capacity: 1); p.initialize(to: os_unfair_lock()); return p }()
     private var pending = Params(), live = Params()
-    private let z: UnsafeMutablePointer<Float> = { let p = UnsafeMutablePointer<Float>.allocate(capacity: Processor.maxCh * 4); p.initialize(repeating: 0, count: Processor.maxCh * 4); return p }()
+    // Filtre durumu: yalnizca ses tasiyan L ve R kanallari (kanal basina 2 biquad x 2 durum)
+    private let z: UnsafeMutablePointer<Float> = { let p = UnsafeMutablePointer<Float>.allocate(capacity: 8); p.initialize(repeating: 0, count: 8); return p }()
     private var g: Float = 1
+    // Sinirlayici durumu (yalnizca ses dizisi): gecikme hatti (2 x maxLook), kazanc halkasi, monoton kuyruk
+    private let dl: UnsafeMutablePointer<Float> = { let p = UnsafeMutablePointer<Float>.allocate(capacity: 2 * Processor.maxLook); p.initialize(repeating: 0, count: 2 * Processor.maxLook); return p }()
+    private let hr: UnsafeMutablePointer<Float> = { let p = UnsafeMutablePointer<Float>.allocate(capacity: Processor.maxLook); p.initialize(repeating: 1, count: Processor.maxLook); return p }()
+    private let dqV: UnsafeMutablePointer<Float> = { let p = UnsafeMutablePointer<Float>.allocate(capacity: Processor.maxLook); p.initialize(repeating: 1, count: Processor.maxLook); return p }()
+    private let dqI: UnsafeMutablePointer<Int> = { let p = UnsafeMutablePointer<Int>.allocate(capacity: Processor.maxLook); p.initialize(repeating: 0, count: Processor.maxLook); return p }()
+    private var look = 0, dpos = 0, hpos = 0, dqHead = 0, dqCount = 0, tick = 0
+    private var sum: Double = 0, env: Float = 1, held = 0
     // Ses dizisinin yazdigi sayaclar (izin reddi = surekli sessiz yakalama tespiti icin).
     // heard: yakalama en az bir kez sessiz olmayan ornek verdi (izin var; sonraki uzun sessizlik ret sayilmaz)
     var callbacks = 0, silent = 0
     var heard = false
-    deinit { z.deallocate(); lock.deallocate() }
+    deinit { z.deallocate(); lock.deallocate(); dl.deallocate(); hr.deallocate(); dqV.deallocate(); dqI.deallocate() }
     func update(_ s: Settings) {                                   // ana dizi
         func t(_ a: [Float]) -> K { (a[0], a[1], a[2], a[3], a[4]) }
         last = s
         var p = Params(); p.gain = s.mute ? 0 : s.gain
-        if abs(s.bass) >= 0.1 { p.low = t(shelf(low: true, f0: 110, dB: Double(s.bass), fs: fs)) }
-        if abs(s.treble) >= 0.1 { p.high = t(shelf(low: false, f0: 7000, dB: Double(s.treble), fs: fs)) }
+        if abs(s.bass) >= 0.1 { p.low = t(shelf(low: true, f0: 110, dB: Double(s.bass), fs: fs)); p.eq = true }
+        if abs(s.treble) >= 0.1 { p.high = t(shelf(low: false, f0: 7000, dB: Double(s.treble), fs: fs)); p.eq = true }
+        // Esik -0,5 dBFS; yalnizca sesi yukseltebilecek ayarda. %100 ve alti (bas/tiz kesme dahil) dokunulmaz.
+        if !s.mute && (s.gain > 1.001 || s.bass >= 0.1 || s.treble >= 0.1) { p.thr = 0.944 }
+        p.look = max(2, min(Processor.maxLook, Int((fs * 0.0015).rounded())))
+        p.rel = Float(1 - exp(-1 / (0.1 * fs)))
+        p.hold = Int((fs * 0.02).rounded())
         os_unfair_lock_lock(lock); pending = p; os_unfair_lock_unlock(lock)
     }
     // Ornekleme hizi degisti: raf filtresi katsayilari yeni hiza gore yeniden hesaplanip ayni yoldan aktarilir
@@ -217,10 +245,12 @@ final class Processor {
     @inline(__always) private func bq(_ x: Float, _ k: K, _ st: UnsafeMutablePointer<Float>) -> Float {
         let y = k.0 * x + st[0]; st[0] = k.1 * x - k.3 * y + st[1]; st[1] = k.2 * x - k.4 * y; return y
     }
-    // 0.8 ustunu yumusakca sikistir, asla 1'i gecme (patlama/cizirti olmasin)
-    @inline(__always) private func limit(_ x: Float) -> Float {
-        let a = abs(x); if a <= 0.8 { return x }
-        let y = 0.8 + 0.2 * tanh((a - 0.8) / 0.2); return x < 0 ? -y : y
+    // Sinirlayiciyi yeni pencere boyuna sifirla (ses dizisi; bellek ayirmaz)
+    private func resetLimiter(_ L: Int) {
+        look = L
+        for i in 0..<(2 * Processor.maxLook) { dl[i] = 0 }
+        for i in 0..<L { hr[i] = 1 }
+        sum = Double(L); env = 1; held = 0; dpos = 0; hpos = 0; dqHead = 0; dqCount = 0; tick = 0
     }
     // Yalnizca yakalama (tap) girisi acik; o da listedeki son dolu tampondur. Cikis kanallari sirayla: L, R;
     // tek kanalli cikista L+R karisimi, cevresel kanallarda sessizlik (stereo her hoparlorden tekrar calmasin).
@@ -237,26 +267,66 @@ final class Processor {
         callbacks &+= 1
         if inFrames > 0 && tin[0] == 0 && tin[(inFrames - 1) * tch] == 0 { silent &+= 1 }
         else { silent = 0; if inFrames > 0 && !heard { heard = true } }
+        if p.look != look { resetLimiter(p.look) }
+        // 1) kazanc + raf filtreleri. Yalnizca ilk iki cikis kanali (L, R) ses tasir; digerleri sifir.
         var gEnd = g; var ch = 0
+        var pa: UnsafeMutablePointer<Float>? = nil, sa = 1, fa = 0   // L kanali: ilk ornek, adim, kare sayisi
+        var pb: UnsafeMutablePointer<Float>? = nil, sb = 1, fb = 0   // R kanali (yoksa nil)
         for b in ol { guard let d = b.mData else { continue }
             let n = max(1, Int(b.mNumberChannels)), o = d.assumingMemoryBound(to: Float.self)
             let frames = Int(b.mDataByteSize) / (MemoryLayout<Float>.size * n)
             for c in 0..<n {
-                let st = z + min(ch, Processor.maxCh - 1) * 4; var gg = g
                 let mono = n == 1 && ol.count == 1 && tch >= 2, src = ch < 2 ? ch % tch : -1
+                if src < 0 { for i in 0..<frames { o[i * n + c] = 0 }; ch += 1; continue }
+                let st = z + ch * 4; var gg = g
                 for i in 0..<frames {
                     gg += (p.gain - gg) * 0.002                  // tiklama olmasin diye kazanci yavasca degistir
+                    if abs(p.gain - gg) < 2e-4 { gg = p.gain }   // Float'ta hedefe asimptotik takilmasin (tam %100 = aynen)
                     var x: Float = 0
-                    if i < inFrames { x = mono ? 0.5 * (tin[i * tch] + tin[i * tch + 1]) : (src >= 0 ? tin[i * tch + src] : 0) }
-                    x = bq(bq(x, p.low, st), p.high, st + 2) + 1e-25   // +1e-25: Intel'de denormal yavaslamasi olmasin
+                    if i < inFrames { x = mono ? 0.5 * (tin[i * tch] + tin[i * tch + 1]) : tin[i * tch + src] }
+                    // +1e-25 filtre GIRISINE: durum denormal'e inmesin (Intel'de yavaslama). Filtre kapaliyken
+                    // katsayilar (1,0,0,0,0) ve ornek aynen gecer.
+                    x = bq(bq(p.eq ? x + 1e-25 : x, p.low, st), p.high, st + 2)
                     // NaN/sonsuz filtre durumunda kalirsa kanal kalici olarak bozulur: durumu sifirla, bu ornek sessiz
                     if !x.isFinite { st[0] = 0; st[1] = 0; st[2] = 0; st[3] = 0; x = 0 }
-                    o[i * n + c] = limit(x * gg)
+                    o[i * n + c] = x * gg
                 }
+                if ch == 0 { pa = o + c; sa = n; fa = frames } else { pb = o + c; sb = n; fb = frames }
                 gEnd = gg; ch += 1
             }
         }
         g = gEnd
+        // 2) ileri bakisli tepe sinirlayici, L ve R'ye ortak kazanc (stereo goruntu kaymasin)
+        guard let a = pa else { return }
+        let two = pb != nil, bp = pb ?? a
+        let frames = two ? min(fa, fb) : fa
+        let L = look, D = L - 1, thr = p.thr, rel = p.rel, clip = thr.isFinite
+        for i in 0..<frames {
+            let xa = a[i * sa], xb: Float = two ? bp[i * sb] : 0
+            let peak = max(abs(xa), abs(xb))
+            let r: Float = peak > thr ? thr / peak : 1
+            // son L karede gereken en kucuk kazanc (monoton kuyruk; kuyruk hep ayni pencere icinde)
+            if dqCount > 0 && dqI[dqHead] <= tick - L { dqHead = dqHead + 1 == L ? 0 : dqHead + 1; dqCount -= 1 }
+            while dqCount > 0 && dqV[(dqHead + dqCount - 1) % L] >= r { dqCount -= 1 }
+            let slot = (dqHead + dqCount) % L
+            dqV[slot] = r; dqI[slot] = tick; dqCount += 1
+            // asagi aninda; 20 ms bekleyip yukari yavas (birakma). Egri hep pencere minimumunun altinda kalir.
+            // Bekleme olmadan dusuk frekansta her tepede kazanc inip kalkar (bozulma).
+            let m = dqV[dqHead]; var e = env
+            if m < 1 && m <= e { held = p.hold }
+            else if held > 0 { held -= 1 }
+            else { e += (1 - e) * rel; if e > 0.99999 { e = 1 } }
+            env = min(m, e)
+            // L uzunlugunda kayan ortalama: tepe, L-1 kare gecikmeli sese ulastiginda kazanc tam yerinde
+            sum += Double(env) - Double(hr[hpos]); hr[hpos] = env; hpos = hpos + 1 == L ? 0 : hpos + 1
+            let gr = Float(min(1, sum / Double(L)))
+            let ya = dl[dpos], yb = dl[Processor.maxLook + dpos]
+            dl[dpos] = xa; dl[Processor.maxLook + dpos] = xb
+            dpos = dpos + 1 == D ? 0 : dpos + 1
+            a[i * sa] = clip ? max(-1, min(1, ya * gr)) : ya * gr
+            if two { bp[i * sb] = clip ? max(-1, min(1, yb * gr)) : yb * gr }
+            tick &+= 1
+        }
     }
 }
 
@@ -297,7 +367,11 @@ final class AppTap {
             kAudioAggregateDeviceMainSubDeviceKey: outputUID, kAudioAggregateDeviceIsPrivateKey: true,
             kAudioAggregateDeviceIsStackedKey: false, kAudioAggregateDeviceTapAutoStartKey: true,
             kAudioAggregateDeviceSubDeviceListKey: [[kAudioSubDeviceUIDKey: outputUID]],
-            kAudioAggregateDeviceTapListKey: [[kAudioSubTapDriftCompensationKey: true, kAudioSubTapUIDKey: desc.uuid.uuidString]],
+            // Kayma duzeltmesi yakalanan sesi yeniden ornekler: kalitesi acikca en yuksege (kAudioAggregateDriftCompensation
+            // MaxQuality = 0x7F) cekilir; dusuk kaliteli yeniden ornekleme tizleri bulandirir, ortusme (aliasing) katar.
+            // "drift quality" = kAudioSubTapDriftCompensationQualityKey (SDK sabitine bagli kalmamak icin metin)
+            kAudioAggregateDeviceTapListKey: [[kAudioSubTapDriftCompensationKey: true, "drift quality": 0x7F,
+                                               kAudioSubTapUIDKey: desc.uuid.uuidString]],
         ]
         err = AudioHardwareCreateAggregateDevice(dict as CFDictionary, &aggID)
         if err != noErr { AudioHardwareDestroyProcessTap(tapID); fail("Ses aygıtı oluşturulamadı.", err); return nil }
@@ -335,6 +409,7 @@ final class Engine {
     var failed: [String: Date] = [:]                            // "bundle\nuid": kurulamayan yakalamayi 30 sn tekrar deneme
     var denied = Set<String>()                                  // izin verilmedi (surekli sessiz) uygulamalar
     var heardApps = Set<String>()                               // yakalamasindan en az bir kez ses gelmis uygulamalar
+    var neutralAt: [String: Date] = [:]                         // ayari notr olan ama yakalamasi tutulan uygulamalar
     // Dinleyiciler: varsayilan cikis, yakalanan her surecin aygit listesi, kullanilan her cikis aygitinin hiz/yapisi
     var sysL: Listener? = nil; var procL: [AudioObjectID: Listener] = [:]; var devL: [AudioObjectID: Listener] = [:]
     var devSig: [AudioObjectID: String] = [:]
@@ -429,9 +504,17 @@ final class Engine {
             }
         }
         let tapped = Set(taps.keys.map { $0.bundle })
+        let now = Date()
         let wanted: (String) -> Bool = { b in
-            if !canTap { return false }
-            let e = self.effective(b); if e.neutral || self.denied.contains(b) { return false }
+            if !canTap || self.denied.contains(b) { self.neutralAt[b] = nil; return false }
+            if self.effective(b).neutral {
+                // Kaydirici %100'den gecerken (or. %120 -> %80) yakalama yikilip yeniden kurulmasin (kesinti, cift ses):
+                // notr olan mevcut yakalama 5 sn daha (notr ayarla = sesi aynen gecirerek) tutulur. Sifirlamada beklenmez.
+                guard tapped.contains(b), !force else { self.neutralAt[b] = nil; return false }
+                let since = self.neutralAt[b] ?? now; self.neutralAt[b] = since
+                return now.timeIntervalSince(since) < 5
+            }
+            self.neutralAt[b] = nil
             return self.perApp[b] != nil || playing.contains(b) || tapped.contains(b)
         }
         // Her surecin aygitini belirle, (uygulama, aygit) basina grupla
