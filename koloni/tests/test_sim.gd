@@ -3,6 +3,7 @@
 extends SceneTree
 
 const ColonySim := preload("res://scripts/colony_sim.gd")
+const Progression := preload("res://scripts/progression.gd")
 
 var _failures := 0
 
@@ -12,6 +13,8 @@ func _init() -> void:
 	_test_deterministic()
 	_test_pheromone_evaporates()
 	_test_ants_stay_in_world()
+	_test_progression()
+	_test_discover_event()
 	print("BASARISIZ: %d" % _failures if _failures else "Tum testler gecti")
 	quit(1 if _failures else 0)
 
@@ -62,3 +65,32 @@ func _test_ants_stay_in_world() -> void:
 	for p in sim.positions:
 		inside = inside and rect.has_point(p)
 	_check(inside, "karincalar dunya sinirlarinda kalir")
+
+
+func _test_progression() -> void:
+	var sim := _run(7, 200, 60.0)
+	var prog := Progression.new()
+	var first: Dictionary = prog.current()
+	_check(prog.progress(sim) > 0.0, "hedef ilerlemesi olculur (%.2f)" % prog.progress(sim))
+	sim.stored_food = 10000
+	var done := prog.check(sim)
+	_check(done == first, "hedef tamamlaninca dondurulur")
+	var speed := sim.speed
+	Progression.apply_reward("speed", sim)
+	_check(sim.speed > speed, "odul simulasyona uygulanir")
+	var ants := sim.ant_count()
+	Progression.apply_reward("ants", sim)
+	_check(sim.ant_count() == ants + 30, "kralice odulu 30 karinca ekler")
+
+
+func _test_discover_event() -> void:
+	var sim := ColonySim.new()
+	sim.setup(5, 200, Vector2(1280, 720))
+	var found := false
+	for i in 60 * 90:
+		sim.step(1.0 / 60.0)
+		for e in sim.events:
+			found = found or e["type"] == "discover"
+		if found:
+			break
+	_check(found, "ilk alimda 'discover' olayi uretilir")

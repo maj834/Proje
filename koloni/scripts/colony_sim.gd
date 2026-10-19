@@ -55,7 +55,7 @@ func setup(p_seed: int, ant_count: int, p_world_size: Vector2, cell_size := 8.0)
 	states.clear()
 	trail_strength.clear()
 	for i in ant_count:
-		_spawn_ant()
+		spawn_ant()
 	foods.clear()
 	for i in 4:
 		spawn_random_food()
@@ -65,9 +65,15 @@ func ant_count() -> int:
 	return positions.size()
 
 
-func add_food(pos: Vector2, amount: int) -> void:
+## kind: 0 tohum, 1 meyve, 2 yaprak kirintisi (yalnizca gorunus).
+func add_food(pos: Vector2, amount: int, kind := -1) -> void:
 	var radius := 8.0 + sqrt(float(amount)) * 1.2
-	foods.append({"pos": pos, "radius": radius, "amount": amount, "max": amount})
+	if kind < 0:
+		kind = rng.randi_range(0, 2)
+	var f := {"pos": pos, "radius": radius, "amount": amount, "max": amount}
+	f["kind"] = kind
+	f["found"] = false
+	foods.append(f)
 	foods_changed = true
 
 
@@ -96,7 +102,7 @@ func step(dt: float) -> void:
 	_update_foods()
 
 
-func _spawn_ant() -> void:
+func spawn_ant() -> void:
 	if positions.size() >= MAX_ANTS:
 		return
 	var a := rng.randf() * TAU
@@ -144,6 +150,9 @@ func _step_ant(i: int, dt: float) -> void:
 	if state == State.SEARCH:
 		var fi := _food_at(p)
 		if fi >= 0:
+			if not foods[fi]["found"]:
+				foods[fi]["found"] = true
+				events.append({"type": "discover", "pos": foods[fi]["pos"]})
 			foods[fi]["amount"] -= 1
 			foods_changed = true
 			states[i] = State.RETURN
@@ -160,7 +169,7 @@ func _step_ant(i: int, dt: float) -> void:
 		_birth_progress += ANTS_PER_FOOD
 		if _birth_progress >= 1.0:
 			_birth_progress -= 1.0
-			_spawn_ant()
+			spawn_ant()
 			events.append({"type": "birth", "pos": nest_pos})
 
 	positions[i] = p
