@@ -1,0 +1,19 @@
+<!doctype html><html><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; script-src 'self' 'unsafe-inline'">
+<link rel="stylesheet" href="../../theme.css">
+<script src="../../node_modules/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+<script src="../../engine.js"></script><script src="../../bp-chart.js"></script><script src="bp-demo-data.js"></script>
+<style>html,body{margin:0;height:100%;background:var(--bg)}#c{position:absolute;inset:12px}</style></head>
+<body><div id="c"></div><script>
+// ?tf=1g|15dk & tema: shot.js'in koyu/acik secimi prefers-color-scheme ile gelir
+const q=new URLSearchParams(location.search),tf=q.get('tf')||(location.hash.slice(1)||'1g');
+const light=matchMedia('(prefers-color-scheme: light)').matches;
+const rows=tf==='1g'?BPDemo.rows({n:420}):BPDemo.rows({n:360,step:15*60000,start:Date.UTC(2026,9,13,7),p0:310,vol:0.004,seed:11});
+const frames={[tf]:rows};if(tf!=='1g')frames['1g']=BPDemo.rows({n:420});
+const pro=Engine.proAnalyze(frames,{primary:tf});
+const sig=Engine.systemSignals(rows).map(s=>({t:rows[s.i].t,dir:s.dir,why:s.why}));
+const ch=BPChart.create(document.getElementById('c'),{theme:light?'light':'dark'});
+ch.setData({rows,tf,pro,signals:sig,symbol:'THYAO',alarms:[{price:+(rows[rows.length-1].c*1.04).toFixed(2),kind:'above'}],positions:[{cost:+(rows[rows.length-1].c*0.93).toFixed(2),qty:100}],show:{bb:tf!=='1g',profile:true}});
+console.log('karar',pro.ok&&pro.verdict.label,pro.ok&&JSON.stringify(pro.plan));
+setTimeout(()=>{window.__ready=true},300);
+</script></body></html>

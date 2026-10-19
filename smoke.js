@@ -13,12 +13,21 @@ function smoke(app, { env = process.env, proc = process, delay = 3000, getWindow
   proc.on('unhandledRejection', bad('unhandledRejection'));
   app.on('render-process-gone', (e, wc, d) => finish(1, `CEM_SMOKE_FAIL render-process-gone: ${d && d.reason}`));
   app.on('child-process-gone', (e, d) => { if (d && d.type === 'GPU' && d.reason !== 'clean-exit') finish(1, `CEM_SMOKE_FAIL gpu-process-gone: ${d.reason}`); });
+  // Ek kontroller (smoke.gate): sure dolunca hepsi beklenir (en fazla gateMs); biri reddederse FAIL. Ornek: Borsa Pro sayfasi
+  // paketli uygulamada grafik kutuphanesini yukleyebiliyor mu.
   app.whenReady().then(() => setTimeout(() => {
     let wins = -1;
     try { wins = (getWindows || (() => require('electron').BrowserWindow.getAllWindows()))().length; } catch (e) {}
-    finish(0, `CEM_SMOKE_OK version=${app.getVersion()} windows=${wins}`);
+    const list = gates.splice(0), to = new Promise((_, no) => setTimeout(() => no(new Error('kontrol zaman asimi')), gateMs));
+    Promise.race([Promise.all(list.map(g => g.p.then(r => g.name + (r == null ? '' : '=' + r)))), to])
+      .then(rs => finish(0, `CEM_SMOKE_OK version=${app.getVersion()} windows=${wins}${rs.length ? ' ' + rs.join(' ') : ''}`), bad('gate'));
   }, delay), bad('whenReady'));
   return true;
 }
+const gates = [];
+let gateMs = 20000;
+// name: kisa ad, p: Promise (ya da Promise donduren fonksiyon). CEM_SMOKE yokken cagrilmaz (cagiran kontrol eder).
+smoke.gate = (name, p) => { const q = Promise.resolve().then(() => typeof p === 'function' ? p() : p); q.catch(() => {}); gates.push({ name, p: q }); };
+smoke._gateMs = ms => { gateMs = ms; };
 
 module.exports = smoke;

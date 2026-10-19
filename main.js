@@ -1,5 +1,5 @@
 require('./smoke.js')(require('electron').app); // CEM_SMOKE=1: CI acilis testi (yoksa hicbir sey yapmaz)
-const {app,BrowserWindow,Tray,screen,desktopCapturer,ipcMain,globalShortcut,nativeImage,safeStorage,systemPreferences,shell,Menu,Notification,clipboard,dialog}=require('electron');
+const {app,BrowserWindow,Tray,screen,desktopCapturer,ipcMain,globalShortcut,nativeImage,safeStorage,systemPreferences,shell,Menu,Notification,clipboard,dialog,nativeTheme}=require('electron');
 const fs=require('fs'),path=require('path');
 const engine=require('./engine');
 const ai=require('./ai');
@@ -41,6 +41,8 @@ const neoUi=require('./neo-main').registerNeo({ipcMain,app,BrowserWindow,path,sc
       signal:d.signal&&d.signal.why,top_buyers:(d.buyers||[]).slice(0,3).map(b=>b.name+' '+b.net),top_sellers:(d.sellers||[]).slice(0,3).map(b=>b.name+' '+b.net)}}
     try{const n=await botNews(code);if(n){out.news=(n.list||[]).slice(0,4).map(x=>({title:x.summary||x.title,score:x.score,importance:x.importance}));
       out.upcoming=(n.calendar||[]).slice(0,3).map(x=>x.day+' '+x.kind+' '+x.title)}}catch(e){}
+    // Teknik analiz karari (Borsa Pro motoru: gunluk + haftalik): AL/SAT/BEKLE, gerekceler, islem plani, destek/direnc
+    if(modOn('borsa'))try{const an=await withTimeout(borsaPro.analyzeSymbol(code),15000,'zaman aşımı');if(an)out.analysis={...an,note:'Teknik analiz; yatırım tavsiyesi değildir'}}catch(e){out.analysis_error=e.message}
     return out},
   showStock:sym=>{const code=bistCode(sym);if(!code)return {error:'Hisse kodu anlaşılmadı.'};if(!modOn('borsa'))return {error:'Borsa özelliği kapalı.'};showPop();fetchDepth({symbol:code});return {ok:true,symbol:code}},
   timer:(min,label)=>{setTimeout(()=>{if(!modOn('neo'))return;new Notification({title:'Neo hatırlatma',body:label||'Süre doldu'}).show();neoUi.say('Hatırlatma: '+(label||'süre doldu'))},min*60000);
@@ -54,7 +56,7 @@ const neoUi=require('./neo-main').registerNeo({ipcMain,app,BrowserWindow,path,sc
 const updUi=require('./updater-main').registerUpdater({ipcMain,app,path,Notification,shell,cfg:()=>cfg(),save:o=>save(o),
   send:(ch,st)=>{hubUi&&hubUi.sendTo(ch,st)},isAllowed:e=>!!hubUi&&hubUi.isWin(e)});
 // Ozellik pencereleri (Merkez ve Neo ortak)
-const OPEN={borsa:()=>showPop(),ses:()=>audioUi.open(),paylas:()=>openShare(),temizlik:()=>cleanerUi.open(),kilit:()=>lockUi&&lockUi.open(),
+const OPEN={borsa:()=>borsaPro.open(),ses:()=>audioUi.open(),paylas:()=>openShare(),temizlik:()=>cleanerUi.open(),kilit:()=>lockUi&&lockUi.open(),
   sistem:()=>sysUi.show(),neo:()=>neoUi.open(),pano:()=>panoUi.open(),hiz:()=>hizUi.open()};
 // Borsa kisayollari unregisterAll ile yenilenir; Pano (⌘⇧V) ve Neo (⌥Bosluk) kisayollarini geri kur
 const rearmOthers=()=>{try{panoUi.rearm()}catch(e){}try{neoUi.rearm()}catch(e){}};
@@ -62,8 +64,8 @@ const rearmOthers=()=>{try{panoUi.rearm()}catch(e){}try{neoUi.rearm()}catch(e){}
 hubUi=require('./hub-main').registerHub({ipcMain,app,BrowserWindow,path,cfg:()=>cfg(),save:o=>save(o),name:APP_NAME,actions:{
   open:id=>OPEN[id]?.(),
   toggle:(id,on)=>{
-    if(id==='borsa'){if(on)registerShortcuts();else{globalShortcut.unregisterAll();rearmOthers();if(cfg().live)setLive(false);setDepthAuto(0);
-      if(drawing)setDrawing(false);lastDepth=null;sendOv('depth',null);clearAnalysis();ov.hide();pop.hide()}}
+    if(id==='borsa'){if(on){registerShortcuts();borsaPro.enable()}else{borsaPro.disable();globalShortcut.unregisterAll();rearmOthers();if(cfg().live)setLive(false);setDepthAuto(0);
+      if(drawing)setDrawing(false);if(regionMode)setRegionMode(false);lastDepth=null;sendOv('depth',null);clearAnalysis();ov.hide();pop.hide()}}
     if(id==='ses'){if(on)audioUi.resume();else{audioUi.stop();audioUi.close()}}
     if(id==='temizlik'&&!on)cleanerUi.close();
     if(id==='sistem')on?sysUi.enable():sysUi.disable();
@@ -74,7 +76,7 @@ hubUi=require('./hub-main').registerHub({ipcMain,app,BrowserWindow,path,cfg:()=>
     if(id==='paylas'&&!on){if(shareSess){shareSess.stop('user');shareSess=null}if(shareWin)shareWin.close()}
     send('state',state());
   },
-  status:id=>id==='borsa'?(cfg().live?'Canlı mod açık':cfg().depthAuto>0?'Canlı takip açık':null)
+  status:id=>id==='borsa'?(cfg().live?'Canlı mod açık':cfg().depthAuto>0?'Canlı takip açık':borsaPro.status())
     :id==='ses'?(n=>n?n+' uygulamada özel ayar':null)(Object.keys((cfg().sound||{}).apps||{}).length)
     :id==='paylas'?(shareSess&&shareSess.info().running?'Paylaşım açık':null)
     :id==='sistem'?sysUi.status()
@@ -87,7 +89,7 @@ const HISTORY_MAX=30;
 const SETTINGS_URL='x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture';
 const SHOT_W=1568; // Claude'un yeniden boyutlandirmadan kabul ettigi genislik
 
-let tray,pop,ov,timer=null,busy=false,fadeTimer,lastSig=null,ovDisplay=null,ovKey=null,drawing=false,lastResult=null,lastAi=null,lastLocal=null;
+let tray,pop,ov,timer=null,busy=false,fadeTimer,lastSig=null,ovDisplay=null,ovKey=null,drawing=false,regionMode=false,lastResult=null,lastAi=null,lastLocal=null,chartDisplay=null;
 const alerted=new Map();
 
 // --- ayarlar -------------------------------------------------------------
@@ -134,6 +136,27 @@ function addCost(c){
   save({usage:{month:m.month,cost:m.cost+c,count:m.count+1,total:(u.total||0)+c}});
 }
 
+// Borsa Pro: buyuk analiz penceresi (etkilesimli grafik, tarayici, strateji laboratuvari, portfoy, alarmlar, yapay zeka yorumu).
+// Borsa ozelligine baglidir: Merkez'de kapatilinca penceresi ve alarm izleyicisi durur. Yapay zeka yorumu once ucretsiz Groq
+// (Neo'nun anahtari), yoksa Claude ya da Grok anahtariyla; gorsel gonderilmez, yalniz hesaplanmis analiz ozeti.
+const borsaPro=require('./borsa-pro-main').registerBorsaPro({ipcMain,app,BrowserWindow,path,screen,Notification,shell,nativeTheme,
+  cfg:()=>cfg(),save:o=>save(o),isOn:()=>modOn('borsa'),market,engine,calendar,power:require('./power'),
+  data:require('./bp-data').createData({market,engine}),meta:require('./bp-data'),lab:require('./bp-strategy'),
+  analyst:require('./bp-analyst').createAnalyst({keys:{groq:()=>dec(cfg().groqKey),claude:()=>getKey(),grok:()=>grokKey()},claudeModel:()=>model(),addCost:c=>addCost(c)}),
+  ext:{botNews:s=>botNews(s),extSignals:s=>extSignals(s),depth:()=>lastDepth,riskPct:()=>+cfg().riskPct>0?+cfg().riskPct:1},
+  say:t=>{try{if(modOn('neo'))neoUi.say(t)}catch(e){}}});
+// Acilis testi (CI): Borsa Pro sayfasi paketli uygulamada grafik kutuphanesini, analiz motorunu ve grafik bilesenini yukleyebiliyor mu
+function smokePro(){
+  return new Promise((ok,no)=>{
+    const w=new BrowserWindow({show:false,width:1200,height:800,webPreferences:{preload:path.join(__dirname,'borsa-pro-preload.js'),sandbox:true}});
+    const end=(f,v)=>{try{w.destroy()}catch(e){}f(v)};
+    w.webContents.once('did-fail-load',(e,c,d)=>end(no,new Error('borsa-pro.html yuklenemedi: '+d)));
+    w.webContents.once('did-finish-load',()=>w.webContents.executeJavaScript("[typeof LightweightCharts,typeof Engine,typeof BPChart,typeof bp].map(t=>t!=='undefined'?1:0).join('')")
+      .then(r=>r==='1111'?end(ok,'grafik'):end(no,new Error('Borsa Pro eksik bilesen (LightweightCharts,Engine,BPChart,bp): '+r))).catch(e=>end(no,e)));
+    w.loadFile(path.join(__dirname,'borsa-pro.html'));
+  });
+}
+
 // --- ekran ---------------------------------------------------------------
 const activeDisplay=()=>screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
 // Otomatik (canli) analizde katmanin durdugu ekrana sadik kal; imlec baska monitore gecince katman ziplamasin.
@@ -152,13 +175,28 @@ function migrateDrawings(){
 }
 const screenAllowed=()=>process.platform!=='darwin'||systemPreferences.getMediaAccessStatus('screen')==='granted';
 
+// Ekran goruntusu ekranin FIZIKSEL cozunurlugunde alinir (Retina'da 2x). Eskiden 1568 px'e kucultuluyordu: Retina'da
+// mumlar birlesiyor, renkler karisiyor ve gercek veriyle olcek eslesmesi tutmuyordu. Yapay zekaya giden JPEG ayrica kucultulur.
 async function capture(d){
-  const h=Math.round(SHOT_W*d.size.height/d.size.width);
-  const srcs=await desktopCapturer.getSources({types:['screen'],thumbnailSize:{width:SHOT_W,height:h}});
-  const src=srcs.find(s=>s.display_id===String(d.id))||srcs[0];
-  if(!src||src.thumbnail.isEmpty())throw new Error('Ekran görüntüsü alınamadı.');
+  const srcs=await desktopCapturer.getSources({types:['screen'],thumbnailSize:engine.captureSize(d)});
+  const src=srcs.find(s=>s.display_id===String(d.id))||(srcs.length===1||screen.getAllDisplays().length===1?srcs[0]:null);
+  if(!src||src.thumbnail.isEmpty())throw new Error('Ekran görüntüsü alınamadı. Ekran Kaydı iznini kontrol et.');
   return src.thumbnail;
 }
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+// Elle analizde Borsa penceresi ve cizim katmani yakalamadan once gizlenir: macOS 15+ ekran yakalama icerik korumasini
+// her zaman uygulamaz; aksi halde acilir pencere son mumlarin ustunu kapatir, katmandaki yesil/kirmizi cizgiler mum sanilir.
+async function grab(d,hide){
+  const was=hide?[pop,ov].filter(w=>w&&!w.isDestroyed()&&w.isVisible()):[];
+  for(const w of was)w.hide();
+  if(was.length)await sleep(160);       // pencere sunucusu bir iki kare cizsin
+  try{return await capture(d)}
+  finally{for(const w of was){if(w===pop)pop.show();else if(!drawing&&!regionMode)ov.showInactive()}}
+}
+// Bu imleci/ekrani kullanicinin sectigi grafik alani (0-1). Ekran imzasi (dkey) ile saklanir.
+const regionOf=d=>{const r=(cfg().regions||{})[dkey(d)];return r&&[r.x,r.y,r.w,r.h].every(Number.isFinite)&&r.w>0.03&&r.h>0.03?r:null};
+// Yapay zekaya giden goruntu: en fazla SHOT_W genislik (Claude'un kucultmeden kabul ettigi boyut).
+const forAi=img=>img.getSize().width>SHOT_W?img.resize({width:SHOT_W,quality:'good'}):img;
 // Kucuk gri tonlu imza: canli modda ekran degismediyse analizi atla.
 function signature(img){
   const b=img.resize({width:64,height:36}).toBitmap(),s=new Uint8Array(b.length/4);
@@ -241,7 +279,7 @@ function placeOverlay(d){
 function syncOverlay(){
   if(!modOn('borsa'))return ov.hide();
   const hasDraw=((cfg().drawings||{})[ovKey]||[]).length>0;
-  if(drawing||hasDraw||lastResult||(lastDepth&&cfg().depthOverlay!==false))ov.showInactive();else ov.hide();
+  if(drawing||regionMode||hasDraw||lastResult||(lastDepth&&cfg().depthOverlay!==false))ov.showInactive();else ov.hide();
 }
 // --- bulut yedek (Supabase) kayitlari: yalnizca hesaplanmis ciktilar, ham derinlik/mesaj degil ---
 let lastSigKey='';
@@ -271,10 +309,32 @@ function clearAnalysis(){clearTimeout(fadeTimer);lastResult=null;sendOv('draw',n
 
 function setDrawing(on){
   if(on===drawing)return;
+  if(on&&regionMode)setRegionMode(false);
   drawing=on;
   if(on){placeOverlay(activeDisplay());pop.hide();ov.setIgnoreMouseEvents(false);ov.setFocusable(true);ov.show();ov.focus();app.focus({steal:true})}
   else{ov.setIgnoreMouseEvents(true);ov.setFocusable(false)}
   sendOv('mode',on);syncOverlay();
+}
+
+// Grafik alani secimi: katmanda dikdortgen surukle; ekran basina hatirlanir, sonraki analizler yalniz o alani okur.
+// Popup'tan acilinca son grafigin bulundugu ekran, yoksa imlecin ekrani.
+function setRegionMode(on,d){
+  if(on===regionMode)return;
+  if(on&&drawing)setDrawing(false);
+  regionMode=on;
+  if(on){d=d||activeDisplay();placeOverlay(d);pop.hide();ov.setIgnoreMouseEvents(false);ov.setFocusable(true);ov.show();ov.focus();app.focus({steal:true});
+    sendOv('region',{on:true,rect:regionOf(d)})}
+  else{ov.setIgnoreMouseEvents(true);ov.setFocusable(false);sendOv('region',{on:false})}
+  syncOverlay();
+}
+function saveRegion(r){
+  const d=screen.getAllDisplays().find(x=>x.id===ovDisplay)||activeDisplay(),k=dkey(d),all={...(cfg().regions||{})};
+  const ok=r&&typeof r==='object'&&[r.x,r.y,r.w,r.h].every(Number.isFinite);
+  if(ok){const x=Math.max(0,Math.min(1,r.x)),y=Math.max(0,Math.min(1,r.y));all[k]={x:+x.toFixed(4),y:+y.toFixed(4),w:+Math.min(1-x,Math.max(0.03,r.w)).toFixed(4),h:+Math.min(1-y,Math.max(0.03,r.h)).toFixed(4)}}
+  else delete all[k];
+  save({regions:all});lastSig=null;
+  setRegionMode(false);send('state',state());
+  return {ok:true,region:all[k]||null};
 }
 
 // Botun web terminali (mini app) icin ayri pencere.
@@ -366,12 +426,27 @@ function merge(a,local){
 }
 
 // --- analiz --------------------------------------------------------------
+// Analiz edilecek ekranlar sirasiyla: canli modda katmanin ekrani; elle analizde (popup'tan imlec menu cubugundadir)
+// grafik alani secilmis ekran, son grafigin bulundugu ekran, imlecin ekrani, sonra digerleri.
+function displayOrder(opts){
+  if(opts.silent)return [targetDisplay(true)];
+  const all=screen.getAllDisplays(),out=[],add=d=>{if(d&&!out.some(x=>x.id===d.id))out.push(d)};
+  if(opts.fromPop){add(all.find(d=>regionOf(d)));add(all.find(d=>d.id===chartDisplay))}
+  add(activeDisplay());all.forEach(add);
+  return out;
+}
+// Hisse kodu: kullanicinin yazdigi her zaman once gelir; yoksa son 30 dk icindeki yapay zeka okumasi.
+const manualSymbol=()=>bistCode(cfg().symbol||'')?String(cfg().symbol).trim():'';
+const knownSymbol=a=>manualSymbol()||(a&&a.symbol)||(lastAi&&lastAi.symbol&&Date.now()-(lastAi.at||0)<1800000?lastAi.symbol:'')||'';
+const NOCHART='Grafik bulunamadı: grafiği ekranda görünür yap ya da "Alan seç" ile grafik bölgesini işaretle.';
+
 async function analyze(opts={}){
   if(busy)return;
   const eng=opts.engine||(opts.silent?liveEngine():engineName());
   const key=eng==='claude'?getKey():null;
   if(eng==='grok'&&!grokKey()){send('err',{msg:'Grok analizi için Ayarlar sekmesinden xAI API anahtarını gir.',settings:true});return opts.silent||showPop()}
   if(eng==='claude'&&!key){send('err',{msg:'Claude analizi için Ayarlar sekmesinden API anahtarını gir. Anahtarsız da Hızlı (yerel) analiz kullanılabilir.',settings:true});return opts.silent||showPop()}
+  if(eng==='piyasa'&&!knownSymbol()){send('err',{msg:'Piyasa verisi için hisse kodunu yaz (Analiz sekmesinin üstündeki kutu, ör. THYAO).',symbol:true});return opts.silent||showPop()}
   if(!screenAllowed()){
     try{await desktopCapturer.getSources({types:['screen'],thumbnailSize:{width:1,height:1}})}catch(e){} // izin istemini tetikler
     send('err',{msg:'Ekran Kaydı izni gerekli. Sistem Ayarları › Gizlilik ve Güvenlik › Ekran Kaydı bölümünden Cem App\'i aç, sonra uygulamayı yeniden başlat.',perm:true});
@@ -379,27 +454,42 @@ async function analyze(opts={}){
   }
   busy=true;
   try{
-    const d=targetDisplay(opts.silent),shot=await capture(d),sig=signature(shot);
+    if(!opts.silent)send('busy',{text:'Ekran okunuyor…'});
+    // Ekranlari sirayla dene: mum grafigi bulunan ilk ekran kullanilir (bulunamazsa ilk ekran, yapay zeka cizgi grafigi okuyabilir).
+    let d=null,shot=null,local=null,first=null;
+    for(const disp of displayOrder(opts)){
+      const img=await grab(disp,!opts.silent),{width:W,height:H}=img.getSize();
+      const l=engine.analyzeBitmap(img.toBitmap(),W,H,{colors:candleColors(),roi:regionOf(disp)});
+      if(!first)first={d:disp,shot:img,local:l};
+      if(l.chart_found){d=disp;shot=img;local=l;break}
+    }
+    if(!d)({d,shot,local}=first);
+    if(local.chart_found)chartDisplay=d.id;
+    const sig=signature(shot);
     const change=d.id===ovDisplay?diff(sig,lastSig):1;
     if(opts.silent&&change===0){send('skip',Date.now());return}
-    const {width:W,height:H}=shot.getSize();
-    const local=engine.analyzeBitmap(shot.toBitmap(),W,H,{colors:candleColors()});
+    const {width:W,height:H}=shot.getSize(),region=regionOf(d);
     let a=local;
     if(eng==='claude'||eng==='grok'){
       send('busy',{text:(eng==='grok'?'Grok':'Claude')+' okuyor…'});
-      // Grafik alani bulunduysa yalnizca o bolumu (fiyat ekseniyle) gonder: daha az token, daha net okuma.
+      // Grafik alani (secili bolge ya da bulunan mumlar) varsa yalnizca o bolumu (fiyat ekseniyle) gonder: daha az token, daha net okuma.
       let crop=null,img=shot;
-      if(local.chart_found){const b=local.chart_box;
-        const x=Math.max(0,b.x1-0.03),y=Math.max(0,b.y1-0.08),x2=Math.min(1,b.x2+0.14),y2=Math.min(1,b.y2+0.08);
+      const b=local.chart_found?local.chart_box:region?{x1:region.x,y1:region.y,x2:region.x+region.w,y2:region.y+region.h}:null;
+      if(b){const x=Math.max(0,b.x1-0.03),y=Math.max(0,b.y1-0.08),x2=Math.min(1,b.x2+0.14),y2=Math.min(1,b.y2+0.08);
         if((x2-x)*(y2-y)<0.85){crop={x,y,w:x2-x,h:y2-y};img=shot.crop({x:Math.round(x*W),y:Math.round(y*H),width:Math.round(crop.w*W),height:Math.round(crop.h*H)})}}
-      const jpg=img.toJPEG(82).toString('base64');
-      if(eng==='grok'){try{a=await grok.analyze({key:grokKey(),model:cfg().grokModel||null,img:jpg,crop})}catch(e){throw new Error(grok.errorText(e))}}
-      else{a=await ai.analyze({key,model:model(),img:jpg,crop,effort:opts.silent?'low':'medium'});addCost(a.cost)}
-      a=merge(a,local);
+      const jpg=forAi(img).toJPEG(82).toString('base64'),hint={symbol:manualSymbol()||null};
+      if(eng==='grok'){try{a=await grok.analyze({key:grokKey(),model:cfg().grokModel||null,img:jpg,crop,hint})}catch(e){throw new Error(grok.errorText(e))}}
+      else{a=await ai.analyze({key,model:model(),img:jpg,crop,hint,effort:opts.silent?'low':'medium'});addCost(a.cost)}
+      a=merge(a,local);a.at=Date.now();
       lastAi=a;
-    }else if(eng==='piyasa'){
-      a=await withMarket(local,opts);
     }
+    // Hisse kodu biliniyorsa (elle yazilan once) her motorda gercek veriyle zenginlestir: fiyat olcegi, coklu zaman dilimi, karar, plan.
+    const sym=knownSymbol(a);
+    if(sym){
+      try{a=await withMarket(local,opts,{ai:eng==='claude'||eng==='grok'?a:null,symbol:sym})}
+      catch(e){if(eng==='piyasa')throw e;a={...a,marketError:ai.errorText(e)}}
+    }
+    if(!a.verdict)a.verdict=engine.screenVerdict(a);
     lastSig=sig;
     const prev=lastResult;
     if(local.chart_found){const cur={d:dkey(d),y:local.last.y,p:lastPrice(a,local),sym:a.symbol||mkt().symbol||null};if(lastLocal&&lastLocal.d===cur.d)checkAlarms(d,lastLocal,cur,a);lastLocal=cur}
@@ -408,6 +498,8 @@ async function analyze(opts={}){
       const keep={...prev,last:local.last,lines:local.lines,ind:local.ind,signals:local.signals,lastCandle:local.lastCandle};drawOverlay(keep,d,false);checkAlerts(prev,keep);return}
     a.at=Date.now();
     a.confidence=Math.max(0,Math.min(100,Math.round(a.confidence||0)));
+    a.region=!!region;
+    if(!a.chart_found)a.error=region?'Seçili alanda grafik bulunamadı. Alanı yeniden seç ya da sıfırla.':NOCHART;
     const entry={...a,model:eng==='claude'?model():eng==='grok'?(a.model||cfg().grokModel||null):null};
     if(a.chart_found){
       if(!opts.silent||eng==='claude'||eng==='grok')save({history:[slim(entry),...(cfg().history||[]).map(slim)].slice(0,HISTORY_MAX)});
@@ -420,39 +512,69 @@ async function analyze(opts={}){
 }
 
 // Gecmise yalnizca gosterim icin gerekenler: cizgi/mum dizileri cfg.json'u sisirmesin.
-function slim(e){if(!e)return e;const {lines,rawCandles,allSignals,trendlines,fib,lastCandle,cal,realSignals,market:m,...rest}=e;
-  return {...rest,signals:undefined,market:m?{quote:m.quote,backtest:m.backtest,tf:m.tf}:undefined}}
+function slim(e){if(!e)return e;const {lines,rawCandles,allSignals,trendlines,fib,lastCandle,cal,realSignals,market:m,pro,proScreen,...rest}=e;
+  return {...rest,signals:undefined,market:m?{quote:m.quote,backtest:m.backtest,tf:m.tf}:undefined,
+    pro:pro?{verdict:pro.verdict,plan:pro.plan,levels:pro.levels,tf:pro.tf,last:pro.last}:undefined}}
 
-// Ekran analizini piyasa verisiyle birlestir: fiyat olcegi, gercek veriden indikatorler, tarihli sinyaller, basari orani, haberler.
-async function withMarket(local,opts={}){
-  const m=mkt();
-  if(!m.symbol)throw new Error('Piyasa verisi için hisse kodunu yaz (Analiz sekmesinin üstünde).');
-  if(!opts.silent)send('busy',{text:m.symbol+' verisi alınıyor…'});
-  const r=await market.load(m.symbol,{tf:m.tf,market:m.market,avKey:avKey(),news:!opts.silent});
+// Derinlik (Telegram botu) ve haber botu verisi karara girer: yalniz ayni hisse ve taze ise.
+function extSignals(sym){
+  const code=bistCode(sym),d=lastDepth&&lastDepth.symbol===code&&Date.now()-lastDepth.at<DEPTH_FRESH?lastDepth:null,lv=d?liveView():null;
+  const depth=d?{pressure:d.pressure?d.pressure.score:null,flow:d.flow?d.flow.net:null,live:lv&&lv.dir||0}:null;
+  const nc=newsCache[code],news=nc&&nc.data&&(nc.data.list||[]).filter(n=>!n.general&&Date.now()-new Date(n.ts).getTime()<3*86400000);
+  return {depth,news:news&&news.length?news:null};
+}
+
+// Ekran analizini piyasa verisiyle birlestir: fiyat olcegi, gercek veriden indikatorler, coklu zaman dilimi karari,
+// islem plani, tarihli sinyaller, basari orani, haberler. ai: Claude/Grok sonucu (sayilari gercek veriyle denetlenir).
+async function withMarket(local,opts={},{ai:vis=null,symbol=null}={}){
+  const m=mkt(),sym=symbol||m.symbol;
+  if(!sym)throw new Error('Piyasa verisi için hisse kodunu yaz (Analiz sekmesinin üstündeki kutu, ör. THYAO).');
+  // Ekranda baska zaman dilimi okunduysa (yapay zeka) ve kullanici secmediyse onu kullan
+  const tf=m.tf;
+  if(!opts.silent)send('busy',{text:bistCode(sym)+' verisi alınıyor…'});
+  const [r,mt]=await Promise.all([market.load(sym,{tf,market:m.market,avKey:avKey(),news:!opts.silent}),
+    market.multi(sym,{tf,market:m.market}).catch(e=>({frames:{},errors:[e.message]}))]);
   const rows=r.chart&&r.chart.rows||[];
   const series=rows.length?engine.analyzeSeries(rows):null;
   const cal=local.chart_found&&rows.length?engine.calibrateFromSeries(local.rawCandles,rows):null;
   const P=y=>cal?+(cal.my+cal.k*(y-cal.mx)).toFixed(4):null;
-  const base=local.chart_found?local:{chart_found:!!series,engine:'piyasa',resistances:[],supports:[],trendlines:[],patterns:[],signals:[]};
-  const a={...base,engine:'piyasa',symbol:r.symbol,timeframe:m.tf,cal:cal?{mx:cal.mx,my:cal.my,k:cal.k}:null,
+  const base=vis||(local.chart_found?local:{chart_found:!!series,engine:'piyasa',resistances:[],supports:[],trendlines:[],patterns:[],signals:[]});
+  const a={...base,engine:vis?base.engine:'piyasa',screenEngine:vis?undefined:'yerel',symbol:r.symbol,timeframe:tf,cal:cal?{mx:cal.mx,my:cal.my,k:cal.k}:base.cal||null,
     // Ekrandaki seviyeler fiyatla etiketlenir; olcek yoksa gercek veriden seviyeler gelir.
-    resistances:cal?base.resistances.map(l=>({...l,price:P(l.y)})):base.resistances,
-    supports:cal?base.supports.map(l=>({...l,price:P(l.y)})):base.supports,
+    resistances:cal&&!vis?base.resistances.map(l=>({...l,price:P(l.y)})):base.resistances,
+    supports:cal&&!vis?base.supports.map(l=>({...l,price:P(l.y)})):base.supports,
     last_price:(r.chart&&r.chart.quote.price)??(series&&series.last_price)??(r.quote&&r.quote.price)??null};
   if(series&&series.chart_found){ // indikator ve skor gercek fiyattan: ekrandaki piksel tahmininden daha guvenilir
-    Object.assign(a,{ind:series.ind,score:series.score,factors:series.factors,rr:series.rr,bias:series.bias,trend:series.trend,confidence:series.confidence,comment:series.comment,
+    Object.assign(a,{ind:series.ind,score:series.score,factors:series.factors,rr:series.rr,bias:series.bias,trend:series.trend,confidence:series.confidence,comment:vis?a.comment:series.comment,
       patterns:[...new Set([...(series.patterns||[]),...(base.patterns||[])])]});
   }
-  a.market={tf:m.tf,yahoo:r.yahoo,quote:r.chart?r.chart.quote:r.quote||null,stale:!!(r.chart&&r.chart.stale),
+  a.market={tf,yahoo:r.yahoo,quote:r.chart?r.chart.quote:r.quote||null,stale:!!(r.chart&&r.chart.stale),
     levels:series?{R:series.resistances,S:series.supports}:null,signals:series?series.signals.slice(-6):[],backtest:series?series.backtest:null,
     news:[...((r.news&&r.news.items)||[]),...((r.avNews&&r.avNews.items)||[])].slice(0,8),sentiment:r.avNews?r.avNews.sentiment:null,
-    calib:cal?{r2:+cal.r2.toFixed(4),n:cal.n,shift:cal.shift}:null,errors:r.errors,avLeft:r.avLeft};
+    calib:cal?{r2:+cal.r2.toFixed(4),n:cal.n,shift:cal.shift}:null,errors:[...r.errors,...(mt.errors||[])],avLeft:r.avLeft};
   a.market.rows=rows.length;a.market.screenN=local.rawCandles?local.rawCandles.length:0;
   // Yahoo BIST verisi ~15 dk gecikmeli: gosterilen son fiyat ekrandaki grafikten (olcekle) ya da bottan alinir
   const live=cal&&local.last?+P(local.last.y):botPrice(r.symbol);
   if(live!=null){a.market.delayedPrice=a.last_price;a.last_price=live;a.market.priceSource=cal&&local.last?'ekran':'bot'}else a.market.priceSource='yahoo';
   if(cal&&series)a.realSignals=realMarks(series.signals||[],rows,local,cal);
+  // Gelismis analiz: coklu zaman dilimi, indikatorler, yapi, karar ve plan
+  const frames={...(mt.frames||{})};if(rows.length)frames[tf]=rows;
+  const ext=extSignals(r.symbol);
+  const pro=engine.proAnalyze(frames,{primary:tf,depth:ext.depth,news:ext.news,sentiment:a.market.sentiment,riskPct:+cfg().riskPct>0?+cfg().riskPct:1});
+  if(pro.ok){
+    // Plan ve bolgeler gercek fiyatla hesaplanir; ekrandaki (gecikmesiz) fiyat farkliysa plan ondan kaydirilmaz, yalniz gosterilir.
+    a.pro=pro;a.verdict=pro.verdict;a.score=pro.verdict.score;a.confidence=pro.verdict.confidence;
+    a.bias=pro.verdict.dir>0?'yukselis':pro.verdict.dir<0?'dusus':'notr';
+    a.factors=pro.verdict.components.map(c=>({v:c.impact,t:c.name+(c.why[0]?': '+c.why[0]:'')}));
+    if(pro.trend.primary)a.trend=pro.trend.primary.text;
+    if(pro.plan&&pro.plan.rr!=null)a.rr=pro.plan.rr;
+    const c=a.cal;if(c&&Number.isFinite(c.k)&&local.chart_found)a.proScreen=engine.projectPro(pro,c,local.chart_box);
+  }else a.market.errors.push('Gelişmiş analiz: '+pro.error);
+  if(vis){const cc=engine.crossCheckVision(vis,{symbol:manualSymbol()||null,lastPrice:a.last_price,cal:cal||null});
+    Object.assign(a,cc.fixed);a.warnings=[...(a.warnings||[]),...cc.warnings]}
   if(!a.chart_found&&!series)throw new Error(r.errors.join(' · ')||'Veri alınamadı.');
+  a.screenFound=!!local.chart_found;
+  if(!a.chart_found&&series)a.chart_found=true;
   return a;
 }
 
@@ -832,7 +954,7 @@ function state(){
     login:process.platform==='darwin'&&app.getLoginItemSettings().openAtLogin,alarms:Object.values(cfg().drawings||{}).flat().filter(x=>x.t==='alarm'&&!x.fired).length,
     usage:u.month===month()?u:{cost:0,count:0,total:u.total||0},sb:{...sync.state(),on:!!cfg().sbOn},
     signals:cfg().signals!==false,safe:safeInfo(),tg:tgState(),depthSource:cfg().depthSource||'telegram',depthAuto:cfg().depthAuto||0,depthOverlay:cfg().depthOverlay!==false,symbol:currentSymbol(),
-    shortcuts:scState,candleColors:candleColors(),cal:{...calendar.yearInfo(),year:new Date().getFullYear()},notify:Notification.isSupported()};
+    shortcuts:scState,candleColors:candleColors(),regions:Object.keys(cfg().regions||{}).length,riskPct:+cfg().riskPct>0?+cfg().riskPct:1,cal:{...calendar.yearInfo(),year:new Date().getFullYear()},notify:Notification.isSupported()};
 }
 
 app.whenReady().then(()=>{
@@ -853,10 +975,12 @@ app.whenReady().then(()=>{
   tray.on('right-click',()=>tray.popUpContextMenu(Menu.buildFromTemplate([
     {label:'Merkezi Aç',click:()=>hubUi.open()},{type:'separator'},
     ...(modOn('borsa')?[
+      {label:'Borsa Pro…',click:()=>borsaPro.open()},
       {label:'Hızlı Analiz (yerel)',click:()=>analyze({engine:'yerel'})},
       {label:'Claude ile Analiz',enabled:!!getKey(),click:()=>analyze({engine:'claude'})},
       {label:'Ekranı Analiz Et',accelerator:sc().analyze,click:()=>analyze()},
       {label:'Çizim Modu',accelerator:sc().draw,click:()=>setDrawing(true)},
+      {label:'Grafik Alanını Seç…',click:()=>setRegionMode(true)},
       {label:'Analiz Çizgilerini Gizle',click:clearAnalysis},
       {label:'Canlı Mod',type:'checkbox',accelerator:sc().live,checked:!!cfg().live,click:m=>{setLive(m.checked);send('state',state())}},{type:'separator'}]:[]),
     ...(modOn('ses')?[{label:'Ses…',click:()=>audioUi.open()}]:[]),
@@ -879,6 +1003,7 @@ app.whenReady().then(()=>{
   ipcMain.handle('shareOpen',()=>{if(modOn('paylas'))openShare();pop.hide()});
   ipcMain.handle('sesOpen',()=>{if(modOn('ses'))audioUi.open();pop.hide()});
   ipcMain.handle('hubOpen',()=>{hubUi.open();pop.hide()});
+  ipcMain.handle('proOpen',(e,s)=>{if(!modOn('borsa'))return;pop.hide();borsaPro.open(bistCode(typeof s==='string'?s.slice(0,20):'')||undefined)});
   // Paylasim komutlari yalniz paylasim penceresinden kabul edilir (baska pencere dosya ekleyip ag'a acamasin)
   const fromShare=e=>!!shareWin&&!shareWin.isDestroyed()&&e.sender===shareWin.webContents&&modOn('paylas');
   ipcMain.handle('shareStart',async e=>{if(!fromShare(e))return {ok:false,msg:'İzin yok'};try{
@@ -894,7 +1019,10 @@ app.whenReady().then(()=>{
   ipcMain.handle('testNotify',()=>{if(!Notification.isSupported())return false;new Notification({title:APP_NAME,body:'Test bildirimi: bildirimler çalışıyor.'}).show();return true});
   ipcMain.handle('parseTest',(e,t)=>parseTest(t));
   ipcMain.handle('scSet',(e,o)=>modOn('borsa')?setShortcut(o&&o.name,o&&o.acc):{ok:false,msg:'Borsa özelliği kapalı.',shortcuts:scState});
-  ipcMain.handle('analyze',(e,eng)=>analyze({engine:['claude','yerel','piyasa','grok'].includes(eng)?eng:undefined}));
+  ipcMain.handle('analyze',(e,eng)=>analyze({engine:['claude','yerel','piyasa','grok'].includes(eng)?eng:undefined,fromPop:true}));
+  // Grafik alani secimi (katman): ac/kapat ve kaydet (null = tum ekran)
+  ipcMain.handle('regionMode',(e,on)=>{if(!modOn('borsa'))return;const d=on?screen.getAllDisplays().find(x=>x.id===chartDisplay)||activeDisplay():null;setRegionMode(!!on,d)});
+  ipcMain.handle('setRegion',(e,r)=>{if(!modOn('borsa'))return {ok:false};const out=saveRegion(r);if(r)setTimeout(()=>analyze({fromPop:true}),250);return out});
   // Grok: anahtari dogrula ve gorsel destekli modelleri listele (tek istek, kredi harcamaz).
   ipcMain.handle('grokTest',async()=>{if(!grokKey())return {ok:false,msg:'Önce anahtarı kaydet.'};
     try{const r=await grok.test(grokKey());save({grokModels:r.visionModels});return {ok:true,models:r.visionModels,state:state()}}catch(e){return {ok:false,msg:grok.errorText(e)}}});
@@ -920,6 +1048,8 @@ app.whenReady().then(()=>{
       save({candleColors:{up:c.up.toLowerCase(),down:c.down.toLowerCase(),tol:Math.max(20,Math.min(120,+c.tol||60))}})}
     if(o.candleColors!==undefined)lastSig=null;
     if(typeof o.login==='boolean')app.setLoginItemSettings({openAtLogin:o.login});
+    if(Number.isFinite(o.riskPct)&&o.riskPct>=0.1&&o.riskPct<=5)save({riskPct:+(+o.riskPct).toFixed(2)});
+    if(o.clearRegions===true){save({regions:{}});lastSig=null}
     return state();
   });
   ipcMain.handle('clearHistory',()=>save({history:[]}));
@@ -974,6 +1104,7 @@ app.whenReady().then(()=>{
   if(modOn('borsa')&&cfg().depthAuto)setDepthAuto(cfg().depthAuto);
   if(modOn('borsa')&&cfg().live)setLive(true);
   trayTitle();
+  if(process.env.CEM_SMOKE==='1')require('./smoke').gate('borsapro',smokePro);
 });
-app.on('will-quit',()=>{globalShortcut.unregisterAll();if(shareSess)shareSess.stop('quit');try{require('./depthimg').close()}catch(e){}});
+app.on('will-quit',()=>{globalShortcut.unregisterAll();try{market.flush()}catch(e){}if(shareSess)shareSess.stop('quit');try{require('./depthimg').close()}catch(e){}});
 app.on('window-all-closed',e=>e.preventDefault());

@@ -194,3 +194,16 @@ test('model listesi onbellegi anahtara bagli; test() onbellegi atlar (M2)', asyn
   assert.equal(models().length, 5, 'farkli anahtar icin liste yeniden alinir');
   assert.equal(calls.at(-1).body.model, 'grok-4', 'KEY2 listesi alinamazsa yedek model');
 });
+
+test('analyze: kullanicinin hisse kodu ipucu olarak gider (fiyat gitmez); sema yeni alanlari ister; drawn_levels kirpmaya gore cevrilir', async t => {
+  const G = fresh('grok.js');
+  const body = { ...ANALYSIS(), visible_indicators: [{ name: 'EMA 50', value: null }], drawn_levels: [{ price: 300, y: 0.5 }], platform: 'TradingView' };
+  const calls = mockFetch(t, [[isModels, () => ({ body: MODELS })], [isChat, () => ({ body: chat(JSON.stringify(body)) })]]);
+  const a = await G.analyze({ key: KEY, img: IMG, hint: { symbol: 'asels<script>' }, crop: { x: 0.1, y: 0.2, w: 0.5, h: 0.5 } });
+  const txt = calls[1].body.messages[1].content.find(p => p.type === 'text').text;
+  assert.match(txt, /Kullanicinin sectigi hisse: aselsscript/);
+  assert.doesNotMatch(txt, /fiyat/i);
+  assert.equal(a.drawn_levels[0].y, 0.2 + 0.5 * 0.5);
+  for (const k of ['visible_indicators', 'drawn_levels', 'platform']) assert.ok(ai.SCHEMA.required.includes(k), k);
+  assert.equal(ai.userText(), 'Grafigi analiz et.');
+});

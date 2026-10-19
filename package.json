@@ -15,6 +15,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.135.0",
     "@tesseract.js-data/eng": "^1.0.0",
+    "lightweight-charts": "5.2.1",
     "qrcode": "^1.5.4",
     "telegram": "^2.26.22",
     "tesseract.js": "^7.0.0"

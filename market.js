@@ -6,7 +6,7 @@ const fs=require('fs'),path=require('path');
 const UA='Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130 Safari/537.36';
 const AV_DAY_CAP=25;
 // Arayuzdeki zaman dilimi -> Yahoo interval/range
-const TF={'1dk':{i:'1m',r:'1d',ttl:60},'5dk':{i:'5m',r:'5d',ttl:120},'15dk':{i:'15m',r:'5d',ttl:300},'1s':{i:'60m',r:'1mo',ttl:600},'1g':{i:'1d',r:'1y',ttl:1800},'1h':{i:'1wk',r:'5y',ttl:21600}};
+const TF={'1dk':{i:'1m',r:'1d',ttl:60},'5dk':{i:'5m',r:'5d',ttl:120},'15dk':{i:'15m',r:'5d',ttl:300},'1s':{i:'60m',r:'3mo',ttl:600},'1g':{i:'1d',r:'2y',ttl:1800},'1h':{i:'1wk',r:'5y',ttl:21600}};
 
 let dir=null,cache={},avUse={day:'',n:0};
 function init(d){
@@ -14,12 +14,19 @@ function init(d){
   try{cache=JSON.parse(fs.readFileSync(path.join(dir,'market-cache.json'),'utf8'))}catch(e){cache={}}
   try{avUse=JSON.parse(fs.readFileSync(path.join(dir,'av-usage.json'),'utf8'))}catch(e){}
 }
-const persist=()=>{if(!dir)return;try{
-  const keep=Object.fromEntries(Object.entries(cache).filter(([,v])=>Date.now()-v.at<7*86400000).slice(-60));cache=keep;
+// Disk onbellegi: en yeni CACHE_MAX kayit (BIST100 taramasi + bakilan hisseler sigsin). Yazma kisilir: ilk yazma hemen,
+// sonrakiler en fazla PERSIST_MS'de bir (tarama sirasinda dosya her istekte yeniden yazilmasin); kapanista flush().
+const CACHE_MAX=220,PERSIST_MS=5000;let lastWrite=0,writeTimer=null;
+const writeNow=()=>{if(writeTimer){clearTimeout(writeTimer);writeTimer=null}if(!dir)return;lastWrite=Date.now();try{
+  const keep=Object.fromEntries(Object.entries(cache).filter(([,v])=>Date.now()-v.at<7*86400000).slice(-CACHE_MAX));cache=keep;
   fs.writeFileSync(path.join(dir,'market-cache.json'),JSON.stringify(keep))}catch(e){}};
+const persist=()=>{if(!dir||writeTimer)return;const wait=lastWrite+PERSIST_MS-Date.now();
+  if(wait<=0)return writeNow();writeTimer=setTimeout(writeNow,wait);if(writeTimer.unref)writeTimer.unref()};
+const flush=()=>{if(writeTimer)writeNow()};
 async function cached(key,ttlSec,fn){
   const c=cache[key];if(c&&Date.now()-c.at<ttlSec*1000)return {...c.v,cached:true};
-  try{const v=await fn();cache[key]={at:Date.now(),v};persist();return v}
+  // Yenilenen kayit sona tasinir (en eski once silinsin)
+  try{const v=await fn();delete cache[key];cache[key]={at:Date.now(),v};persist();return v}
   catch(e){if(c){return {...c.v,cached:true,stale:true,staleReason:e.message}}throw e}
 }
 async function getJSON(url,headers={}){
@@ -62,6 +69,48 @@ async function candles(symbol,tf='1g',mkt='BIST'){
       currency:m.currency||null,name:m.shortName||m.longName||null,exchange:m.exchangeName||null,time:m.regularMarketTime?m.regularMarketTime*1000:null,
       dayHigh:m.regularMarketDayHigh??null,dayLow:m.regularMarketDayLow??null,volume:m.regularMarketVolume??null}};
   });
+}
+// Anlik fiyat (gun ici 5 dk mumlari, range=1d): 60 sn bellek onbellegi; ayni anda gelen istekler tek istege iner.
+// Diske yazilmaz (izleme listesi her dakika yeniler). Cevrimdisi: son bilinen fiyat ya da gunluk mum onbellegi "stale" doner.
+// prev: regularMarketPreviousClose > previousClose > (mumlar iki gune yayiliyorsa) onceki gunun son kapanisi > chartPreviousClose.
+// range=1d'de chartPreviousClose bir onceki seansin kapanisidir (1y araliktaki tuzak burada yok).
+const QTTL=60,qcache={},qwait={};
+const fnum=v=>typeof v==='number'&&Number.isFinite(v)?v:null;
+function chgOf(price,prev){return price!=null&&prev?{chg:+(price-prev).toFixed(4)||0,chgPct:+((price-prev)/prev*100).toFixed(2)||0}:{chg:null,chgPct:null}}
+function parseQuote(y,res){
+  const m=res.meta||{},q=(res.indicators&&res.indicators.quote&&res.indicators.quote[0])||{},ts=res.timestamp||[],A=k=>q[k]||[];
+  const rows=ts.map((t,i)=>({t:t*1000,h:A('high')[i],l:A('low')[i],c:A('close')[i],v:A('volume')[i]})).filter(r=>Number.isFinite(r.c)&&r.c>0);
+  const lastDay=rows.length?trDayOf(rows[rows.length-1].t):null,today=rows.filter(r=>trDayOf(r.t)===lastDay);
+  const hs=today.map(r=>r.h).filter(Number.isFinite),ls=today.map(r=>r.l).filter(Number.isFinite),vs=today.map(r=>r.v).filter(Number.isFinite);
+  const price=fnum(m.regularMarketPrice)??(rows.length?rows[rows.length-1].c:null);
+  const prev=fnum(m.regularMarketPreviousClose)??fnum(m.previousClose)??prevDayClose(rows)??fnum(m.chartPreviousClose);
+  return {source:'yahoo',symbol:y,price,prev,...chgOf(price,prev),
+    dayHigh:fnum(m.regularMarketDayHigh)??(hs.length?Math.max(...hs):null),dayLow:fnum(m.regularMarketDayLow)??(ls.length?Math.min(...ls):null),
+    volume:fnum(m.regularMarketVolume)??(vs.length?vs.reduce((a,b)=>a+b,0):null),
+    time:m.regularMarketTime?m.regularMarketTime*1000:(rows.length?rows[rows.length-1].t:null),
+    name:m.shortName||m.longName||null,currency:m.currency||null,exchange:m.exchangeName||null,intraday:today.slice(-120).map(r=>r.c)};
+}
+async function quote(symbol,mkt='BIST'){
+  const y=yahooSymbol(symbol,mkt);if(!y)throw new Error('Geçerli bir hisse kodu yaz (ör. THYAO).');
+  const c=qcache[y];if(c&&Date.now()-c.at<QTTL*1000)return {...c.v,cached:true};
+  if(qwait[y])return qwait[y];
+  const p=(async()=>{try{
+    let j;try{j=await getJSON(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(y)}?interval=5m&range=1d&includePrePost=false`)}
+    catch(e){if(/HTTP 404/.test(e.message))throw new Error(y+' bulunamadı. Kodu ve borsa seçimini (BIST/ABD) kontrol et.');throw e}
+    const res=j&&j.chart&&j.chart.result&&j.chart.result[0];
+    if(!res){const e=j&&j.chart&&j.chart.error;throw new Error(e&&e.description?('Yahoo: '+e.description):'Yahoo bu sembol için veri döndürmedi.')}
+    const v=parseQuote(y,res);if(v.price==null)throw new Error('Yahoo bu sembol için fiyat döndürmedi.');
+    const keys=Object.keys(qcache);if(keys.length>400)for(const k of keys.slice(0,100))delete qcache[k];
+    qcache[y]={at:Date.now(),v};return v;
+  }catch(e){
+    if(c)return {...c.v,cached:true,stale:true,staleReason:e.message};
+    // Gunluk mum onbellegi (diskten de yuklenir) son care: fiyat eski ama bos ekrandan iyidir.
+    const d=cache['yc:'+y+':1g'],dq=d&&d.v&&d.v.quote;
+    if(dq&&fnum(dq.price)!=null)return {source:'yahoo',symbol:y,price:dq.price,prev:fnum(dq.prev),...chgOf(dq.price,fnum(dq.prev)),dayHigh:dq.dayHigh??null,dayLow:dq.dayLow??null,
+      volume:dq.volume??null,time:dq.time??null,name:dq.name||null,currency:dq.currency||null,exchange:dq.exchange||null,intraday:[],cached:true,stale:true,staleReason:e.message};
+    throw e;
+  }finally{delete qwait[y]}})();
+  qwait[y]=p;return p;
 }
 async function yahooNews(symbol,mkt='BIST'){
   const y=yahooSymbol(symbol,mkt);if(!y)return {items:[]};
@@ -107,6 +156,17 @@ async function avSearch(key,q){
   return (j.bestMatches||[]).map(m=>({symbol:m['1. symbol'],name:m['2. name'],region:m['4. region'],currency:m['8. currency']}));
 }
 
+// Coklu zaman dilimi: ana dilim + ust dilimler (gunluk, haftalik, saatlik). Her dilim ayri onbelleklidir; hata olan dilim atlanir.
+// Kararlar ust dilimlerle teyit edilir (ornegin gunluk AL, haftalik dusus trendinde ise guven azalir).
+const MTF={'1dk':['1s','1g'],'5dk':['1s','1g'],'15dk':['1s','1g'],'1s':['1g','1h'],'1g':['1h','1s'],'1h':['1g']};
+async function multi(symbol,{tf='1g',market='BIST',extra}={}){
+  const tfs=[...new Set([tf,...(extra||MTF[tf]||[])])].filter(k=>TF[k]);
+  const out={frames:{},quotes:{},errors:[]};
+  await Promise.all(tfs.map(async k=>{try{const r=await candles(symbol,k,market);out.frames[k]=r.rows;out.quotes[k]=r.quote;if(r.stale)out.errors.push((k)+': çevrimdışı, eski veri')}
+    catch(e){out.errors.push(k+': '+e.message)}}));
+  return out;
+}
+
 // Tek cagrida: mumlar (Yahoo), haberler (Yahoo + varsa Alpha Vantage). Hata olan kaynak atlanir, mesaji doner.
 async function load(symbol,{tf='1g',avKey=null,news=true,market='BIST'}={}){
   const ys=yahooSymbol(symbol,market);
@@ -122,4 +182,4 @@ async function load(symbol,{tf='1g',avKey=null,news=true,market='BIST'}={}){
   return out;
 }
 
-module.exports={init,load,candles,yahooNews,avQuote,avNews,avSearch,avLeft,yahooSymbol,TF};
+module.exports={init,flush,load,candles,quote,multi,MTF,yahooNews,avQuote,avNews,avSearch,avLeft,yahooSymbol,TF};

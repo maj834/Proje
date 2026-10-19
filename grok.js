@@ -60,9 +60,9 @@ async function ask(key,model,system,schema,name,img,text,max=8000){
   return {data:parse(j),usage:j.usage||{},model:j.model||model};
 }
 
-async function analyze({key,model,img,crop}){
+async function analyze({key,model,img,crop,hint}){
   const m=await pickModel(key,model);
-  const r=await ask(key,m,ai.SYS,ai.SCHEMA,'grafik_analizi',img,'Grafigi analiz et.');
+  const r=await ask(key,m,ai.SYS,ai.SCHEMA,'grafik_analizi',img,ai.userText(hint));
   const a=ai.mapCrop(r.data,crop);
   a.engine='grok';a.model=r.model;a.tokens={in:r.usage.prompt_tokens||0,out:r.usage.completion_tokens||0};
   return a;

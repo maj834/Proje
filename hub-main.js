@@ -1,7 +1,7 @@
 // Merkez: tum ozelliklerin listelendigi ana pencere. Her ozellik buradan acilir/kapatilir;
 // kapali ozellik menu cubugunda gorunmez, kisayolu ve arka plan isi durur.
 const MODULES=[
-  {id:'borsa',name:'Borsa',desc:'Ekrandaki grafiği okur; derinlik, kurum dağılımı, işlem akışı, AL/SAT ve haberler.',ready:true,def:true},
+  {id:'borsa',name:'Borsa',desc:'Borsa Pro: etkileşimli grafik, BIST tarayıcı, strateji testi, portföy, alarm ve yapay zekâ yorumu. Ekrandaki grafiği okur; derinlik, AKD ve haberler.',ready:true,def:true},
   {id:'ses',name:'Ses',desc:'Her uygulamanın sesi ayrı; %200\'e kadar yükseltme, bas ve tiz, çıkış aygıtı.',ready:true,def:true},
   {id:'paylas',name:'Dosya Paylaşımı',desc:'QR ile telefona ve telefondan dosya. iPhone, Android, iPad; uygulama gerekmez.',ready:true,def:true},
   {id:'temizlik',name:'Temizlik',desc:'Birebir aynı dosyalar, önbellek ve gereksiz dosyalar. Her şey önce onayına gelir.',ready:true,def:true},

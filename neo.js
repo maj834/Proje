@@ -28,7 +28,7 @@ const TOOLS=[
     strict:true,input_schema:obj({app:{type:'string'},percent:{type:'integer',description:'0-200'}},['app','percent'])},
   {name:'set_mac_volume',description:'Mac\'in ana ses düzeyini (yüzde 0-100) ayarlar ya da sessize alır.',
     strict:true,input_schema:obj({percent:{type:'integer',description:'0-100'},mute:{type:'boolean'}},['percent','mute'])},
-  {name:'stock_info',description:'BIST hissesinin son fiyatı, günlük değişimi, son derinlik/baskı özeti ve haber botunun önemli haberleri. Sembol BIST kodu (THYAO, ASELS...).',
+  {name:'stock_info',description:'BIST hissesinin son fiyatı, günlük değişimi, teknik analiz kararı (AL/SAT/BEKLE, skor, güven, gerekçeler, işlem planı, destek/direnç; günlük+haftalık), son derinlik/baskı özeti ve haber botunun önemli haberleri. Sembol BIST kodu (THYAO, ASELS...). Kararı söylerken yatırım tavsiyesi olmadığını kısaca belirt.',
     strict:true,input_schema:obj({symbol:{type:'string'}},['symbol'])},
   {name:'show_stock',description:'Borsa panelini verilen hisseyle açar ve derinlik/AKD/işlem verisini getirir (ekranda gösterir).',
     strict:true,input_schema:obj({symbol:{type:'string'}},['symbol'])},
