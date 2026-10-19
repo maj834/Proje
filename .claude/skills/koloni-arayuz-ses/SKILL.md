@@ -6,7 +6,8 @@ description: Koloni'de HUD, menu, bildirim (toast), ikon, yazi tipi ve ses efekt
 # Koloni arayuz ve ses rehberi
 
 ## Arayuz
-- **Dil:** Turkce, kisa. Sayilar `1.234` bicimi (binlik nokta).
+- **Dil:** oyuncuya gorunen her metin Turkce karakterlerle (ı, ş, ğ, ü, ö, ç) ve dogal konusma diliyle yazilir; kod yorumlari ASCII kalabilir. Sayilar `1.234` bicimi (binlik nokta).
+- **Ses tonu:** jenerik "yapay zeka" kaliplari yok ("Kilometre tasi tamamlandi!", "Harika!", emoji). Bildirimler olayi anlatir ve dunyaya aittir: "Orumcek dustu. Kilere 40 yiyecek tasindi." Koloninin bir adi var (Mese Dibi Kolonisi), hikaye satirlari kisa ve somut.
 - **Yerlesim:** sol ust kaynak paneli (karinca, depo, dakika basina gelir), ust orta kilometre tasi kartlari ve ilerleme cubugu, alt orta kontrol ipuclari (ilk 20 sn gorunur, sonra solar; H ile geri gelir), sag ust hiz/duraklat gostergesi.
 - **Gorunum:** koyu yari saydam paneller (`#0d0906` %75), 10 px kose yuvarlama, 1 px sicak kenar (`#ffb53a` %25). Vurgu rengi altin `#ffb53a`, ikincil mavi `#4aa3ff`. Metin `#f5e6c8`.
 - **Ikonlar:** dosya yerine `_draw` ile basit sekiller (karinca silueti, yiyecek tanesi) — net ve olceklenebilir.

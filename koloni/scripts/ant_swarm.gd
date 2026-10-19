@@ -54,7 +54,8 @@ func refresh() -> void:
 	for i in n:
 		var h := sim.headings[i]
 		var p := sim.positions[i]
-		var s := _scales[i]
+		var soldier := sim.roles[i] == ColonySim.Role.SOLDIER
+		var s := _scales[i] * (1.45 if soldier else 1.0)
 		var c := cos(h) * s
 		var sn := sin(h) * s
 		var o := i * STRIDE
@@ -65,9 +66,10 @@ func refresh() -> void:
 		b[o + 5] = c
 		b[o + 7] = p.y
 		var t := _tints[i]
-		b[o + 8] = t
-		b[o + 9] = t
-		b[o + 10] = t
+		# Askerler kizil-kahve: gece de govdeleri ayirt edilir.
+		b[o + 8] = t * (2.6 if soldier else 1.0)
+		b[o + 9] = t * (1.1 if soldier else 1.0)
+		b[o + 10] = t * (0.8 if soldier else 1.0)
 		b[o + 11] = 1.0
 		b[o + 12] = float(i % 97) / 97.0
 		b[o + 13] = 1.0

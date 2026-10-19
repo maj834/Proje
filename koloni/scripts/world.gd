@@ -4,9 +4,14 @@
 extends Node2D
 
 signal toast(title: String, body: String, color: Color)
+signal phase_changed(phase: int)
+
+enum Phase { TITLE, PLAYING, WON, LOST }
 
 const ColonySim := preload("res://scripts/colony_sim.gd")
 const Progression := preload("res://scripts/progression.gd")
+const Economy := preload("res://scripts/economy.gd")
+const SpiderView := preload("res://scripts/spider_view.gd")
 const AntSwarm := preload("res://scripts/ant_swarm.gd")
 const Decor := preload("res://scripts/decor.gd")
 const FoodLayer := preload("res://scripts/food_layer.gd")
@@ -21,6 +26,8 @@ const GOLD := Color(1.0, 0.71, 0.23)
 const BLUE := Color(0.62, 0.91, 1.0)
 const DAY_LENGTH := 180.0
 const BRUSH_STRENGTH := 2.5
+const RED := Color(0.85, 0.22, 0.18)
+const LOSE_BELOW := 40
 
 @export var world_size := Vector2(1920, 1080)
 @export var start_ants := 300
@@ -29,6 +36,13 @@ const BRUSH_STRENGTH := 2.5
 
 var sim: ColonySim
 var progression := Progression.new()
+var economy := Economy.new()
+var phase := Phase.TITLE
+var play_time := 0.0
+## Rehber adimlari icin: oyuncu bunlari yapti mi
+var did_drop := false
+var did_buy := false
+var did_paint := false
 var paused := false
 var time_scale := 1
 var show_pheromones := true
@@ -57,11 +71,15 @@ var _bucket_timer := 0.0
 var _rate_history := PackedInt32Array()
 var _milestone_timer := 0.0
 var _painting := false
+var _spider_spawned_tonight := false
+var _was_night := false
+var _starve_warned := 0.0
 
 
 func _ready() -> void:
 	sim = ColonySim.new()
 	sim.setup(sim_seed, start_ants, world_size)
+	sim.hunger_enabled = false
 	if not camera_path.is_empty():
 		_camera = get_node(camera_path)
 	_build_ground()
@@ -75,6 +93,10 @@ func _ready() -> void:
 	_foods.sim = sim
 	add_child(_foods)
 	_build_nest()
+	var spider := SpiderView.new()
+	spider.sim = sim
+	spider.z_index = 2
+	add_child(spider)
 	_swarm = AntSwarm.new()
 	_swarm.setup(sim)
 	add_child(_swarm)
@@ -98,6 +120,10 @@ func _process(delta: float) -> void:
 			_handle_events()
 		_advance_day(delta * time_scale)
 		_tick_stats(delta * time_scale)
+		if phase == Phase.PLAYING:
+			play_time += delta * time_scale
+			_update_threats()
+			_check_end()
 	_swarm.refresh()
 	_update_lighting(delta)
 	_tex_timer -= delta
@@ -107,6 +133,18 @@ func _process(delta: float) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if phase == Phase.TITLE:
+		if (event is InputEventMouseButton or event is InputEventKey) and event.pressed:
+			start_game()
+			get_viewport().set_input_as_handled()
+		return
+	if event is InputEventKey and event.pressed and not event.echo:
+		if event.keycode == KEY_R and phase != Phase.PLAYING:
+			get_tree().reload_current_scene()
+			return
+		if event.keycode >= KEY_1 and event.keycode <= KEY_4:
+			buy(event.keycode - KEY_1)
+			return
 	if event.is_action_pressed("toggle_pause"):
 		paused = not paused
 	elif event.is_action_pressed("toggle_pheromones"):
@@ -125,10 +163,42 @@ func _unhandled_input(event: InputEvent) -> void:
 			_painting = false
 
 
+func start_game() -> void:
+	if phase != Phase.TITLE:
+		return
+	phase = Phase.PLAYING
+	sim.hunger_enabled = true
+	phase_changed.emit(phase)
+
+
+## Kilerden harcama (HUD dugmeleri ve 1-4 tuslari).
+func buy(i: int) -> void:
+	if phase != Phase.PLAYING or i < 0 or i >= Economy.ITEMS.size():
+		return
+	if not economy.buy(i, sim):
+		_audio.play("pickup")
+		return
+	did_buy = true
+	var id: String = Economy.ITEMS[i]["id"]
+	if id == "eggs":
+		progression.eggs_bought += 1
+		_fx.ring(sim.nest_pos, Color(BLUE, 0.9), 70.0, 0.6, 3.0)
+		_fx.burst(sim.nest_pos, BLUE, 16)
+	elif id == "soldiers":
+		_fx.ring(sim.nest_pos, Color(RED, 0.9), 70.0, 0.6, 3.0)
+		_fx.burst(sim.nest_pos, RED, 16)
+	else:
+		_fx.ring(sim.nest_pos, Color(GOLD, 0.9), 90.0, 0.7, 3.0)
+	_audio.play("buy")
+
+
 func drop_food(p: Vector2) -> void:
 	if not Rect2(Vector2.ZERO, world_size).has_point(p):
 		return
-	sim.add_food(p, 60)
+	if phase != Phase.PLAYING:
+		return
+	did_drop = true
+	sim.add_food(p, 50)
 	_fx.ring(p, Color(GOLD, 0.9), 34.0, 0.45)
 	_fx.burst(p, GOLD, 14)
 	_audio.play("drop")
@@ -140,8 +210,9 @@ func _paint_brush(dt: float) -> void:
 	var held := _painting or Input.is_key_pressed(KEY_F)
 	_fx.brush_visible = held or Input.is_key_pressed(KEY_SHIFT)
 	_fx.brush_pos = get_global_mouse_position()
-	if not held:
+	if not held or phase != Phase.PLAYING:
 		return
+	did_paint = true
 	var c := _fx.brush_pos
 	var r := _fx.brush_radius
 	for o in [Vector2.ZERO, Vector2(r, 0), Vector2(-r, 0), Vector2(0, r), Vector2(0, -r)]:
@@ -163,10 +234,24 @@ func _handle_events() -> void:
 				_audio.play("birth")
 				_nest_pulse = 1.0
 			"discover":
-				progression.sources_found += 1
 				_fx.ring(e["pos"], Color(GOLD, 1.0), 60.0, 0.8, 3.0)
 				_audio.play("discover")
-				toast.emit("Yeni kaynak bulundu", "Karincalar bir iz acti", GOLD)
+			"bite":
+				_fx.burst(e["pos"], RED, 8)
+				_audio.play("bite")
+			"starve":
+				_fx.burst(e["pos"], Color(0.6, 0.6, 0.6), 4)
+				if phase == Phase.PLAYING and play_time - _starve_warned > 20.0:
+					_starve_warned = play_time
+					_audio.play("warn")
+					toast.emit("Kiler boş", "Karıncalar açlıktan ölüyor. Yiyecek bırak.", RED)
+			"spider_dead":
+				_fx.ring(e["pos"], Color(1, 0.9, 0.6), 120.0, 1.0, 4.0)
+				_fx.burst(e["pos"], GOLD, 24)
+				_fx.float_text(e["pos"], "+%d" % ColonySim.SPIDER_BOUNTY, GOLD)
+				_audio.play("milestone")
+				if _camera and _camera.has_method("kick"):
+					_camera.kick(0.05)
 
 
 func _tick_stats(dt: float) -> void:
@@ -183,16 +268,42 @@ func _tick_stats(dt: float) -> void:
 			total += v
 		food_per_minute = float(total)
 	_milestone_timer += dt
-	if _milestone_timer >= 0.25:
+	if _milestone_timer >= 0.25 and phase == Phase.PLAYING:
 		_milestone_timer = 0.0
 		var done := progression.check(sim)
 		if not done.is_empty():
-			Progression.apply_reward(done["reward"], sim)
 			_audio.play("milestone")
 			_fx.ring(sim.nest_pos, Color(1, 0.9, 0.6, 1), 140.0, 1.0, 4.0)
 			if _camera and _camera.has_method("kick"):
 				_camera.kick(0.04)
-			toast.emit(done["title"], Progression.REWARD_TEXT[done["reward"]], Color(1, 0.9, 0.6))
+			toast.emit(done["title"], done["done"], Color(1, 0.9, 0.6))
+
+
+## Orumcek: "Orumcek" bolumune gelindiginde ve sonrasinda her gece bir kez gelir; safakta cekilir.
+func _update_threats() -> void:
+	var is_night := night > 0.5
+	if is_night and not _was_night:
+		_spider_spawned_tonight = false
+	var spider_time := progression.index >= 3
+	if is_night and spider_time and not _spider_spawned_tonight and sim.spider.is_empty():
+		_spider_spawned_tonight = true
+		sim.spawn_spider()
+		_audio.play("warn")
+		toast.emit("Örümcek geliyor", "Ağaç kökünden bir gölge indi.", RED)
+	if not is_night and _was_night and not sim.spider.is_empty():
+		sim.spider["leaving"] = true
+		toast.emit("Şafak", "Örümcek gün ışığında çekildi.", GOLD)
+	_was_night = is_night
+
+
+func _check_end() -> void:
+	if sim.ant_count() < LOSE_BELOW:
+		phase = Phase.LOST
+		_audio.play("warn")
+		phase_changed.emit(phase)
+	elif progression.finished():
+		phase = Phase.WON
+		phase_changed.emit(phase)
 
 
 func _advance_day(dt: float) -> void:

@@ -55,6 +55,44 @@ def drop():
     write("drop.wav", out, 0.8)
 
 
+def bite():
+    # Orumcek isirigi: kisa, kuru citirti (dusuk gecisli gurultu patlamalari)
+    rnd = random.Random(5)
+    n = int(RATE * 0.22)
+    out, lp = [], 0.0
+    for i in range(n):
+        t = i / RATE
+        lp += (rnd.uniform(-1, 1) - lp) * 0.35
+        crack = 1.0 if (int(t * 60) % 3 == 0) else 0.4
+        out.append(lp * crack * env(t, 0.001, 0.06) + 0.4 * math.sin(2 * math.pi * 95 * t) * env(t, 0.002, 0.05))
+    write("bite.wav", out, 0.8)
+
+
+def warn():
+    # Tehlike: alcak, yavas yukselen iki notali boru
+    n = int(RATE * 1.6)
+    out = []
+    for i in range(n):
+        t = i / RATE
+        f = 110 if t < 0.7 else 103.8
+        e = min(1.0, t / 0.25) * math.exp(-max(0.0, t - 0.7) / 0.4)
+        s = math.sin(2 * math.pi * f * t) + 0.45 * math.sin(2 * math.pi * f * 2 * t) + 0.2 * math.sin(2 * math.pi * f * 3 * t)
+        out.append(s * e)
+    write("warn.wav", out, 0.7)
+
+
+def buy():
+    # Tahta tik + kisa yukselen ton
+    n = int(RATE * 0.25)
+    out = []
+    for i in range(n):
+        t = i / RATE
+        s = math.sin(2 * math.pi * 520 * t) * env(t, 0.001, 0.02)
+        s += 0.6 * math.sin(2 * math.pi * (660 + 800 * t) * t) * env(t, 0.01, 0.08)
+        out.append(s)
+    write("buy.wav", out, 0.7)
+
+
 def chime(name, freqs, length, gap):
     n = int(RATE * length)
     out = [0.0] * n
@@ -119,6 +157,9 @@ if __name__ == "__main__":
     os.makedirs(OUT, exist_ok=True)
     pickup()
     drop()
+    bite()
+    warn()
+    buy()
     chime("birth.wav", [880, 1318.5], 0.7, 0.07)
     chime("discover.wav", [659.3, 880, 1108.7], 1.0, 0.09)
     chime("milestone.wav", [523.3, 659.3, 784, 1046.5], 1.6, 0.12)

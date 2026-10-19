@@ -7,6 +7,9 @@ const SOUNDS := {
 	"birth": ["res://audio/birth.wav", -14.0],
 	"discover": ["res://audio/discover.wav", -9.0],
 	"milestone": ["res://audio/milestone.wav", -6.0],
+	"bite": ["res://audio/bite.wav", -10.0],
+	"warn": ["res://audio/warn.wav", -6.0],
+	"buy": ["res://audio/buy.wav", -9.0],
 }
 const POOL := 6
 const MIN_GAP := 0.08

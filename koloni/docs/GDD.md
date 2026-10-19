@@ -1,4 +1,4 @@
-# Koloni — Oyun Tasarım Belgesi (taslak v0.2)
+# Koloni — Oyun Tasarım Belgesi (demo v0.3)
 
 > Hedef cihaz: **MacBook Neo** (Apple A18 Pro, 8 GB birleşik bellek, fansız, entegre GPU).
 > Motor: **Godot 4.4+** (Metal destekli Mobile renderer). Tür: üstten görünümlü 2D koloni yönetimi.
@@ -16,8 +16,16 @@ oyuncu doğrudan karınca sürmez; **koloniyi yönlendirir**: kaynak açar, rol 
 3. **Sakin ama derin.** Kısa oturumlar (10–20 dk) için uygun, pil dostu, fansız cihazda sessiz.
 
 ## 3. Çekirdek döngü
-Keşfet → İz oluştur → Topla → Yuvaya taşı → Koloni büyür → Daha uzağa keşfet.
-Yuvaya gelen her 5 yiyecek bir yeni karınca doğurur (`ANTS_PER_FOOD = 0.2`). Kaynak tükenince haritada yenisi belirir.
+Keşfet → İz oluştur → Topla → Kilere taşı → **Harca** (yumurta, asker, yükseltme) → Daha uzağa keşfet.
+Gerilim iki yerden gelir: koloni her saniye yer (kiler boşalırsa karıncalar ölür) ve geceleri örümcek gelir. Kiler hem para hem hayat; her harcama bir risk.
+
+### Demo akışı (5 bölüm, ~10–15 dk)
+1. **İlk hasat**: kilere 40 yiyecek.
+2. **Yuvayı büyüt**: ilk yumurtayı al.
+3. **Nöbetçiler**: 6 asker yetiştir.
+4. **Örümcek**: gece gelen örümceği askerlerle öldür (+40 yiyecek). Bölüm başladıktan sonraki her gece bir örümcek gelir, şafakta çekilir.
+5. **Kışa hazırlık**: 500 karınca → demo sonu ekranı.
+Kaybetme: 40 karıncanın altına düşmek. R ile yeniden başlanır. Rehber satırı oyuncu her adımı yapana kadar ne yapacağını söyler.
 
 ## 4. Sistemler
 | Sistem | Durum (v0.2) | Sonraki adım |
@@ -26,8 +34,9 @@ Yuvaya gelen her 5 yiyecek bir yeni karınca doğurur (`ANTS_PER_FOOD = 0.2`). K
 | Feromon alanı | 2 katman, 8 px hücre, 10 Hz buharlaşma, yumuşak bırakma; oyuncu fırçası (Shift+sürükle / F) | Tehlike feromonu |
 | Yiyecek | Tohum/meyve/yaprak türleri, ilk keşifte bildirim, sol tık ile bırakma | Çürüme, büyük av (birlikte taşıma) |
 | Yuva | Teslimat, doğum, nabız ışığı | Yeraltı kesiti, odalar |
-| İlerleme | 8 kilometre taşı, her biri ödül verir (hız, algı, iz ömrü, +30 karınca) | Kraliçe yükseltme ağacı, mevsimler |
-| Tehdit | — | Örümcek, rakip koloni, yağmur |
+| İlerleme | 5 hikâye bölümü, başlık ve demo sonu/kaybetme ekranları | Kraliçe yükseltme ağacı, mevsimler |
+| Kiler ekonomisi | Açlık (asker 3 kat yer), yumurta / asker / keskin koku / uzun bacak; her alım fiyatı artırır (yumurta %10, asker %20, yükseltme %60) | Oda inşası |
+| Tehdit | Örümcek (gece, işçi avlar, askerler öldürür), açlık | Rakip koloni, yağmur |
 | Gün döngüsü | 180 sn'lik gün, gece mavi ton, ateşböcekleri, yuva ışığı, gün sayacı | Gece karıncalar yavaşlar |
 | Ses | Prosedürel efektler + gündüz/gece ambiyansı (`tools/gen_audio.py`) | Müzik katmanları |
 
@@ -62,8 +71,8 @@ Gündüz rüzgâr/yaprak, gece cırcır böceği ambiyansı (çapraz geçiş); y
 
 ## 9. Kilometre taşları
 1. **v0.1:** çalışan sahne, feromon davranışı, gün döngüsü, testler.
-2. **v0.2 (bu sürüm):** görsel yenileme, yürüme animasyonu, atmosfer, ses, kilometre taşları, feromon fırçası.
-3. **v0.3:** roller, ilk tehdit (örümcek).
+2. **v0.2:** görsel yenileme, yürüme animasyonu, atmosfer, ses, feromon fırçası.
+3. **v0.3 (bu sürüm):** oynanabilir demo: kiler ekonomisi, açlık, asker rolü, örümcek, 5 bölüm, Mac çıktısı.
 4. **v0.4:** yeraltı kesiti ve odalar, kaydet/yükle.
 5. **v0.5:** müzik, menü, macOS imzalı dışa aktarım, MacBook Neo'da profil ölçümü.
 

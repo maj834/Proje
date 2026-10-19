@@ -18,6 +18,9 @@ description: Koloni'de oyun hissi (juice), akicilik, geri bildirim, kamera, hede
 3. **Merak:** haritada henuz kesfedilmemis kaynaklar; ilk kesifte "Yeni kaynak bulundu!" toast'i.
 4. **Oyuncu ajansi:** oyuncu izleri boyayabilir (feromon fircasi) ve yiyecek birakabilir; sonucu birkac saniyede gorur.
 
+## Demo dongusu (v0.3)
+Kiler hem para hem hayat: karincalar her saniye yer (aclik), oyuncu kileri yumurta/asker/yukseltmeye harcar. Gece orumcek gelir, askerler savunur. 5 bolumluk hikaye, kaybetme (< 40 karinca) ve demo sonu ekrani var. Denge degisikliginden sonra `tests/autoplay.gd` ile demonun kazanilabilir kaldigini dogrula.
+
 ## Akicilik kontrol listesi
 - `_process` icinde tahsis yok (Array/Dictionary olusturma donguleri disinda tutulur).
 - Simulasyon adimi sabit `dt`; gorsel interpolasyon kare basina.
