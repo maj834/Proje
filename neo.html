@@ -45,7 +45,7 @@ if(ORB){
   txt.append(st,said,ans);pill.append(ball,txt);document.body.append(pill);
   pill.onclick=()=>neo.talk();
   neo.onOrb(d=>{ball.className='ball '+(d.error&&d.state==='off'?'err':d.state);
-    st.textContent=d.error&&d.state==='off'?'Sorun':d.tool?(TOOL[d.tool]||'Çalışıyorum'):d.wake?'Dinliyorum':ST[d.state]||'';
+    st.textContent=d.error&&d.state==='off'?'Sorun':d.tool?(TOOL[d.tool]||'Çalışıyorum'):d.wake?'Dinliyorum':d.followUp?'Dinliyorum · devam edebilirsin':ST[d.state]||'';
     said.textContent=d.partial?'“'+d.partial+'”':'';ans.textContent=d.error&&!d.answer?d.error:d.answer||''});
   // Ses duzeyiyle kure buyur (-60..-10 dB)
   neo.onLevel(db=>{const k=Math.max(0,Math.min(1,(db+60)/50));ball.style.transform='scale('+(1+k*.35).toFixed(3)+')'});
@@ -56,6 +56,7 @@ if(ORB){
   <div class="card">
     <div class="row"><div class="f">“Hey Neo” ile uyan<div class="d" id="wd"></div></div><label><input type="checkbox" id="wake"> Açık</label></div>
     <div class="row"><div class="f">Uyandırma dili<div class="d" id="wld"></div></div><select id="wl" aria-label="Uyandırma dili"><option value="auto">Otomatik (önce İngilizce)</option><option value="en">İngilizce</option><option value="tr">Türkçe</option></select></div>
+    <div class="row"><div class="f">Cevaptan sonra dinlemeye devam et<div class="d">Neo cevap verince birkaç saniye “Hey Neo” demeden karşılık verebilirsin.</div></div><label><input type="checkbox" id="fu"> Açık</label></div>
     <div class="row"><div class="f">Son duyulan<div class="d">“Hey Neo” derken Mac'in ne duyduğu; algılamazsa buradan neyi yanlış anladığını gör.</div></div><b id="hd" style="font:500 12px var(--mono,monospace);max-width:190px;text-align:right;overflow-wrap:anywhere">—</b></div>
     <div class="row"><div class="f">Konuşmak için kısayol<div class="d">Uyandırma kelimesi demeden dinler; konuşurken basarsan susar.</div></div><kbd id="hk"></kbd></div>
     <div class="row"><div class="f">Ses</div><select id="voice" aria-label="Neo'nun sesi"></select></div>
@@ -66,13 +67,13 @@ if(ORB){
   <div class="log" id="log" aria-live="polite"></div>
   <div class="row"><input type="text" id="q" placeholder="Yazarak sor… (ör. Spotify sesini yüzde 150 yap)" aria-label="Neo'ya yaz"><button class="btn pri" id="go">Sor</button>
     <button class="btn" id="mic" title="Sesle sor">🎙</button></div>
-  <div class="row"><span class="note f">Uyandırma kelimesi Mac'te, internetsiz algılanır. Komutun seçtiğin beyne gider (Groq ya da Claude).</span><button class="btn" id="fg">Konuşmayı unut</button></div>
+  <div class="row"><span class="note f">“Hey Neo” Mac'te, internetsiz algılanır. Komutun daha doğru anlaşılsın diye internet varken Apple'ın konuşma tanımasıyla yazıya çevrilir, sonra seçtiğin beyne gider (Groq ya da Claude).</span><button class="btn" id="fg">Konuşmayı unut</button></div>
   </div>`;
   const $=id=>document.getElementById(id);let S=null;
   function render(){if(!S)return;const c=S.conf;
     $('sub').textContent=(ST[S.state]||'')+(S.hello?(S.hello.wakeOnDevice?' · uyandırma internetsiz':' · uyandırma için internet gerekiyor'):'');
     $('wake').checked=c.wake;$('wd').textContent=c.wake?'Mikrofon dinlemede; ekrandaki turuncu nokta bu yüzden.':'Kapalıyken yalnızca kısayolla dinler.';
-    $('wl').value=c.wakeLang||'auto';$('hd').textContent=S.heard||'—';
+    $('wl').value=c.wakeLang||'auto';$('fu').checked=c.followUp!==false;$('hd').textContent=S.heard||'—';
     const wl=S.hello&&S.hello.wakeLocale;$('wld').textContent=wl?'Şu an dinleyen: '+(/^en/i.test(wl)?'İngilizce':'Türkçe')+(S.hello.wakeOnDevice?' (internetsiz)':' (internet gerekir)')+'. İngilizce internetsiz çalışmıyorsa: Sistem Ayarları › Klavye › Dikte › dil ekle › İngilizce.':'';
     $('hk').textContent=c.hotkey.replace('Alt','⌥').replace('Space','Boşluk').replace(/\+/g,' ');
     const vs=(S.hello&&S.hello.voices)||[];$('voice').replaceChildren(el('option',null,'Varsayılan Türkçe ses'),...vs.map(v=>{const o=el('option',null,v.name+(v.quality&&v.quality!=='default'?' ('+v.quality+')':''));o.value=v.id;return o}));
@@ -87,6 +88,7 @@ if(ORB){
   neo.on(s=>{S=s;render()});neo.state().then(s=>{if(s){S=s;render()}});
   $('wake').onchange=async()=>{S=await neo.set({wake:$('wake').checked})||S;render()};
   $('wl').onchange=async()=>{S=await neo.set({wakeLang:$('wl').value})||S;render()};
+  $('fu').onchange=async()=>{S=await neo.set({followUp:$('fu').checked})||S;render()};
   $('voice').onchange=async()=>{S=await neo.set({voice:$('voice').value})||S;render()};
   const ask=async()=>{if($('go').disabled)return;const t=$('q').value.trim();if(!t)return;$('q').value='';$('go').disabled=true;S=await neo.ask(t)||S;$('go').disabled=false;render()};
   $('go').onclick=ask;$('q').onkeydown=e=>{if(e.key==='Enter')ask()};$('mic').onclick=()=>neo.talk();

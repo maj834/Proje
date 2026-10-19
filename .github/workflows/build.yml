@@ -129,6 +129,8 @@ jobs:
         run: |
           set -o pipefail
           printf '%s\n' "Hey Neo, sesi aç" "hey nio" "Heyneo müziği durdur" "bugün hava nasıl" "hey ne oldu" "hey no" "Hey Neo." "HEY NİYO ışığı kapat" "tamam hey neo ekranı kilitle" "hey net olarak söyle" "Hey ne o" "selam neo" "hey nea sesi kapat" "hai neo" "hey nedir bu" \
+            "neo neo sesi aç" "A Neo" "a new day" "Hey Neil" "neo" "ey neo telefonu bul" "new new" \
+            "heyne sesi aç" "hey ne sesi aç" "hayne müziği durdur" "neo ekranı kilitle" "hey sesi kapat" "Hey Neo, ne zaman yağmur yağacak" "spotify sesini yüzde 50 yap" "o ne" "hayır kapat" \
             | ./build/bin/neo-yardimcisi --wake-test > neo-wake.txt
           cat neo-wake.txt
           node - <<'JS'
@@ -140,12 +142,19 @@ jobs:
             ["hey ne oldu", null], ["hey no", null], ["Hey Neo.", ""], ["HEY NİYO ışığı kapat", "ışığı kapat"],
             ["tamam hey neo ekranı kilitle", "ekranı kilitle"], ["hey net olarak söyle", null], ["Hey ne o", ""], ["selam neo", null],
             ["hey nea sesi kapat", "sesi kapat"], ["hai neo", ""], ["hey nedir bu", null],
+            ["neo neo sesi aç", "sesi aç"], ["A Neo", ""], ["a new day", null], ["Hey Neil", ""], ["neo", null], ["ey neo telefonu bul", "telefonu bul"], ["new new", null],
+            // uyandirmaz; ama uyandirmadan sonraki komut metni bu olsaydi (3. sutun: beyne giden) bozuk "hey neo" atilir
+            ["heyne sesi aç", null, "sesi aç"], ["hey ne sesi aç", null, "sesi aç"], ["hayne müziği durdur", null, "müziği durdur"],
+            ["neo ekranı kilitle", null, "ekranı kilitle"], ["hey sesi kapat", null, "sesi kapat"],
+            ["Hey Neo, ne zaman yağmur yağacak", "ne zaman yağmur yağacak", "ne zaman yağmur yağacak"],
+            ["spotify sesini yüzde 50 yap", null, "spotify sesini yüzde 50 yap"], ["o ne", null, "o ne"], ["hayır kapat", null, "hayır kapat"],
           ];
           if (rows.length !== want.length) fail("satir sayisi " + rows.length);
-          want.forEach(([text, cmd], i) => {
+          want.forEach(([text, cmd, loose], i) => {
             const r = rows[i];
             if (r.text !== text) fail("sira/metin: " + JSON.stringify(r));
             if (cmd === null ? r.wake !== false : (r.wake !== true || r.command !== cmd)) fail("beklenen " + JSON.stringify(cmd) + ": " + JSON.stringify(r));
+            if (loose !== undefined && r.loose !== loose) fail("komut kirpma beklenen " + JSON.stringify(loose) + ": " + JSON.stringify(r));
           });
           console.log("uyandirma eslesmesi tamam: " + rows.length + " ornek");
           JS
@@ -157,7 +166,7 @@ jobs:
         run: |
           set -o pipefail
           uzun="Bu uzun bir deneme cümlesidir; durdurma komutu gelene kadar okunmaya devam etmesi gerekir. Bir, iki, üç, dört, beş, altı, yedi, sekiz, dokuz, on."
-          { echo '{"cmd":"config","locale":"tr-TR","silenceMs":1200,"maxMs":15000,"voice":"","rate":0.5}'
+          { echo '{"cmd":"config","locale":"tr-TR","silenceMs":1700,"maxMs":15000,"followUpMs":6000,"voice":"","rate":0.5}'
             echo '{"cmd":"say","id":"t","text":"Merhaba"}'; sleep 3
             echo "{\"cmd\":\"say\",\"id\":\"u\",\"text\":\"$uzun\"}"; sleep 1
             echo '{"cmd":"stopSay"}'; echo '{"cmd":"cancel"}'; echo '{"cmd":"thinking"}'; sleep 0.5

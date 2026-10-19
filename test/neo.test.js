@@ -67,9 +67,10 @@ test('runTool: dogrulama, sinirlar, yalniz https, arac hatasi is_error olarak do
 });
 
 test('clean: ayarlar sinirli', () => {
-  assert.deepEqual(clean({ wake: false, voice: 5, rate: 9, hotkey: 'Alt+Space; rm', brain: 'gpt' }), { wake: false, voice: '', rate: 0.7, brain: 'groq', hotkey: 'Alt+Space', wakeLang: 'auto' });
-  assert.deepEqual(clean({ brain: 'claude', wakeLang: 'tr' }), { wake: true, voice: '', rate: 0.5, brain: 'claude', hotkey: 'Alt+Space', wakeLang: 'tr' });
+  assert.deepEqual(clean({ wake: false, voice: 5, rate: 9, hotkey: 'Alt+Space; rm', brain: 'gpt' }), { wake: false, voice: '', rate: 0.7, brain: 'groq', hotkey: 'Alt+Space', wakeLang: 'auto', followUp: true });
+  assert.deepEqual(clean({ brain: 'claude', wakeLang: 'tr', followUp: false }), { wake: true, voice: '', rate: 0.5, brain: 'claude', hotkey: 'Alt+Space', wakeLang: 'tr', followUp: false });
   assert.equal(clean({ wakeLang: 'xx' }).wakeLang, 'auto');
+  assert.equal(clean({ followUp: 'x' }).followUp, true, 'takip dinlemesi varsayilan acik');
 });
 
 // Sahte ses yardimcisi + sahte Electron: uyanma -> komut -> dusunme -> konusma -> bekleme akisi
@@ -81,7 +82,7 @@ const fs=require('fs'),o=x=>process.stdout.write(JSON.stringify(x)+'\\n');
 o({type:'hello',version:1,wakeOnDevice:true,cmdOnDevice:false,locale:'tr-TR',wakeLocale:'en-US',voices:[{id:'v1',name:'Yelda',lang:'tr-TR',quality:'enhanced'}]});
 require('readline').createInterface({input:process.stdin}).on('line',l=>{fs.appendFileSync(${JSON.stringify(log)},l+'\\n');const m=JSON.parse(l);
   if(m.cmd==='start'){o({type:'state',state:'idle'});o({type:'heard',text:'hey nea'});setTimeout(()=>{o({type:'wake',text:'hey neo'});o({type:'state',state:'listening'});o({type:'partial',text:'spotify'});o({type:'command',text:'spotify sesini yüzde 150 yap',reason:'silence'})},50)}
-  if(m.cmd==='say')setTimeout(()=>o({type:'spoken',id:m.id}),30);
+  if(m.cmd==='say')setTimeout(()=>{o({type:'spoken',id:m.id});if(m.followUp){o({type:'state',state:'listening',followUp:true});setTimeout(()=>o({type:'nocommand',followUp:true}),30)}},30);
   if(m.cmd==='idle')o({type:'state',state:'idle'});
   if(m.cmd==='quit')process.exit(0)}).on('close',()=>process.exit(0));`);
   fs.chmodSync(bin, 0o755);
@@ -107,8 +108,14 @@ require('readline').createInterface({input:process.stdin}).on('line',l=>{fs.appe
   assert.equal(c[0].wakeLang, 'auto', 'varsayilan: once Ingilizce tanima');
   assert.deepEqual(asked, ['spotify sesini yüzde 150 yap']);
   assert.ok(c.some(x => x.cmd === 'thinking')); assert.equal(c.find(x => x.cmd === 'say').text, 'Spotify yüzde 150.');
+  assert.equal(c[0].followUpMs, 6000, 'takip dinlemesi varsayilan acik'); assert.equal(c[0].silenceMs, 1700);
+  assert.equal(c.find(x => x.cmd === 'say').followUp, true, 'sesli sorunun cevabi takipli');
   await wait(() => cmds().filter(x => x.cmd === 'idle').length >= 1);
   assert.ok(orbMsgs.some(m => m.state === 'thinking') && orbMsgs.some(m => m.answer === 'Spotify yüzde 150.'));
+  // takip dinlemesinde cevap kurede kalir; kimse konusmazsa "Seni duyamadım" denmez
+  assert.ok(orbMsgs.some(m => m.state === 'listening' && m.followUp && m.answer === 'Spotify yüzde 150.'));
+  assert.equal(orbMsgs.some(m => m.answer === 'Seni duyamadım.'), false);
+  assert.equal(ui.view().state, 'idle');
   // pencere: baska gonderen reddedilir; ayar degisince uyandirma durur
   assert.equal(await handlers['neo:state']({ sender: {} }), null);
   const st = await handlers['neo:state']({ sender: wcOrb });
@@ -363,5 +370,58 @@ require('readline').createInterface({input:process.stdin}).on('line',l=>{fs.appe
   assert.equal(cmds().some(c => c.cmd === 'idle'), false);
   release({ text: 'tamam' });
   await until(() => cmds().some(c => c.cmd === 'say' && c.text === 'tamam'));
+  ui.disable();
+});
+
+test('takip: cevaptan sonra "Hey Neo" demeden devam; yazili soru ve kapali ayar takipsiz; durdurulan cevap beklemeye doner', async (t) => {
+  const d = tmpDir(); t.after(() => fs.rmSync(d, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }));
+  const log = path.join(d, 'cmd.log'), bin = path.join(d, 'neo.js');
+  // Sahte yardimci: takipli ilk cevaptan sonra takip komutu, ikincisinden sonra bos takip; "stop-me" metni durdurulmus gibi biter
+  fs.writeFileSync(bin, `#!${process.execPath}
+const fs=require('fs'),o=x=>process.stdout.write(JSON.stringify(x)+'\\n');let n=0;
+o({type:'hello',version:1,wakeOnDevice:true,voices:[]});
+require('readline').createInterface({input:process.stdin}).on('line',l=>{fs.appendFileSync(${JSON.stringify(log)},l+'\\n');const m=JSON.parse(l);
+  if(m.cmd==='start'){o({type:'state',state:'idle'});setTimeout(()=>{o({type:'wake',text:'hey neo'});o({type:'state',state:'listening'});o({type:'command',text:'thyao kaç'})},30)}
+  if(m.cmd==='say')setTimeout(()=>{if(m.text==='stop-me'){o({type:'spoken',id:m.id,stopped:true});return}
+    o({type:'spoken',id:m.id});if(!m.followUp){o({type:'state',state:'idle'});return}
+    o({type:'state',state:'listening',followUp:true});n++;
+    setTimeout(()=>{if(n===1)o({type:'command',text:'peki ya asels',followUp:true});else o({type:'nocommand',followUp:true})},30)},30);
+  if(m.cmd==='idle')o({type:'state',state:'idle'});
+  if(m.cmd==='quit')process.exit(0)}).on('close',()=>process.exit(0));`);
+  fs.chmodSync(bin, 0o755);
+  process.env.CEM_NEO_BIN = bin; t.after(() => { delete process.env.CEM_NEO_BIN; });
+  const asked = [], orbMsgs = [], h = {}; let ready, conf = {};
+  const brain = { ask: async q => { asked.push(q); return { text: q === 'stop' ? 'stop-me' : 'cevap ' + asked.length }; }, reset() {} };
+  const wc = { send: (ch, m) => { if (ch === 'neo:orb') orbMsgs.push(m); }, setWindowOpenHandler() {}, on() {} };
+  function Win() { return { webContents: wc, loadFile() {}, isDestroyed: () => false, isVisible: () => true, getSize: () => [420, 150], setPosition() {}, showInactive() {}, show() {}, focus() {}, hide() {}, close() {}, on() {}, once() {}, setAlwaysOnTop() {}, setVisibleOnAllWorkspaces() {} }; }
+  const ui = registerNeo({ ipcMain: { handle: (c, f) => { h[c] = f; } }, app: { isPackaged: false, whenReady: () => ({ then: f => { ready = f; } }), on() {} }, BrowserWindow: Win, path,
+    screen: { getCursorScreenPoint: () => ({ x: 0, y: 0 }), getDisplayNearestPoint: () => ({ workArea: { x: 0, y: 0, width: 100, height: 100 } }) },
+    globalShortcut: { register: () => true, unregister() {} }, Notification: function () { return { show() {} }; }, cfg: () => ({ neo: conf }), save: x => { conf = x.neo; },
+    keys: { get: () => 'k', set() {} }, shell: {}, actions: {}, isOn: () => true, brain });
+  const cmds = () => { if (!fs.existsSync(log)) return []; const s = fs.readFileSync(log, 'utf8'); return s.slice(0, s.lastIndexOf('\n') + 1).split('\n').filter(Boolean).map(JSON.parse); };
+  const until = async (f, ms = 15000) => { const e = Date.now() + ms; while (!f()) { if (Date.now() > e) throw new Error('zaman asimi'); await new Promise(r => setTimeout(r, 15)); } };
+  ready();
+  // 1) sesli soru -> takipli cevap -> takip komutu (uyandirma kelimesi yok) -> takipli cevap -> bos takip -> sessizce bekleme
+  await until(() => cmds().filter(c => c.cmd === 'idle').length >= 1);
+  assert.deepEqual(asked, ['thyao kaç', 'peki ya asels']);
+  const says = cmds().filter(c => c.cmd === 'say');
+  assert.deepEqual(says.map(s => [s.text, s.followUp]), [['cevap 1', true], ['cevap 2', true]]);
+  // takipli cevap bitince 'idle' gonderilmedi (takip dinlemesi kesilmesin); yalnizca bos takipten sonra
+  const seq = cmds().map(c => c.cmd); assert.equal(seq.lastIndexOf('idle') > seq.lastIndexOf('say'), true);
+  assert.equal(seq.filter(c => c === 'idle').length, 1);
+  assert.equal(orbMsgs.some(m => m.answer === 'Seni duyamadım.'), false);
+  assert.equal(ui.view().state, 'idle'); assert.equal(ui.view().log[0].a, 'cevap 2');
+  // 2) yazili soru: cevap takipsiz, bitince 'idle'
+  await h['neo:ask']({ sender: wc }, 'yazili');
+  await until(() => cmds().filter(c => c.cmd === 'idle').length >= 2);
+  assert.equal(cmds().filter(c => c.cmd === 'say').at(-1).followUp, undefined);
+  // 3) ayar kapali: yapilandirmada followUpMs 0
+  await h['neo:set']({ sender: wc }, { followUp: false });
+  await until(() => cmds().some(c => c.cmd === 'config' && c.followUpMs === 0));
+  assert.equal(ui.view().conf.followUp, false);
+  // 4) durdurulan cevap: 'idle' gonderilir
+  await h['neo:ask']({ sender: wc }, 'stop');
+  await until(() => cmds().filter(c => c.cmd === 'idle').length >= 3);
+  assert.equal(ui.view().state, 'idle');
   ui.disable();
 });

@@ -2,9 +2,11 @@
 // - "Hey Neo" uyandirma sozcugu cihaz uzerinde (cevrimdisi) SFSpeechRecognizer ile dinlenir: tr-TR cihaz uzerinde
 //   destekleniyorsa o, yoksa yalnizca uyandirma icin en-US cihaz uzerinde tanimlayici kullanilir.
 // - Bostayken CPU dusuk kalsin diye "ses kapisi": mikrofon seviyesi gurultu tabaninin uzerine cikmadikca tanima
-//   gorevi calismaz (yalnizca tek bir AVAudioEngine dinleme ucu + RMS). Ses gelince son ~0.6 sn'lik on-kayitla gorev baslar.
-// - Komut tr-TR tanimlayiciyla yakalanir (cihaz uzerinde destekleniyorsa cevrimdisi); sessizlik/sure/elle biter.
+//   gorevi calismaz (yalnizca tek bir AVAudioEngine dinleme ucu + RMS). Ses gelince son ~1.2 sn'lik on-kayitla gorev baslar.
+// - Komut tr-TR tanimlayiciyla yakalanir: internet varsa daha isabetli sunucu tanimasi, hata/internetsiz durumda cihaz uzerinde;
+//   sessizlik/sure/elle biter.
 // - Seslendirme AVSpeechSynthesizer ile; konusurken uyandirma dinlemesi durur (Neo kendini duymasin).
+// - Takip: cevap ("say" followUp) bitince ~0.3 sn sonra birkac saniye uyandirma kelimesi olmadan komut dinlenir.
 // Iletisim: stdin satir basina JSON komut, stdout satir basina JSON olay (Electron ana sureci yonetir).
 // Tum durum ana kuyrukta degisir; ses dinleme ucu (gercek zamanli olmayan tap is parcacigi) yalnizca kilitli TapShared'e dokunur.
 import Foundation
@@ -99,10 +101,16 @@ func cleanText(_ s: String) -> String {
 let defaultWake: [String] = ["hey neo", "hey nio", "hey niyo", "hey neyo", "hey new", "hey nee oh", "hey ne o"]
 
 final class WakeMatcher {
-    static let greetings: Set<String> = ["hey", "hei", "hay", "hej", "heyy", "ey", "hi", "hai", "heh", "hee", "haey", "hayy", "eyy"]
-    static let baseNeo: Set<String> = ["neo", "nio", "niyo", "neyo", "nyo", "neoo", "nea", "neu", "nia", "niu", "nyu", "neyyo", "nehyo", "neio", "neyou"]
+    static let greetings: Set<String> = ["hey", "hei", "hay", "hej", "heyy", "ey", "hi", "hai", "heh", "hee", "haey", "hayy", "eyy", "hello", "hallo"]
+    // en-US tanimlayici "Hey"i bazen "A" yazar ("A Neo"); "a new" gibi siradan Ingilizce olmasin diye yalnizca tam "neo" yazimlariyla
+    // (ayni kume ikili cagri "neo neo" icin de kullanilir)
+    static let aNeo: Set<String> = ["neo", "nio", "niyo", "neyo"]
+    static let baseNeo: Set<String> = ["neo", "nio", "niyo", "neyo", "nyo", "neoo", "nea", "neu", "nia", "niu", "nyu", "neyyo", "nehyo", "neio", "neyou",
+                                       "neil", "neal", "noah", "nayo", "neyoh"]
     // "neo"ya 1 harf uzak ama gercek kelime olan, "hey"den sonra sik duyulabilecekler (yanlis uyanma olmasin)
     static let blocked: Set<String> = ["net", "nem", "nel", "nez", "neh", "nes", "nev", "now", "not", "nor", "nap", "nah", "yeo"]
+    // Yalnizca uyandirmadan hemen sonraki Turkce komut metninin basinda: "hey neo"nun bozuk yazimlari ("hey ne", "heyne", "hayne")
+    static let looseNeo: Set<String> = ["ne", "ni", "nee", "nie", "no", "nu", "leo", "lio", "nyo"]
     private(set) var phrases: [[String]] = []
     private var neoSet: Set<String> = WakeMatcher.baseNeo
 
@@ -142,6 +150,9 @@ final class WakeMatcher {
                 // "ne o", "ni yo" gibi bolunmus hali
                 if i + 2 < n && t[i + 1].count <= 3 && t[i + 2].count <= 2 && neoSet.contains(t[i + 1] + t[i + 2]) { return (i, i + 3) }
             }
+            if t[i] == "a" && i + 1 < n && WakeMatcher.aNeo.contains(t[i + 1]) { return (i, i + 2) }
+            // ikili cagri: "neo neo"
+            if i + 1 < n && WakeMatcher.aNeo.contains(t[i]) && WakeMatcher.aNeo.contains(t[i + 1]) { return (i, i + 2) }
             // bitisik: "heyneo", "Hey-Neo"
             for g in WakeMatcher.greetings where t[i].count > g.count && t[i].hasPrefix(g) {
                 if neoLike(String(t[i].dropFirst(g.count))) { return (i, i + 1) }
@@ -149,6 +160,34 @@ final class WakeMatcher {
             i += 1
         }
         return nil
+    }
+
+    func looseNeoLike(_ s: String) -> Bool {
+        return neoLike(s) || WakeMatcher.looseNeo.contains(s)
+    }
+
+    // Uyandirmadan sonra baslayan komut gorevi on-kayitla "hey neo"yu da Turkce duyar; basta kalan uyandirma
+    // kalintisi atilir: "hey neo sesi aç", "tamam hey neo sesi aç", "hey ne sesi aç", "heyne sesi aç", "neo sesi aç", "hey sesi aç" -> "sesi aç"
+    func stripLoose(_ text: String) -> String {
+        let tk = tokenize(text)
+        let t: [String] = tk.toks.map { $0.norm }
+        let n = t.count
+        if let m = match(t), m.start <= 2 {
+            return m.end < n ? cleanText(tk.words[tk.toks[m.end].idx...].joined(separator: " ")) : ""
+        }
+        var k = 0
+        if n > 0 && WakeMatcher.greetings.contains(t[0]) {
+            k = 1
+            if k < n && looseNeoLike(t[k]) { k += 1 }
+        } else if n > 0 && neoSet.contains(t[0]) {
+            k = 1
+        } else if n > 0 {
+            for g in WakeMatcher.greetings where t[0].count > g.count && t[0].hasPrefix(g) {
+                if looseNeoLike(String(t[0].dropFirst(g.count))) { k = 1; break }
+            }
+        }
+        if k == 0 { return cleanText(text) }
+        return k < n ? cleanText(tk.words[tk.toks[k].idx...].joined(separator: " ")) : ""
     }
 
     // Uyandirma ifadesi ve ardindaki metin (ozgun yaziyla)
@@ -169,10 +208,11 @@ signal(SIGPIPE, SIG_IGN)
 if args.contains("--wake-test") {
     let m = WakeMatcher()
     while let line = readLine() {
+        // loose: uyandirmadan sonraki komut metni bu olsaydi beyne gidecek hali
         if let r = m.split(line) {
-            emit(["text": line, "wake": true, "phrase": r.wake, "command": r.rest])
+            emit(["text": line, "wake": true, "phrase": r.wake, "command": r.rest, "loose": m.stripLoose(line)])
         } else {
-            emit(["text": line, "wake": false])
+            emit(["text": line, "wake": false, "loose": m.stripLoose(line)])
         }
     }
     exit(0)
@@ -182,7 +222,7 @@ if args.contains("--wake-test") {
 final class TapShared {
     let lock = NSLock()
     var request: SFSpeechAudioBufferRecognitionRequest? = nil
-    var ring: [AVAudioPCMBuffer] = []              // on-kayit (son ~1.5 sn, kopya)
+    var ring: [AVAudioPCMBuffer] = []              // on-kayit (son ~2.5 sn, kopya)
     var ringFrames: Int = 0
     var maxRingFrames: Int = 0
     var levelOn = false
@@ -239,9 +279,9 @@ func processTap(_ buffer: AVAudioPCMBuffer, _ sh: TapShared) {
             sh.ring.removeFirst()
         }
     }
-    // Uyarlanir gurultu tabani: hizli iner, yavas cikar; esik = taban + 10 dB (-58..-28 dBFS arasi)
+    // Uyarlanir gurultu tabani: hizli iner, yavas cikar; esik = taban + 8 dB (-60..-30 dBFS arasi; uzaktan/alcak sesle "Hey Neo" de acsin)
     if db < sh.noiseFloor { sh.noiseFloor = sh.noiseFloor * 0.7 + db * 0.3 } else { sh.noiseFloor = sh.noiseFloor * 0.995 + db * 0.005 }
-    let thr = min(max(sh.noiseFloor + 10, -58), -28)
+    let thr = min(max(sh.noiseFloor + 8, -60), -30)
     if db > thr {
         sh.lastVoiceAt = now
         if sh.gateArmed { sh.gateArmed = false; voiceCb = sh.onVoice }
@@ -268,7 +308,14 @@ struct Speaking {
     let id: String
     let utt: AVSpeechUtterance
     let deadline: Double
+    let text: String
+    let follow: Bool
 }
+
+// Komut tanimada ipucu: uygulamanin sik gecen sozcukleri (sunucu ve cihaz uzerinde tanima ikisinde de kullanilir)
+let cmdContext: [String] = ["Neo", "Spotify", "Safari", "Chrome", "WhatsApp", "YouTube", "Zoom", "Discord", "Telegram", "Finder",
+                            "ses", "sesi", "sesini", "yüzde", "aç", "kapat", "sessize al", "hisse", "BIST", "borsa", "THYAO", "ASELS",
+                            "zamanlayıcı", "hız testi", "pano", "sıcaklık", "dolar", "euro", "altın"]
 
 final class Neo: NSObject, AVSpeechSynthesizerDelegate {
     // ayarlar
@@ -276,8 +323,9 @@ final class Neo: NSObject, AVSpeechSynthesizerDelegate {
     var wakeLang = "auto"                              // uyandirma tanima dili: auto (once en-US) | en | tr
     var lastHeardAt: Double = 0
     var lastHeard = ""
-    var silenceMs = 1200
+    var silenceMs = 1700
     var maxMs = 15000
+    var followUpMs = 6000                              // cevaptan sonra uyandirma kelimesiz dinleme (0: kapali)
     var voiceId = ""
     var rate: Float = AVSpeechUtteranceDefaultSpeechRate
     var gate = true
@@ -311,9 +359,14 @@ final class Neo: NSObject, AVSpeechSynthesizerDelegate {
     var taskStartAt: Double = 0
     var taskLastChangeAt: Double = 0
     var taskText = ""
+    var taskPreroll: Double = 0
+    var taskOnDevice = false
     var quickFails = 0
     var wakeRetryAt: Double = 0
     var wakeHoldUntil: Double = 0
+    var wakeKickPending = false
+    var lastSpeechEndAt: Double = -1000                 // on-kayit bundan oncesine uzanmaz (Neo'nun kendi sesi)
+    var cmdServerOffUntil: Double = 0                   // sunucu tanimasi basarisiz: bir sure cihaz uzerinde
 
     // komut yakalama
     var capStart: Double = 0
@@ -321,6 +374,11 @@ final class Neo: NSObject, AVSpeechSynthesizerDelegate {
     var capLastChange: Double = 0
     var capText = ""
     var capViaWake = false
+    var capAfterWake = false                           // en-US uyandirmadan sonra on-kayitli yeni gorev: basta "hey neo" kalintisi olabilir
+    var capFollowUp = false                            // cevaptan sonraki takip dinlemesi
+    var capWait: Double = 6                            // konusma baslamazsa bekleme (sn)
+    var capFirstTextAt: Double = 0
+    var followGen = 0
     var capFallbackIdx = 0
     var finishing = false
     var finishReason = "silence"
@@ -331,8 +389,10 @@ final class Neo: NSObject, AVSpeechSynthesizerDelegate {
 
     // seslendirme
     let synth = AVSpeechSynthesizer()
-    var sayQueue: [(id: String, text: String)] = []
+    var sayQueue: [(id: String, text: String, follow: Bool)] = []
     var current: Speaking? = nil
+    var followAfterSay = false                         // son cumle dogal bitti ve takip istendi
+    var echoWords: Set<String> = []                    // son seslendirilen cumlenin sozcukleri (yanki korumasi)
     var restorePhase: Phase = .idle
     var speakLevel: Double = -60
 
@@ -478,7 +538,7 @@ final class Neo: NSObject, AVSpeechSynthesizerDelegate {
         sh.lock.lock()
         sh.ring = []
         sh.ringFrames = 0
-        sh.maxRingFrames = Int(fmt.sampleRate * 1.5)
+        sh.maxRingFrames = Int(fmt.sampleRate * 2.5)
         sh.lock.unlock()
         input.installTap(onBus: 0, bufferSize: 4096, format: fmt) { (buffer: AVAudioPCMBuffer, _: AVAudioTime) in
             processTap(buffer, sh)
@@ -568,10 +628,15 @@ final class Neo: NSObject, AVSpeechSynthesizerDelegate {
         req.shouldReportPartialResults = true
         if r == .wake {
             req.requiresOnDeviceRecognition = wakeOnDevice
+            taskOnDevice = wakeOnDevice
             req.contextualStrings = ["Neo", "Hey Neo", "Hey Nio", "Hey Niyo", "Hay Neo"]
         } else {
-            req.requiresOnDeviceRecognition = cmdOnDevice
-            req.contextualStrings = ["Neo"]
+            // Komut: Turkce sunucu tanimasi cihaz uzerindekinden belirgin bicimde isabetli; internet yoksa ya da
+            // yakin zamanda hata verdiyse cihaz uzerinde (destekleniyorsa)
+            let server: Bool = !cmdOnDevice || (rec.isAvailable && up() >= cmdServerOffUntil)
+            req.requiresOnDeviceRecognition = !server
+            taskOnDevice = !server
+            req.contextualStrings = cmdContext
         }
         taskId += 1
         let myId = taskId
@@ -579,6 +644,7 @@ final class Neo: NSObject, AVSpeechSynthesizerDelegate {
         taskText = ""
         taskStartAt = up()
         taskLastChangeAt = taskStartAt
+        taskPreroll = 0
         request = req
         task = rec.recognitionTask(with: req, resultHandler: { [weak self] (result: SFSpeechRecognitionResult?, error: Error?) in
             let text: String? = result?.bestTranscription.formattedString
@@ -588,7 +654,10 @@ final class Neo: NSObject, AVSpeechSynthesizerDelegate {
         })
         shared.lock.lock()
         if preroll > 0 {
-            for b in prerollLocked(preroll) { req.append(b) }
+            for b in prerollLocked(preroll) {
+                req.append(b)
+                taskPreroll += Double(b.frameLength) / max(1, sampleRate)
+            }
         }
         shared.request = req
         shared.gateArmed = false
@@ -626,27 +695,52 @@ final class Neo: NSObject, AVSpeechSynthesizerDelegate {
         return started && tapOn && (phase == .idle || phase == .thinking)
     }
 
+    // Uyandirma on-kaydi: "Hey" ses esigini gecmeden (yumusak "h") baslamis olabilir; ana kuyruk gecikmesi de eklenir.
+    // Neo'nun kendi konusmasinin kuyrugu on-kayda girmez.
+    func wakePreroll(_ want: Double) -> Double {
+        return max(0, min(want, up() - lastSpeechEndAt - 0.3))
+    }
+
+    // Bekleme (konusma sonrasi / yeniden deneme) bitince hemen yeniden dene: tick'i (1 sn) beklerken sagir kalinmasin
+    func kickWakeLater(_ at: Double) {
+        if wakeKickPending { return }
+        wakeKickPending = true
+        let d = max(0.02, at - up() + 0.02)
+        DispatchQueue.main.asyncAfter(deadline: .now() + d) { [weak self] in
+            guard let s = self else { return }
+            s.wakeKickPending = false
+            s.armOrStartWake()
+        }
+    }
+
     // Uyandirma dinlemesini surdur: kapi aciksa sesi bekle, degilse gorevi hemen baslat
     func armOrStartWake() {
         guard wakeWanted(), task == nil else { return }
         let now = up()
-        if now < wakeHoldUntil || now < wakeRetryAt { return }      // tick yeniden dener
+        if now < wakeHoldUntil || now < wakeRetryAt {
+            kickWakeLater(max(wakeHoldUntil, wakeRetryAt))
+            return
+        }
         if gate {
             shared.lock.lock()
-            let recent = now - shared.lastVoiceAt < 0.5
+            let lv = shared.lastVoiceAt
+            let recent = now - lv < 1.0 && lv > lastSpeechEndAt + 0.3
             shared.gateArmed = !recent
             shared.lock.unlock()
-            if recent { startTask(.wake, preroll: 0.6) }
+            if recent { startTask(.wake, preroll: wakePreroll(1.2)) }
         } else {
-            startTask(.wake, preroll: 0)
+            startTask(.wake, preroll: wakePreroll(1.2))
         }
     }
 
     func voiceDetected() {
         guard wakeWanted(), task == nil else { return }
         let now = up()
-        if now < wakeHoldUntil || now < wakeRetryAt { return }
-        startTask(.wake, preroll: 0.6)
+        if now < wakeHoldUntil || now < wakeRetryAt {
+            kickWakeLater(max(wakeHoldUntil, wakeRetryAt))   // kapi bu sesle kapandi: bekleme bitince on-kayitla baslar
+            return
+        }
+        startTask(.wake, preroll: wakePreroll(1.2))
     }
 
     func handleWake(_ isFinal: Bool, _ err: String?) {
@@ -662,13 +756,15 @@ final class Neo: NSObject, AVSpeechSynthesizerDelegate {
                 emitState()
                 handleCommand(false, nil)
             } else {
-                // Uyandirma baska dilde (en-US) ya da gorev bitti: tr-TR komut gorevi, on-kayitla
+                // Uyandirma baska dilde (en-US) ya da gorev bitti: tr-TR komut gorevi, on-kayitla ("Hey Neo, sesi aç" tek
+                // nefeste: uyandirma kismi sonucu geldiginde komut coktan baslamis olabilir). Basta kalan "hey neo" stripLoose ile atilir.
                 endTask()
                 resetCapture(viaWake: false, fallbackIdx: 0)
+                capAfterWake = true
                 phase = .listening
                 setLevel(true)
                 emitState()
-                if !startTask(.command, preroll: wakeSameAsCmd ? 0.3 : 1.2) { completeCapture() }
+                if !startTask(.command, preroll: wakeSameAsCmd ? 0.3 : 1.4) { completeCapture() }
             }
             return
         }
@@ -676,8 +772,9 @@ final class Neo: NSObject, AVSpeechSynthesizerDelegate {
             let age = up() - taskStartAt
             endTask()
             if age < 2 { quickFails += 1 } else { quickFails = 0 }
+            // Art arda hizli hatalarda kisa bekleme: uzun sagir pencere olmasin (en fazla 3 sn; surekli hatada 10 sn)
             if quickFails >= 3 {
-                let d = min(30.0, 0.5 * pow(2.0, Double(quickFails - 2)))
+                let d = min(quickFails >= 8 ? 10.0 : 3.0, 0.25 * pow(2.0, Double(quickFails - 2)))
                 wakeRetryAt = up() + d
                 if quickFails >= 5, let e = err {
                     report("engine", "\"Hey Neo\" dinlenemiyor: \(e)")
@@ -695,6 +792,10 @@ final class Neo: NSObject, AVSpeechSynthesizerDelegate {
         capLastChange = now
         capText = ""
         capViaWake = viaWake
+        capAfterWake = false
+        capFollowUp = false
+        capWait = 6
+        capFirstTextAt = 0
         capFallbackIdx = fallbackIdx
         finishing = false
         finishReason = "silence"
@@ -709,7 +810,9 @@ final class Neo: NSObject, AVSpeechSynthesizerDelegate {
             let words = tokenize(text).words
             return capFallbackIdx < words.count ? stripLeadingWake(words[capFallbackIdx...].joined(separator: " ")) : ""
         }
-        // Yeni gorev (kisayol ya da en-US uyandirma sonrasi): bastaki "hey neo" atilir
+        // en-US uyandirma sonrasi on-kayitli gorev: "hey neo"nun Turkce bozuk yazimlari da atilir ("heyne", "hey ne")
+        if capAfterWake { return matcher.stripLoose(text) }
+        // Yeni gorev (kisayol / takip): bastaki "hey neo" atilir
         return stripLeadingWake(text)
     }
 
@@ -742,6 +845,7 @@ final class Neo: NSObject, AVSpeechSynthesizerDelegate {
         if cmd != capText {
             capText = cmd
             if !cmd.isEmpty {
+                if !capSpeech { capFirstTextAt = up() }
                 capSpeech = true
                 capLastChange = up()
                 queuePartial(cmd)
@@ -752,14 +856,23 @@ final class Neo: NSObject, AVSpeechSynthesizerDelegate {
             return
         }
         if isFinal || err != nil {
+            let age = up() - taskStartAt
             if !capText.isEmpty {
                 finishReason = "silence"
                 completeCapture()
-            } else if let e = err, up() - taskStartAt < 1.5 {
+            } else if err != nil && !taskOnDevice && cmdOnDevice, let rec = cmdRecognizer, age < 3 || !rec.isAvailable {
+                // Sunucu tanimasi calismadi (internet yok, sinir, Siri kapali): cihaz uzerinde yeniden, soyleneni kaybetmeden
+                cmdServerOffUntil = up() + 120
+                let back = min(2.4, age + taskPreroll)
+                if capViaWake { capAfterWake = true }
+                capViaWake = false
+                if !startTask(.command, preroll: back) { completeCapture() }
+            } else if let e = err, age < 1.5 {
                 report("engine", "Konuşma tanıma hatası: \(e)")
                 completeCapture()
             } else {
-                // metin yok, gorev erken bitti: yeni gorevle dinlemeye devam (6 sn kurali tick'te)
+                // metin yok, gorev erken bitti: yeni gorevle dinlemeye devam (bekleme kurali tick'te)
+                if capViaWake { capAfterWake = true }
                 capViaWake = false
                 if !startTask(.command, preroll: 0.3) { completeCapture() }
             }
@@ -786,21 +899,33 @@ final class Neo: NSObject, AVSpeechSynthesizerDelegate {
         guard phase == .listening, !finishing else { return }
         finishing = true
         finishReason = reason
-        finishDeadline = up() + 0.8
+        finishDeadline = up() + (taskOnDevice ? 0.8 : 1.5)   // sunucu tanimasinin son sonucu biraz daha gec gelir
         shared.lock.lock(); shared.request = nil; shared.lock.unlock()
         request?.endAudio()
         if task == nil { completeCapture() }
     }
 
+    // Takip dinlemesinin hemen basinda duyulan, tamami Neo'nun son cumlesinden sozcuklerse bu hoparlor yankisidir
+    func isEcho(_ text: String) -> Bool {
+        guard capFollowUp, capFirstTextAt - capStart < 1.2, !echoWords.isEmpty else { return false }
+        let w: [String] = tokenize(text).toks.map { $0.norm }
+        return !w.isEmpty && w.count <= 4 && w.allSatisfy { (x: String) -> Bool in echoWords.contains(x) }
+    }
+
     func completeCapture() {
         guard phase == .listening else { return }
-        let text = capText
+        var text = capText
         let reason = finishReason
+        let follow = capFollowUp
+        if follow && isEcho(text) { text = "" }
         dropCapture()
         if text.isEmpty {
-            emit(["type": "nocommand"])
+            // takip penceresinde konusma olmadi: sessizce uyandirma dinlemesine donulur ("Seni duyamadım" yok)
+            if follow { emit(["type": "nocommand", "followUp": true]) } else { emit(["type": "nocommand"]) }
         } else {
-            emit(["type": "command", "text": text, "reason": reason])
+            var o: [String: Any] = ["type": "command", "text": text, "reason": reason]
+            if follow { o["followUp"] = true }
+            emit(o)
         }
         phase = .idle
         wakeHoldUntil = up() + 0.3
@@ -812,6 +937,8 @@ final class Neo: NSObject, AVSpeechSynthesizerDelegate {
     // Yakalamayi olaysiz birakir (durum/faz cagiran tarafindan ayarlanir)
     func dropCapture() {
         endTask()
+        followGen += 1                                // bekleyen takip baslatmasi gecersiz
+        capFollowUp = false
         finishing = false
         pendingPartial = nil
         setLevel(false)
@@ -834,10 +961,10 @@ final class Neo: NSObject, AVSpeechSynthesizerDelegate {
         return nil
     }
 
-    func say(_ id: String, _ text: String) {
+    func say(_ id: String, _ text: String, follow: Bool = false) {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if t.isEmpty { emit(["type": "spoken", "id": id]); return }
-        sayQueue.append((id: id, text: t))
+        sayQueue.append((id: id, text: t, follow: follow))
         if current == nil { speakNext() }
     }
 
@@ -859,7 +986,7 @@ final class Neo: NSObject, AVSpeechSynthesizerDelegate {
         // Bekci: ses cikisi yoksa/takilirsa sonsuza dek "speaking" kalinmasin
         let scale = Double(AVSpeechUtteranceDefaultSpeechRate) / Double(max(rate, 0.05))
         let est = 4.0 + Double(item.text.count) * 0.12 * scale
-        current = Speaking(id: item.id, utt: u, deadline: up() + min(est, 600))
+        current = Speaking(id: item.id, utt: u, deadline: up() + min(est, 600), text: item.text, follow: item.follow)
         speakLevel = -30
         synth.speak(u)
     }
@@ -867,6 +994,8 @@ final class Neo: NSObject, AVSpeechSynthesizerDelegate {
     func utteranceEnded(_ u: AVSpeechUtterance, stopped: Bool) {
         guard let c = current, c.utt === u else { return }
         current = nil
+        followAfterSay = !stopped && c.follow
+        if !stopped { echoWords = Set(tokenize(c.text).toks.map { $0.norm }) }
         var o: [String: Any] = ["type": "spoken", "id": c.id]
         if stopped { o["stopped"] = true }
         emit(o)
@@ -875,17 +1004,48 @@ final class Neo: NSObject, AVSpeechSynthesizerDelegate {
 
     func endSpeaking() {
         guard phase == .speaking else { return }
-        phase = restorePhase
+        let follow = followAfterSay
+        followAfterSay = false
+        // Takip istenen cevap bitti: Electron tarafi tur bitti sayar ve "idle" gondermez; dusunme durumuna donulmez
+        phase = follow ? .idle : restorePhase
         speakLevel = -60
+        lastSpeechEndAt = up()
         wakeHoldUntil = up() + 0.4                    // hoparlor kuyrugu duyulmasin
+        if follow && followUpMs > 0 && beginFollowUp() { return }
         emitState()
         armOrStartWake()
+    }
+
+    // Cevaptan sonra uyandirma kelimesi beklemeden dinle. Sentez bittikten ~0.3 sn sonra baslar (Neo kendini duymasin);
+    // konusma baslamazsa followUpMs sonunda sessizce uyandirma dinlemesine donulur.
+    func beginFollowUp() -> Bool {
+        guard ensureEngine() else { return false }
+        endTask()
+        resetCapture(viaWake: false, fallbackIdx: 0)
+        let delay = 0.3
+        capStart = up() + delay
+        capLastChange = capStart
+        capFollowUp = true
+        capWait = Double(followUpMs) / 1000
+        phase = .listening
+        setLevel(true)
+        lastState = "listening"
+        emit(["type": "state", "state": "listening", "followUp": true])
+        refreshTimer()
+        followGen += 1
+        let g = followGen
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let s = self, s.followGen == g, s.phase == .listening, s.capFollowUp, s.task == nil, !s.finishing else { return }
+            if !s.startTask(.command, preroll: 0) { s.completeCapture() }
+        }
+        return true
     }
 
     // Kuyruk ve gecerli cumle hemen durur; "spoken stopped" olaylari esZamanli gonderilir
     func stopSay() {
         let pending = sayQueue
         sayQueue = []
+        followAfterSay = false
         if let c = current {
             current = nil
             synth.stopSpeaking(at: .immediate)        // gec gelen didCancel yok sayilir (current bos)
@@ -923,18 +1083,23 @@ final class Neo: NSObject, AVSpeechSynthesizerDelegate {
         let now = up()
         if phase == .listening {
             flushPartial(now)
+            shared.lock.lock(); let lastVoice = shared.lastVoiceAt; shared.lock.unlock()
+            let textQuiet = (now - capLastChange) * 1000
             if finishing {
                 if now >= finishDeadline { completeCapture() }
-            } else if capSpeech && (now - capLastChange) * 1000 >= Double(silenceMs) {
+            } else if capSpeech && textQuiet >= Double(silenceMs) && (now - lastVoice >= 0.7 || textQuiet >= Double(silenceMs) + 1500) {
+                // Metin silenceMs boyunca degismedi ve mikrofon da sustu (tanima gecikmesi cumleyi bolmesin);
+                // gurultulu ortamda en fazla 1.5 sn daha beklenir
                 beginFinish("silence")
             } else if (now - capStart) * 1000 >= Double(maxMs) {
                 beginFinish("timeout")
-            } else if !capSpeech && now - capStart >= 6 {
-                completeCapture()                     // hic konusma yok -> nocommand
+            } else if !capSpeech && now - capStart >= capWait && (now - lastVoice > 0.8 || now - capStart >= capWait + 2.5) {
+                completeCapture()                     // hic konusma yok -> nocommand (konusma yeni basladiysa biraz beklenir)
             }
         }
         if let c = current, now > c.deadline {
             current = nil
+            followAfterSay = false
             synth.stopSpeaking(at: .immediate)
             report("tts", "Seslendirme tamamlanamadı (ses çıkışı yok ya da konuşma motoru yanıt vermiyor).")
             emit(["type": "spoken", "id": c.id, "stopped": true])
@@ -952,7 +1117,7 @@ final class Neo: NSObject, AVSpeechSynthesizerDelegate {
                 endTask()                             // sessizlik: tanima durur, kapi yeniden kurulur
                 armOrStartWake()
             } else if (age > 50 && (quiet > 0.4 || age > 58)) || (taskText.count > 160 && now - taskLastChangeAt > 0.5) {
-                startTask(.wake, preroll: 0.3)        // ~1 dk gorev siniri ve biriken metin
+                startTask(.wake, preroll: wakePreroll(1.2))   // ~1 dk gorev siniri ve biriken metin; on-kayit ust uste biner, bosluk olmaz
             }
         } else if task == nil && wakeWanted() {
             armOrStartWake()
@@ -965,6 +1130,10 @@ final class Neo: NSObject, AVSpeechSynthesizerDelegate {
         if let w = o["wake"] as? [String] { matcher.set(w) }
         if let n = o["silenceMs"] as? NSNumber, n.doubleValue.isFinite { silenceMs = Int(max(300, min(10000, n.doubleValue))) }
         if let n = o["maxMs"] as? NSNumber, n.doubleValue.isFinite { maxMs = Int(max(2000, min(120000, n.doubleValue))) }
+        if let n = o["followUpMs"] as? NSNumber, n.doubleValue.isFinite {
+            let v = n.doubleValue
+            followUpMs = v <= 0 ? 0 : Int(max(2000, min(20000, v)))
+        }
         if let v = o["voice"] as? String { voiceId = v }
         if let n = o["rate"] as? NSNumber, n.doubleValue.isFinite {
             rate = max(AVSpeechUtteranceMinimumSpeechRate, min(AVSpeechUtteranceMaximumSpeechRate, n.floatValue))
@@ -1079,7 +1248,7 @@ final class Neo: NSObject, AVSpeechSynthesizerDelegate {
         case "idle": setIdle()
         case "say":
             let id: String = (o["id"] as? String) ?? ((o["id"] as? NSNumber)?.stringValue ?? "")
-            say(id, (o["text"] as? String) ?? "")
+            say(id, (o["text"] as? String) ?? "", follow: (o["followUp"] as? Bool) ?? false)
         case "stopSay": stopSay()
         case "quit": shutdown()
         default: break
