@@ -99,8 +99,8 @@ func cleanText(_ s: String) -> String {
 let defaultWake: [String] = ["hey neo", "hey nio", "hey niyo", "hey neyo", "hey new", "hey nee oh", "hey ne o"]
 
 final class WakeMatcher {
-    static let greetings: Set<String> = ["hey", "hei", "hay", "hej", "heyy", "ey", "hi"]
-    static let baseNeo: Set<String> = ["neo", "nio", "niyo", "neyo", "nyo", "neoo"]
+    static let greetings: Set<String> = ["hey", "hei", "hay", "hej", "heyy", "ey", "hi", "hai", "heh", "hee", "haey", "hayy", "eyy"]
+    static let baseNeo: Set<String> = ["neo", "nio", "niyo", "neyo", "nyo", "neoo", "nea", "neu", "nia", "niu", "nyu", "neyyo", "nehyo", "neio", "neyou"]
     // "neo"ya 1 harf uzak ama gercek kelime olan, "hey"den sonra sik duyulabilecekler (yanlis uyanma olmasin)
     static let blocked: Set<String> = ["net", "nem", "nel", "nez", "neh", "nes", "nev", "now", "not", "nor", "nap", "nah", "yeo"]
     private(set) var phrases: [[String]] = []
@@ -273,6 +273,9 @@ struct Speaking {
 final class Neo: NSObject, AVSpeechSynthesizerDelegate {
     // ayarlar
     var locale = "tr-TR"
+    var wakeLang = "auto"                              // uyandirma tanima dili: auto (once en-US) | en | tr
+    var lastHeardAt: Double = 0
+    var lastHeard = ""
     var silenceMs = 1200
     var maxMs = 15000
     var voiceId = ""
@@ -356,11 +359,13 @@ final class Neo: NSObject, AVSpeechSynthesizerDelegate {
         let tr: SFSpeechRecognizer? = SFSpeechRecognizer(locale: Locale(identifier: locale))
         cmdRecognizer = tr ?? en
         cmdOnDevice = cmdRecognizer?.supportsOnDeviceRecognition ?? false
-        if let t = tr, t.supportsOnDeviceRecognition {
-            wakeRecognizer = t
-            wakeOnDevice = true
-        } else if let e = en, e.supportsOnDeviceRecognition {
-            wakeRecognizer = e                         // yalnizca uyandirma sozcugu icin
+        // Uyandirma: "Hey Neo" Ingilizce bir ifade; auto/en: once cihazda calisan en-US, yoksa tr; tr: once tr
+        let enOK: Bool = en?.supportsOnDeviceRecognition ?? false
+        let trOK: Bool = tr?.supportsOnDeviceRecognition ?? false
+        var pick: SFSpeechRecognizer? = nil
+        if wakeLang == "tr" { pick = trOK ? tr : (enOK ? en : nil) } else { pick = enOK ? en : (trOK ? tr : nil) }
+        if let p = pick {
+            wakeRecognizer = p
             wakeOnDevice = true
         } else {
             wakeRecognizer = tr ?? en
@@ -375,8 +380,9 @@ final class Neo: NSObject, AVSpeechSynthesizerDelegate {
         for v in AVSpeechSynthesisVoice.speechVoices() where v.language.lowercased().hasPrefix(prefix) {
             voices.append(["id": v.identifier, "name": v.name, "lang": v.language, "quality": qualityName(v.quality)])
         }
+        let wl: String = wakeRecognizer?.locale.identifier ?? ""
         return ["type": "hello", "version": 1, "wakeOnDevice": wakeOnDevice, "cmdOnDevice": cmdOnDevice,
-                "locale": locale, "voices": voices]
+                "locale": locale, "wakeLocale": wl, "wakeLang": wakeLang, "voices": voices]
     }
 
     // MARK: durum
@@ -562,7 +568,7 @@ final class Neo: NSObject, AVSpeechSynthesizerDelegate {
         req.shouldReportPartialResults = true
         if r == .wake {
             req.requiresOnDeviceRecognition = wakeOnDevice
-            req.contextualStrings = ["Neo", "Hey Neo"]
+            req.contextualStrings = ["Neo", "Hey Neo", "Hey Nio", "Hey Niyo", "Hay Neo"]
         } else {
             req.requiresOnDeviceRecognition = cmdOnDevice
             req.contextualStrings = ["Neo"]
@@ -603,6 +609,12 @@ final class Neo: NSObject, AVSpeechSynthesizerDelegate {
     func onResult(_ id: Int, _ text: String?, _ isFinal: Bool, _ err: String?) {
         guard id == taskId else { return }
         if let t = text, t != taskText { taskText = t; taskLastChangeAt = up() }
+        // Tani: uyandirma asamasinda tanicinin duydugu (eslesmese de) arayuzde gosterilir; en fazla ~3/sn
+        if role == .wake, !taskText.isEmpty, taskText != lastHeard, up() - lastHeardAt >= 0.3 {
+            lastHeard = taskText
+            lastHeardAt = up()
+            emit(["type": "heard", "text": String(taskText.prefix(120))])
+        }
         switch role {
         case .wake: handleWake(isFinal, err)
         case .command: handleCommand(isFinal, err)
@@ -958,6 +970,15 @@ final class Neo: NSObject, AVSpeechSynthesizerDelegate {
             rate = max(AVSpeechUtteranceMinimumSpeechRate, min(AVSpeechUtteranceMaximumSpeechRate, n.floatValue))
         }
         if let g = o["gate"] as? Bool { gate = g }
+        if let wl = o["wakeLang"] as? String, ["auto", "en", "tr"].contains(wl), wl != wakeLang {
+            wakeLang = wl
+            if phase == .listening { dropCapture(); phase = .idle }
+            endTask()
+            buildRecognizers()
+            emit(hello())
+            emitState()
+            armOrStartWake()
+        }
         if let l = o["locale"] as? String, !l.isEmpty, l != locale {
             locale = l
             if phase == .listening { dropCapture(); phase = .idle }

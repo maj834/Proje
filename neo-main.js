@@ -3,15 +3,17 @@
 const {spawn}=require('child_process'),fs=require('fs');
 const {createBrain,createGroqBrain}=require('./neo.js');
 
-const DEF={wake:true,voice:'',rate:0.5,hotkey:'Alt+Space',brain:'groq'};
+const DEF={wake:true,voice:'',rate:0.5,hotkey:'Alt+Space',brain:'groq',wakeLang:'auto'};
+const WAKE_LANGS=['auto','en','tr'];
 const BRAINS=['groq','claude'];
-const WAKE=['hey neo','hey nio','hey niyo','hey neyo','hey neo','hey nevo','hey new'];
+const WAKE=['hey neo','hey nio','hey niyo','hey neyo','hey neo','hey nevo','hey new','hey nea','hey neu','hay neo'];
 const clean=c=>({wake:c.wake!==false,voice:typeof c.voice==='string'?c.voice.slice(0,200):'',
-  rate:Math.max(0.3,Math.min(0.7,+c.rate||DEF.rate)),brain:BRAINS.includes(c.brain)?c.brain:DEF.brain,hotkey:typeof c.hotkey==='string'&&/^[\w+]{1,40}$/.test(c.hotkey)?c.hotkey:DEF.hotkey});
+  rate:Math.max(0.3,Math.min(0.7,+c.rate||DEF.rate)),brain:BRAINS.includes(c.brain)?c.brain:DEF.brain,hotkey:typeof c.hotkey==='string'&&/^[\w+]{1,40}$/.test(c.hotkey)?c.hotkey:DEF.hotkey,
+  wakeLang:WAKE_LANGS.includes(c.wakeLang)?c.wakeLang:DEF.wakeLang});
 
 // keys: {get(beyin) -> anahtar|null, set(beyin, anahtar)}; beyin 'groq' (ucretsiz, varsayilan) ya da 'claude' (API anahtari)
 function registerNeo({ipcMain,app,BrowserWindow,path,screen,globalShortcut,Notification,shell,cfg,save,keys,actions,isOn=()=>true,brain=null}){
-  let child=null,buf='',restarts=0,orb=null,win=null,hello=null,state='off',error=null,warning=null,partial='',answer='',hideT=null,busy=false,sayN=0,gen=0;
+  let child=null,buf='',restarts=0,orb=null,win=null,hello=null,state='off',error=null,warning=null,heard='',partial='',answer='',hideT=null,busy=false,sayN=0,gen=0;
   const saying=new Set(),later=[];                    // konusulmakta olan say id'leri; dinlerken gelen hatirlatmalar
   const log=[];                                          // son 30 konusma (pencerede gecmis)
   const conf=()=>clean({...DEF,...(cfg().neo||{})});
@@ -21,7 +23,7 @@ function registerNeo({ipcMain,app,BrowserWindow,path,screen,globalShortcut,Notif
   const B=()=>brain||(brains[conf().brain]=brains[conf().brain]||(conf().brain==='claude'
     ?createBrain({getKey:()=>keys.get('claude'),actions,onTool:n=>show({tool:n})})
     :createGroqBrain({getKey:()=>keys.get('groq'),actions,onTool:n=>show({tool:n})})));
-  const view=()=>({supported:process.platform==='darwin'||!!process.env.CEM_NEO_BIN,hello,state,error,warning,conf:conf(),log,hasKey:!!keys.get(conf().brain),keys:{groq:!!keys.get('groq'),claude:!!keys.get('claude')}});
+  const view=()=>({heard,supported:process.platform==='darwin'||!!process.env.CEM_NEO_BIN,hello,state,error,warning,conf:conf(),log,hasKey:!!keys.get(conf().brain),keys:{groq:!!keys.get('groq'),claude:!!keys.get('claude')}});
   const toWin=()=>{if(win&&!win.isDestroyed())win.webContents.send('neo:state',view())};
   // Kureye canli bilgi: durum, duyulan metin, cevap, ses duzeyi
   function show(o={}){
@@ -49,12 +51,14 @@ function registerNeo({ipcMain,app,BrowserWindow,path,screen,globalShortcut,Notif
     let m;try{m=JSON.parse(line)}catch(e){return}
     if(child&&child.t0&&Date.now()-child.t0>30000)restarts=0;   // 30 sn ayakta kalan yardimci saglikli: yeniden baslatma hakki sifirlanir
     switch(m.type){
-      case 'hello':warning=null;hello={wakeOnDevice:!!m.wakeOnDevice,cmdOnDevice:!!m.cmdOnDevice,voices:Array.isArray(m.voices)?m.voices.slice(0,40).map(v=>({id:String(v.id||''),name:String(v.name||''),quality:String(v.quality||'')})):[]};
+      case 'hello':warning=null;hello={wakeOnDevice:!!m.wakeOnDevice,cmdOnDevice:!!m.cmdOnDevice,wakeLocale:String(m.wakeLocale||'').slice(0,12),voices:Array.isArray(m.voices)?m.voices.slice(0,40).map(v=>({id:String(v.id||''),name:String(v.name||''),quality:String(v.quality||'')})):[]};
         error=null;configure();if(conf().wake)send({cmd:'start'});toWin();break;
       case 'state':if(!busy&&['off','idle','listening','speaking'].includes(m.state)){if(m.state==='listening'){partial='';answer=''}
         if(m.state==='idle'||m.state==='listening')error=null;    // mikrofon calisiyor: eski hata gecersiz
         if(m.state==='speaking'||!saying.size)setState(m.state)}break;
-      case 'wake':partial='';answer='';show({wake:true});break;
+      case 'wake':partial='';answer='';heard='';show({wake:true});break;
+      // Tani: uyandirma asamasinda tanicinin duydugu metin (eslesmese de); ayar penceresinde gosterilir
+      case 'heard':heard=String(m.text||'').slice(0,120);toWin();break;
       case 'partial':partial=String(m.text||'').slice(0,300);show();break;
       case 'level':if(orb&&!orb.isDestroyed()&&orb.isVisible())orb.webContents.send('neo:level',+m.db||-90);break;
       case 'command':{const t=String(m.text||'').trim();if(t)onCommand(t.slice(0,1000));else if(busy){partial='';show()}else{send({cmd:'idle'});setState(rest())}break}
@@ -68,7 +72,7 @@ function registerNeo({ipcMain,app,BrowserWindow,path,screen,globalShortcut,Notif
         error=msg;if(m.code==='mic_denied'||m.code==='speech_denied'){state='off'}show({error});toWin();break}
     }
   }
-  const configure=()=>{const c=conf();send({cmd:'config',wake:WAKE,locale:'tr-TR',silenceMs:1200,maxMs:15000,voice:c.voice,rate:c.rate})};
+  const configure=()=>{const c=conf();send({cmd:'config',wake:WAKE,wakeLang:c.wakeLang,locale:'tr-TR',silenceMs:1200,maxMs:15000,voice:c.voice,rate:c.rate})};
   function start(){
     if(child)return true;if(!isOn())return false;
     if(process.platform!=='darwin'&&!process.env.CEM_NEO_BIN||!fs.existsSync(bin())){error='Neo ses yardımcısı bulunamadı. Uygulamanın Mac sürümünü GitHub\'dan indirdiğinden emin ol.';toWin();return false}

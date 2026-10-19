@@ -67,8 +67,9 @@ test('runTool: dogrulama, sinirlar, yalniz https, arac hatasi is_error olarak do
 });
 
 test('clean: ayarlar sinirli', () => {
-  assert.deepEqual(clean({ wake: false, voice: 5, rate: 9, hotkey: 'Alt+Space; rm', brain: 'gpt' }), { wake: false, voice: '', rate: 0.7, brain: 'groq', hotkey: 'Alt+Space' });
-  assert.deepEqual(clean({ brain: 'claude' }), { wake: true, voice: '', rate: 0.5, brain: 'claude', hotkey: 'Alt+Space' });
+  assert.deepEqual(clean({ wake: false, voice: 5, rate: 9, hotkey: 'Alt+Space; rm', brain: 'gpt' }), { wake: false, voice: '', rate: 0.7, brain: 'groq', hotkey: 'Alt+Space', wakeLang: 'auto' });
+  assert.deepEqual(clean({ brain: 'claude', wakeLang: 'tr' }), { wake: true, voice: '', rate: 0.5, brain: 'claude', hotkey: 'Alt+Space', wakeLang: 'tr' });
+  assert.equal(clean({ wakeLang: 'xx' }).wakeLang, 'auto');
 });
 
 // Sahte ses yardimcisi + sahte Electron: uyanma -> komut -> dusunme -> konusma -> bekleme akisi
@@ -77,9 +78,9 @@ test('registerNeo: Hey Neo akisi, kisayol, pencere gonderen kontrolu ve kapatma'
   const log = path.join(d, 'cmd.log'), bin = path.join(d, 'neo.js');
   fs.writeFileSync(bin, `#!${process.execPath}
 const fs=require('fs'),o=x=>process.stdout.write(JSON.stringify(x)+'\\n');
-o({type:'hello',version:1,wakeOnDevice:true,cmdOnDevice:false,locale:'tr-TR',voices:[{id:'v1',name:'Yelda',lang:'tr-TR',quality:'enhanced'}]});
+o({type:'hello',version:1,wakeOnDevice:true,cmdOnDevice:false,locale:'tr-TR',wakeLocale:'en-US',voices:[{id:'v1',name:'Yelda',lang:'tr-TR',quality:'enhanced'}]});
 require('readline').createInterface({input:process.stdin}).on('line',l=>{fs.appendFileSync(${JSON.stringify(log)},l+'\\n');const m=JSON.parse(l);
-  if(m.cmd==='start'){o({type:'state',state:'idle'});setTimeout(()=>{o({type:'wake',text:'hey neo'});o({type:'state',state:'listening'});o({type:'partial',text:'spotify'});o({type:'command',text:'spotify sesini yüzde 150 yap',reason:'silence'})},50)}
+  if(m.cmd==='start'){o({type:'state',state:'idle'});o({type:'heard',text:'hey nea'});setTimeout(()=>{o({type:'wake',text:'hey neo'});o({type:'state',state:'listening'});o({type:'partial',text:'spotify'});o({type:'command',text:'spotify sesini yüzde 150 yap',reason:'silence'})},50)}
   if(m.cmd==='say')setTimeout(()=>o({type:'spoken',id:m.id}),30);
   if(m.cmd==='idle')o({type:'state',state:'idle'});
   if(m.cmd==='quit')process.exit(0)}).on('close',()=>process.exit(0));`);
@@ -103,6 +104,7 @@ require('readline').createInterface({input:process.stdin}).on('line',l=>{fs.appe
   await wait(() => cmds().some(c => c.cmd === 'say'));
   const c = cmds();
   assert.equal(c[0].cmd, 'config'); assert.ok(c[0].wake.includes('hey neo')); assert.equal(c[1].cmd, 'start');
+  assert.equal(c[0].wakeLang, 'auto', 'varsayilan: once Ingilizce tanima');
   assert.deepEqual(asked, ['spotify sesini yüzde 150 yap']);
   assert.ok(c.some(x => x.cmd === 'thinking')); assert.equal(c.find(x => x.cmd === 'say').text, 'Spotify yüzde 150.');
   await wait(() => cmds().filter(x => x.cmd === 'idle').length >= 1);
@@ -110,7 +112,13 @@ require('readline').createInterface({input:process.stdin}).on('line',l=>{fs.appe
   // pencere: baska gonderen reddedilir; ayar degisince uyandirma durur
   assert.equal(await handlers['neo:state']({ sender: {} }), null);
   const st = await handlers['neo:state']({ sender: wcOrb });
-  assert.equal(st.log[0].a, 'Spotify yüzde 150.'); assert.equal(st.hello.voices[0].name, 'Yelda');
+  assert.equal(st.log[0].a, 'Spotify yüzde 150.'); assert.equal(st.hello.voices[0].name, 'Yelda'); assert.equal(st.hello.wakeLocale, 'en-US');
+  // uyandirma dili: gecerli deger yardimciya gider, gecersiz deger 'auto'ya doner
+  await handlers['neo:set']({ sender: wcOrb }, { wakeLang: 'tr' });
+  await wait(() => cmds().some(x => x.cmd === 'config' && x.wakeLang === 'tr'));
+  assert.equal((await handlers['neo:state']({ sender: wcOrb })).conf.wakeLang, 'tr');
+  const bad = await handlers['neo:set']({ sender: wcOrb }, { wakeLang: 'xx' });
+  assert.equal(bad.conf.wakeLang, 'auto');
   await handlers['neo:set']({ sender: wcOrb }, { wake: false });
   await wait(() => cmds().some(x => x.cmd === 'stop'));
   // kisayol: dinlemeye basla

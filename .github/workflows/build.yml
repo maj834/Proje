@@ -128,7 +128,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          printf '%s\n' "Hey Neo, sesi aç" "hey nio" "Heyneo müziği durdur" "bugün hava nasıl" "hey ne oldu" "hey no" "Hey Neo." "HEY NİYO ışığı kapat" "tamam hey neo ekranı kilitle" "hey net olarak söyle" "Hey ne o" "selam neo" \
+          printf '%s\n' "Hey Neo, sesi aç" "hey nio" "Heyneo müziği durdur" "bugün hava nasıl" "hey ne oldu" "hey no" "Hey Neo." "HEY NİYO ışığı kapat" "tamam hey neo ekranı kilitle" "hey net olarak söyle" "Hey ne o" "selam neo" "hey nea sesi kapat" "hai neo" "hey nedir bu" \
             | ./build/bin/neo-yardimcisi --wake-test > neo-wake.txt
           cat neo-wake.txt
           node - <<'JS'
@@ -139,6 +139,7 @@ jobs:
             ["Hey Neo, sesi aç", "sesi aç"], ["hey nio", ""], ["Heyneo müziği durdur", "müziği durdur"], ["bugün hava nasıl", null],
             ["hey ne oldu", null], ["hey no", null], ["Hey Neo.", ""], ["HEY NİYO ışığı kapat", "ışığı kapat"],
             ["tamam hey neo ekranı kilitle", "ekranı kilitle"], ["hey net olarak söyle", null], ["Hey ne o", ""], ["selam neo", null],
+            ["hey nea sesi kapat", "sesi kapat"], ["hai neo", ""], ["hey nedir bu", null],
           ];
           if (rows.length !== want.length) fail("satir sayisi " + rows.length);
           want.forEach(([text, cmd], i) => {
@@ -178,7 +179,7 @@ jobs:
           for (const v of h.voices) {
             if (typeof v.id !== "string" || typeof v.name !== "string" || !/^tr/i.test(v.lang) || !["default", "enhanced", "premium"].includes(v.quality)) fail("ses: " + JSON.stringify(v));
           }
-          const known = ["hello", "state", "wake", "partial", "command", "nocommand", "level", "spoken", "error"];
+          const known = ["hello", "state", "wake", "partial", "command", "nocommand", "level", "spoken", "error", "heard"];
           const bad = msgs.filter(m => !known.includes(m.type));
           if (bad.length) fail("bilinmeyen satir: " + JSON.stringify(bad[0]));
           const states = msgs.filter(m => m.type === "state").map(m => m.state);

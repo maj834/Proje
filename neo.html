@@ -55,6 +55,8 @@ if(ORB){
     <div><h1>Neo</h1><div class="m" id="sub"></div></div></div>
   <div class="card">
     <div class="row"><div class="f">“Hey Neo” ile uyan<div class="d" id="wd"></div></div><label><input type="checkbox" id="wake"> Açık</label></div>
+    <div class="row"><div class="f">Uyandırma dili<div class="d" id="wld"></div></div><select id="wl" aria-label="Uyandırma dili"><option value="auto">Otomatik (önce İngilizce)</option><option value="en">İngilizce</option><option value="tr">Türkçe</option></select></div>
+    <div class="row"><div class="f">Son duyulan<div class="d">“Hey Neo” derken Mac'in ne duyduğu; algılamazsa buradan neyi yanlış anladığını gör.</div></div><b id="hd" style="font:500 12px var(--mono,monospace);max-width:190px;text-align:right;overflow-wrap:anywhere">—</b></div>
     <div class="row"><div class="f">Konuşmak için kısayol<div class="d">Uyandırma kelimesi demeden dinler; konuşurken basarsan susar.</div></div><kbd id="hk"></kbd></div>
     <div class="row"><div class="f">Ses</div><select id="voice" aria-label="Neo'nun sesi"></select></div>
     <div class="row"><div class="f">Beyin<div class="d" id="bd"></div></div><select id="brain" aria-label="Neo'nun beyni"><option value="groq">Groq (ücretsiz)</option><option value="claude">Claude (API anahtarı)</option></select></div>
@@ -70,6 +72,8 @@ if(ORB){
   function render(){if(!S)return;const c=S.conf;
     $('sub').textContent=(ST[S.state]||'')+(S.hello?(S.hello.wakeOnDevice?' · uyandırma internetsiz':' · uyandırma için internet gerekiyor'):'');
     $('wake').checked=c.wake;$('wd').textContent=c.wake?'Mikrofon dinlemede; ekrandaki turuncu nokta bu yüzden.':'Kapalıyken yalnızca kısayolla dinler.';
+    $('wl').value=c.wakeLang||'auto';$('hd').textContent=S.heard||'—';
+    const wl=S.hello&&S.hello.wakeLocale;$('wld').textContent=wl?'Şu an dinleyen: '+(/^en/i.test(wl)?'İngilizce':'Türkçe')+(S.hello.wakeOnDevice?' (internetsiz)':' (internet gerekir)')+'. İngilizce internetsiz çalışmıyorsa: Sistem Ayarları › Klavye › Dikte › dil ekle › İngilizce.':'';
     $('hk').textContent=c.hotkey.replace('Alt','⌥').replace('Space','Boşluk').replace(/\+/g,' ');
     const vs=(S.hello&&S.hello.voices)||[];$('voice').replaceChildren(el('option',null,'Varsayılan Türkçe ses'),...vs.map(v=>{const o=el('option',null,v.name+(v.quality&&v.quality!=='default'?' ('+v.quality+')':''));o.value=v.id;return o}));
     $('voice').options[0].value='';$('voice').value=c.voice||'';
@@ -82,6 +86,7 @@ if(ORB){
     const L=$('log');L.replaceChildren(...[...S.log].reverse().flatMap(x=>{const a=el('div','a',x.a);if(x.tools&&x.tools.length)a.append(el('small',null,x.tools.map(t=>TOOL[t]||t).join(' · ')));return [el('div','q',x.q),a]}));L.scrollTop=L.scrollHeight}
   neo.on(s=>{S=s;render()});neo.state().then(s=>{if(s){S=s;render()}});
   $('wake').onchange=async()=>{S=await neo.set({wake:$('wake').checked})||S;render()};
+  $('wl').onchange=async()=>{S=await neo.set({wakeLang:$('wl').value})||S;render()};
   $('voice').onchange=async()=>{S=await neo.set({voice:$('voice').value})||S;render()};
   const ask=async()=>{if($('go').disabled)return;const t=$('q').value.trim();if(!t)return;$('q').value='';$('go').disabled=true;S=await neo.ask(t)||S;$('go').disabled=false;render()};
   $('go').onclick=ask;$('q').onkeydown=e=>{if(e.key==='Enter')ask()};$('mic').onclick=()=>neo.talk();
