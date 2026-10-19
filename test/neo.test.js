@@ -16,6 +16,10 @@ const msg = (content, stop = 'end_turn') => ({ content, stop_reason: stop, usage
 const txt = t => ({ type: 'text', text: t });
 const use = (id, name, input) => ({ type: 'tool_use', id, name, input });
 
+// Sahte yardimci surec 'quit' sonrasi kapanirken son satiri yazabilir: klasor kisa bir beklemeden sonra, tekrar denemeli silinir
+// (macOS CI'da ENOTEMPTY yarisi goruldu).
+const rmLater = d => new Promise(r => setTimeout(r, 300)).then(() => fs.rmSync(d, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }));
+
 test('beyin: arac cagrisi, sonuc geri gonderilir, kisa cevap doner; istek bicimi dogru', async () => {
   const calls = [];
   const actions = { stock: async s => { calls.push(s); return { symbol: s, price: 312.5, change_pct: 1.2 }; } };
@@ -76,12 +80,12 @@ test('clean: ayarlar sinirli', () => {
 
 // Sahte ses yardimcisi + sahte Electron: uyanma -> komut -> dusunme -> konusma -> bekleme akisi
 test('registerNeo: Hey Neo akisi, kisayol, pencere gonderen kontrolu ve kapatma', async (t) => {
-  const d = tmpDir(); t.after(() => fs.rmSync(d, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }));
+  const d = tmpDir(); t.after(() => rmLater(d));
   const log = path.join(d, 'cmd.log'), bin = path.join(d, 'neo.js');
   fs.writeFileSync(bin, `#!${process.execPath}
 const fs=require('fs'),o=x=>process.stdout.write(JSON.stringify(x)+'\\n');
 o({type:'hello',version:1,wakeOnDevice:true,cmdOnDevice:false,locale:'tr-TR',wakeLocale:'en-US',voices:[{id:'v1',name:'Yelda',lang:'tr-TR',quality:'enhanced'}]});
-require('readline').createInterface({input:process.stdin}).on('line',l=>{fs.appendFileSync(${JSON.stringify(log)},l+'\\n');const m=JSON.parse(l);
+require('readline').createInterface({input:process.stdin}).on('line',l=>{try{fs.appendFileSync(${JSON.stringify(log)},l+'\\n')}catch(e){}const m=JSON.parse(l);
   if(m.cmd==='start'){o({type:'state',state:'idle'});o({type:'heard',text:'hey nea'});setTimeout(()=>{o({type:'wake',text:'hey neo'});o({type:'state',state:'listening'});o({type:'partial',text:'spotify'});o({type:'command',text:'spotify sesini yüzde 150 yap',reason:'silence'})},50)}
   if(m.cmd==='say')setTimeout(()=>{o({type:'spoken',id:m.id});if(m.followUp){o({type:'state',state:'listening',followUp:true});setTimeout(()=>o({type:'nocommand',followUp:true}),30)}},30);
   if(m.cmd==='idle')o({type:'state',state:'idle'});
@@ -339,12 +343,12 @@ test('L5/L6: bos anahtar silmez, null (Sil) siler; kisayol ilk kayit basarisiz o
 });
 
 test('L7: onceki soru surerken bos dinleme dusunme durumunu bozmaz', async (t) => {
-  const d = tmpDir(); t.after(() => fs.rmSync(d, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }));
+  const d = tmpDir(); t.after(() => rmLater(d));
   const log = path.join(d, 'cmd.log'), bin = path.join(d, 'neo.js');
   fs.writeFileSync(bin, `#!${process.execPath}
 const fs=require('fs'),o=x=>process.stdout.write(JSON.stringify(x)+'\\n');
 o({type:'hello',version:1,wakeOnDevice:true,voices:[]});
-require('readline').createInterface({input:process.stdin}).on('line',l=>{fs.appendFileSync(${JSON.stringify(log)},l+'\\n');const m=JSON.parse(l);
+require('readline').createInterface({input:process.stdin}).on('line',l=>{try{fs.appendFileSync(${JSON.stringify(log)},l+'\\n')}catch(e){}const m=JSON.parse(l);
   if(m.cmd==='start')setTimeout(()=>o({type:'command',text:'uzun soru'}),30);
   if(m.cmd==='thinking')setTimeout(()=>{o({type:'nocommand'});o({type:'command',text:'  '});o({type:'partial',text:'p'})},30);
   if(m.cmd==='quit')process.exit(0)}).on('close',()=>process.exit(0));`);
@@ -375,13 +379,13 @@ require('readline').createInterface({input:process.stdin}).on('line',l=>{fs.appe
 });
 
 test('takip: cevaptan sonra "Hey Neo" demeden devam; yazili soru ve kapali ayar takipsiz; durdurulan cevap beklemeye doner', async (t) => {
-  const d = tmpDir(); t.after(() => fs.rmSync(d, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }));
+  const d = tmpDir(); t.after(() => rmLater(d));
   const log = path.join(d, 'cmd.log'), bin = path.join(d, 'neo.js');
   // Sahte yardimci: takipli ilk cevaptan sonra takip komutu, ikincisinden sonra bos takip; "stop-me" metni durdurulmus gibi biter
   fs.writeFileSync(bin, `#!${process.execPath}
 const fs=require('fs'),o=x=>process.stdout.write(JSON.stringify(x)+'\\n');let n=0;
 o({type:'hello',version:1,wakeOnDevice:true,voices:[]});
-require('readline').createInterface({input:process.stdin}).on('line',l=>{fs.appendFileSync(${JSON.stringify(log)},l+'\\n');const m=JSON.parse(l);
+require('readline').createInterface({input:process.stdin}).on('line',l=>{try{fs.appendFileSync(${JSON.stringify(log)},l+'\\n')}catch(e){}const m=JSON.parse(l);
   if(m.cmd==='start'){o({type:'state',state:'idle'});setTimeout(()=>{o({type:'wake',text:'hey neo'});o({type:'state',state:'listening'});o({type:'command',text:'thyao kaç'})},30)}
   if(m.cmd==='say')setTimeout(()=>{if(m.text==='stop-me'){o({type:'spoken',id:m.id,stopped:true});return}
     o({type:'spoken',id:m.id});if(!m.followUp){o({type:'state',state:'idle'});return}
