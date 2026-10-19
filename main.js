@@ -146,13 +146,16 @@ const borsaPro=require('./borsa-pro-main').registerBorsaPro({ipcMain,app,Browser
   ext:{botNews:s=>botNews(s),extSignals:s=>extSignals(s),depth:()=>lastDepth,riskPct:()=>+cfg().riskPct>0?+cfg().riskPct:1},
   say:t=>{try{if(modOn('neo'))neoUi.say(t)}catch(e){}}});
 // Acilis testi (CI): Borsa Pro sayfasi paketli uygulamada grafik kutuphanesini, analiz motorunu ve grafik bilesenini yukleyebiliyor mu
+// Adimlar stdout'a yazilir (CI gunlugunde takilma yeri gorunsun).
 function smokePro(){
+  const log=m=>{try{process.stdout.write('CEM_SMOKE_STEP borsapro '+m+'\n')}catch(e){}};
   return new Promise((ok,no)=>{
+    log('pencere');
     const w=new BrowserWindow({show:false,width:1200,height:800,webPreferences:{preload:path.join(__dirname,'borsa-pro-preload.js'),sandbox:true}});
-    const end=(f,v)=>{try{w.destroy()}catch(e){}f(v)};
+    const end=(f,v)=>{log(f===ok?'tamam':'hata');try{w.destroy()}catch(e){}f(v)};
     w.webContents.once('did-fail-load',(e,c,d)=>end(no,new Error('borsa-pro.html yuklenemedi: '+d)));
-    w.webContents.once('did-finish-load',()=>w.webContents.executeJavaScript("[typeof LightweightCharts,typeof Engine,typeof BPChart,typeof bp].map(t=>t!=='undefined'?1:0).join('')")
-      .then(r=>r==='1111'?end(ok,'grafik'):end(no,new Error('Borsa Pro eksik bilesen (LightweightCharts,Engine,BPChart,bp): '+r))).catch(e=>end(no,e)));
+    w.webContents.once('did-finish-load',()=>(log('yuklendi'),w.webContents.executeJavaScript("[typeof LightweightCharts,typeof Engine,typeof BPChart,typeof bp].map(t=>t!=='undefined'?1:0).join('')")
+      .then(r=>r==='1111'?end(ok,'grafik'):end(no,new Error('Borsa Pro eksik bilesen (LightweightCharts,Engine,BPChart,bp): '+r))).catch(e=>end(no,e))));
     w.loadFile(path.join(__dirname,'borsa-pro.html'));
   });
 }
@@ -1062,7 +1065,7 @@ app.whenReady().then(()=>{
     // Alarmlar canli takip ister: bekleyen alarm varsa canli modu ac.
     if(pendingAlarms()&&!cfg().live){setLive(true);send('state',state())}});
   ipcMain.handle('copy',(e,t)=>{if(typeof t==='string')clipboard.writeText(t.slice(0,5000))});
-  ipcMain.handle('resize',(e,h)=>{if(Number.isFinite(h))pop.setSize(380,Math.max(320,Math.min(680,Math.round(h))))});
+  ipcMain.handle('resize',(e,h)=>{if(Number.isFinite(h)&&pop&&!pop.isDestroyed())pop.setSize(380,Math.max(320,Math.min(680,Math.round(h))))});
   ipcMain.handle('openPerm',()=>shell.openExternal(SETTINGS_URL));
   ipcMain.handle('openBilling',()=>shell.openExternal('https://console.anthropic.com/settings/billing'));
   ipcMain.handle('quit',()=>app.quit());
@@ -1104,7 +1107,9 @@ app.whenReady().then(()=>{
   if(modOn('borsa')&&cfg().depthAuto)setDepthAuto(cfg().depthAuto);
   if(modOn('borsa')&&cfg().live)setLive(true);
   trayTitle();
-  if(process.env.CEM_SMOKE==='1')require('./smoke').gate('borsapro',smokePro);
+  // Intel paketi Apple Silicon'da Rosetta ile calisirken (CI) gizli grafik penceresi kontrolu atlanir: Rosetta'da cok yavas.
+  // Ayni asar arm64 testinde dogrulanir (JS/HTML mimariden bagimsiz).
+  if(process.env.CEM_SMOKE==='1'){if(app.runningUnderARM64Translation)process.stdout.write('CEM_SMOKE_STEP borsapro atlandi (Rosetta)\n');else require('./smoke').gate('borsapro',smokePro)}
 });
 app.on('will-quit',()=>{globalShortcut.unregisterAll();try{market.flush()}catch(e){}if(shareSess)shareSess.stop('quit');try{require('./depthimg').close()}catch(e){}});
 app.on('window-all-closed',e=>e.preventDefault());
