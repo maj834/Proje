@@ -282,7 +282,9 @@ function renderWatch(){
       el('button',{class:'x',title:'Listeden çıkar',onclick:async e=>{e.stopPropagation();const r=await call(bp.watch,{op:'remove',symbol:s});if(okr(r)){S.st.watch=r.watch;renderWatch()}}},'×'))}))}
 let qBusy=false;
 async function refreshQuotes(){
-  if(qBusy||!S.st||!S.st.watch.length||document.hidden)return;qBusy=true;
+  if(qBusy||!S.st||!S.st.watch.length||document.hidden)return;
+  // Seans kapaliyken fiyat degismez: tum listenin fiyati bir kez alindiysa tekrar sorma (pil ve istek tasarrufu)
+  if(S.st.marketStatus&&!S.st.marketStatus.open&&S.st.market!=='US'&&S.st.watch.every(s=>S.q.has(s)))return;qBusy=true;
   try{const r=await bp.quotes(S.st.watch);if(Array.isArray(r))for(const x of r)if(x&&x.symbol)S.q.set(x.symbol,x);renderWatch();
     $('sbr').textContent='Fiyatlar '+hm(Date.now());}catch(e){}finally{qBusy=false}}
 
