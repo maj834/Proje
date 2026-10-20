@@ -170,7 +170,7 @@ async function okulAI({system,user}){
       body:JSON.stringify({model:model(),max_tokens:1800,system,messages:[{role:'user',content:user}]}),signal:AbortSignal.timeout(60000)});
     if(r.ok){const j=await r.json(),t=(j.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('');if(t)return {ok:true,text:t,provider:'claude',model:model()}}}catch(e){}
   return {ok:false,error:g||k?'Yapay zekâ şu an yanıt vermedi; biraz sonra tekrar dene.':'Öğretmene sormak için Groq (ücretsiz) ya da Claude anahtarını Ayarlar\'dan ekle.'}}
-const okulClient=(()=>{try{return require('./okul-client').createOkul({fetch:(...a)=>fetch(...a),now:()=>Date.now(),dir:app.getPath('userData'),url:OKUL_URL,anon:OKUL_KEY,ai:okulAI})}
+const okulClient=(()=>{try{return require('./okul-client').createOkul({fetch:(...a)=>fetch(...a),now:()=>Date.now(),dir:app.getPath('userData'),url:OKUL_URL,anon:OKUL_KEY,ai:okulAI,open:u=>shell.openExternal(u)})}
   catch(e){console.error('okul:',e.message);return null}})();
 const extApis=(()=>{try{return require('./ext-apis').createExtApis({fetch:(...a)=>fetch(...a),now:()=>Date.now(),dir:app.getPath('userData'),
   keys:{news:()=>dec(cfg().newsKey),fx:()=>dec(cfg().fxKey),gecko:()=>dec(cfg().geckoKey)}})}catch(e){console.error('ext-apis:',e.message);return null}})();
@@ -190,7 +190,7 @@ const borsaPro=require('./borsa-pro-main').registerBorsaPro({ipcMain,app,Browser
     // Telegram derinlik botu (Borsa Pro): getir, canli takip, durum, bot terminali, kurulum (popup Derinlik sekmesi)
     fetchDepth:s=>fetchDepth({symbol:s,source:'telegram'}),
     depthAuto:(sec,s)=>{if(s)save({depthSymbol:bistCode(s)});setDepthAuto([0,20,30,45,60,120].includes(sec)?sec:0);send('state',state());return depthInfo()},
-    depthInfo:()=>depthInfo(),
+    depthInfo:()=>depthInfo(),depthFor:s=>depthBySym[bistCode(s)]||null,setLiveList:l=>setLiveList(l),
     openTerminal:async()=>{if(!tgUser||!tgCfg().bot)return {ok:false,error:'Önce Telegram\'a bağlan ve bot adını yaz.'};const why=canSend(false);if(why)return {ok:false,error:why};
       sent.push(Date.now());try{const r=await tg.menuApp(tgCfg().bot);openTerminal(r.url);return {ok:true}}catch(e){return {ok:false,error:ai.errorText(e)}}},
     setupTg:()=>{showPop();send('openTab','st');return {ok:true}}},
@@ -656,6 +656,15 @@ const enc=v=>v?(safeStorage.isEncryptionAvailable()?'e:'+safeStorage.encryptStri
 const dec=v=>!v?null:v.startsWith('e:')?(()=>{try{return safeStorage.decryptString(Buffer.from(v.slice(2),'base64'))}catch(e){return null}})():v.slice(2);
 const tgCfg=()=>cfg().tg||{};
 let tgUser=null,tgAskResolve=null,depthTimer=null,depthBusy=false,lastDepth=null;
+// Oncelikli canli liste: otomatik yenileme bu hisseler arasinda sirayla doner (Telegram guvenli siniri icinde); sembol basina son derinlik
+const depthBySym={};let liveIdx=0;
+const liveList=()=>(Array.isArray(cfg().liveList)?cfg().liveList:[]).map(bistCode).filter(Boolean).slice(0,6);
+const nextLive=()=>{const l=liveList();if(!l.length)return null;liveIdx=(liveIdx+1)%l.length;return l[liveIdx]};
+function setLiveList(list){const l=[...new Set((Array.isArray(list)?list:[]).map(bistCode).filter(Boolean))].slice(0,6);save({liveList:l});
+  // Liste dolunca otomatik yenileme kendiliginden acilir; liste bosalinca yalniz listenin actigi otomatik kapanir
+  if(l.length&&!(cfg().depthAuto>0)){setDepthAuto(30);save({depthAutoByLive:true})}
+  else if(!l.length&&cfg().depthAutoByLive){setDepthAuto(0);save({depthAutoByLive:false})}
+  return depthInfo()}
 const depthHist={},flowHist={};
 
 // --- guvenli istek planlayici ------------------------------------------------
@@ -812,14 +821,14 @@ async function scorecard(days=30){
   }catch(e){return {ok:false,msg:e.message}}
 }
 // Borsa Pro'ya Telegram derinlik durumu (gizli bilgi yok: oturum/anahtar gonderilmez)
-const depthInfo=()=>({connected:!!tgUser,bot:tgCfg().bot||null,auto:cfg().depthAuto||0,symbol:cfg().depthSymbol||null,source:cfg().depthSource||'telegram',safe:safeInfo()});
+const depthInfo=()=>({connected:!!tgUser,bot:tgCfg().bot||null,auto:cfg().depthAuto||0,symbol:cfg().depthSymbol||null,source:cfg().depthSource||'telegram',safe:safeInfo(),liveList:liveList()});
 const currentSymbol=()=>cfg().symbol||(lastAi&&lastAi.symbol)||(lastDepth&&lastDepth.symbol)||cfg().depthSymbol||'';
 
 let depthNext=null;   // suren istek varken gelen elle/Neo istegi: bitince calisir (sessizce dusmesin)
 async function fetchDepth(opts={}){
   // Donus degeri Borsa Pro icin: {ok:true} | {ok:false,error,wait?,busy?,needTg?}. Popup ayrica olaylarla bilgilendirilir.
   if(depthBusy){if(!opts.auto)depthNext=opts;return {ok:false,busy:true,error:'Derinlik isteği sürüyor; birazdan güncellenecek.'}}depthBusy=true;
-  const symbol=bistCode(opts.symbol||(opts.auto&&cfg().depthSymbol)||currentSymbol());
+  const symbol=bistCode(opts.symbol||(opts.auto&&(nextLive()||cfg().depthSymbol))||currentSymbol());
   const source=opts.source||cfg().depthSource||'telegram';
   try{
     if(!symbol)throw new Error('Hisse kodu yaz (ör. PRZMA) ya da önce grafiği Claude ile analiz et.');
@@ -876,7 +885,7 @@ async function fetchDepth(opts={}){
     if(!modOn('borsa'))return;   // istek surerken Borsa kapatildi: sonuc gosterilmez/kaydedilmez
     lastDepth={...d,symbol,at:dataAt,source,walls:depthLib.walls(d),pressure:pr,trend:depthLib.trend(depthHist[symbol]||[]),history:(depthHist[symbol]||[]).slice(-40),
       flow:{net:flow,change:fd,top:(d.buyers[0]||null)},safe:safeInfo()};
-    lastDepth.signal=liveSignal();lastDepth.live=liveView();
+    lastDepth.signal=liveSignal();lastDepth.live=liveView();depthBySym[symbol]=lastDepth;
     recordDepth(lastDepth);recordSignal(lastDepth.signal,lastResult||{});
     send('depth',{...lastDepth,messages:messages.map(m=>({...m,photo:thumb(m.photo)})),usage:state().usage});
     pushDepthOverlay();if(!opts.auto||!newsCache[bistCode(symbol)]||Date.now()-newsCache[bistCode(symbol)].at>600000)pushNews(symbol);

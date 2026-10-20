@@ -173,7 +173,7 @@ function registerBorsaPro({ipcMain,app,BrowserWindow,path,screen,Notification,sh
     try{const h=(data.search(sym)||[]).find(x=>x&&x.symbol===sym);return h&&h.name||null}catch(e){return null}};
   // Derinlik (Telegram botu): yalniz ayni hisse ve 5 dk'dan tazeyse kisa ozet
   function depthSummary(sym){
-    let d;try{d=ext.depth?ext.depth():null}catch(e){d=null}
+    let d;try{d=ext.depthFor?ext.depthFor(sym):ext.depth?ext.depth():null}catch(e){d=null}
     if(!d||typeof d!=='object'||d.symbol!==sym||!fin(d.at)||now()-d.at>DEPTH_FRESH)return null;
     const top=(a,n)=>(Array.isArray(a)?a:[]).filter(x=>x&&typeof x==='object').slice(0,n);
     const lvl=x=>({price:fin(x.price)?x.price:null,qty:fin(x.qty)?x.qty:null}),inst=x=>({name:String(x.name||'').slice(0,40),net:fin(x.net)?x.net:null,cost:fin(x.cost)?x.cost:null});
@@ -194,9 +194,16 @@ function registerBorsaPro({ipcMain,app,BrowserWindow,path,screen,Notification,sh
       trades:top(d.trades,12).map(t=>({time:typeof t.time==='string'?t.time.slice(0,8):null,price:fin(t.price)?t.price:null,qty:fin(t.qty)?t.qty:null,side:t.side==='sell'?'sell':t.side==='buy'?'buy':null,buyer:typeof t.buyer==='string'?t.buyer.slice(0,30):null,seller:typeof t.seller==='string'?t.seller.slice(0,30):null})),
       walls:top(d.walls,6).map(x=>({side:x.side==='ask'?'ask':'bid',...lvl(x),ratio:fin(x.ratio)?x.ratio:null}))}}
   // Telegram derinlik botu: getir / canli takip / durum / terminal / kurulum. Depth verisi yalniz bu hisse ve 5 dk'dan tazeyse doner.
-  async function depthOp(o){o=obj(o);const op=['fetch','auto','state','terminal','setup'].includes(o.op)?o.op:'state';
+  // Oncelikli canli liste: Telegram'dan sirayla taze fiyat; listedeki hisselerin fiyati/grafigi bu veriyle guncellenir
+  const LIVE_FRESH=5*60000;
+  function liveQuote(sym){if(!ext.depthFor)return null;let d;try{d=ext.depthFor(sym)}catch(e){return null}
+    return d&&fin(d.last)&&d.last>0&&fin(d.at)&&now()-d.at<=LIVE_FRESH?{price:d.last,time:d.at}:null}
+  async function depthOp(o){o=obj(o);const op=['fetch','auto','state','terminal','setup','live'].includes(o.op)?o.op:'state';
     const sym=o.symbol!=null?code(o.symbol):null,info=()=>{try{return ext.depthInfo?ext.depthInfo():null}catch(e){return null}};
     if(op==='setup'){if(ext.setupTg)ext.setupTg();return {ok:true}}
+    if(op==='live'){if(!ext.setLiveList)return err('Canlı liste bu sürümde yok.');if(!Array.isArray(o.list))return err('Liste geçersiz.');
+      const l=[...new Set(o.list.map(code).filter(Boolean))];if(l.length>6)return err('Canlı listede en fazla 6 hisse olabilir.');
+      return {ok:true,tg:ext.setLiveList(l)}}
     if(op==='terminal')return ext.openTerminal?await ext.openTerminal():err('Bot terminali kullanılamıyor.');
     if(op==='auto'){const sec=[0,20,30,45,60,120].includes(o.sec)?o.sec:0;if(sec&&!sym)return err(CODE_ERR);
       return {ok:true,tg:ext.depthAuto?ext.depthAuto(sec,sym):info(),depth:sym?depthSummary(sym):null}}
@@ -224,7 +231,8 @@ function registerBorsaPro({ipcMain,app,BrowserWindow,path,screen,Notification,sh
     const m=obj(mt),frames={...obj(m.frames)},errors=(Array.isArray(m.errors)?m.errors:[]).map(String).slice(0,8);
     let rows=Array.isArray(frames[tf])?frames[tf]:[];
     if(!rows.length){const e=errors.find(x=>x.startsWith(tf+': '));return err(e?e.slice(tf.length+2):'Bu sembol için veri alınamadı.',{errors})}
-    const qs=obj(m.quotes),q0=obj(qs[tf]||qs['1g']),q1=qt&&typeof qt==='object'&&fin(qt.price)?qt:null;
+    const qs=obj(m.quotes),q0=obj(qs[tf]||qs['1g']),LQ=bist?liveQuote(sym):null;
+    let q1=qt&&typeof qt==='object'&&fin(qt.price)?qt:null;if(LQ)q1={...(q1||q0),price:LQ.price,time:LQ.time,stale:false,live:true};
     // Gunluk mum onbellegi 30 dk eski olabilir: ayni gunun son mumu taze fiyatla guncellenir (karar guncel kalsin; onbellek bozulmaz)
     const D=frames['1g'];
     if(q1&&!q1.stale&&fin(q1.time)&&Array.isArray(D)&&D.length){const L=D[D.length-1];
@@ -234,7 +242,7 @@ function registerBorsaPro({ipcMain,app,BrowserWindow,path,screen,Notification,sh
     const price=fin(qb.price)?qb.price:lastC.c,prev=fin(qb.prev)&&qb.prev>0?qb.prev:null;
     const quote={price,prev,chg:prev!=null?r4(price-prev):null,chgPct:prev!=null?r2((price-prev)/prev*100):null,currency:qb.currency||(bist?'TRY':null),
       name:qb.name||null,exchange:qb.exchange||null,time:fin(qb.time)?qb.time:lastC.t,dayHigh:fin(qb.dayHigh)?qb.dayHigh:null,dayLow:fin(qb.dayLow)?qb.dayLow:null,
-      volume:fin(qb.volume)?qb.volume:null,stale:!!qb.stale};
+      volume:fin(qb.volume)?qb.volume:null,stale:!!qb.stale,live:!!qb.live};
     if(bist&&q1&&!q1.stale)remember(sym,quote);              // yalniz taze fiyat (mum onbellegi 30 dk eski olabilir; alarm baslangici bozulmasin)
     let pro;try{pro=engine.proAnalyze(frames,{primary:tf,depth:es.depth||null,news:es.news||null,riskPct:riskPct()})}catch(e){pro=err('Analiz yapılamadı: '+msg(e))}
     if(!pro||typeof pro!=='object')pro=err('Analiz yapılamadı.');
@@ -254,7 +262,7 @@ function registerBorsaPro({ipcMain,app,BrowserWindow,path,screen,Notification,sh
       const bn2=b0=>b0&&b0.calendar||[];
       qa=quant.analyze({rows,daily:D0||rows,hist:H,pro:pro.ok?pro:null,bench:bn||null,breadth:sc&&sc.breadth||null,now:now(),
         liquidityTL:stats&&fin(stats.avgVolTL20)?stats.avgVolTL20:null,events:bn2(bot&&typeof bot==='object'?bot:null).map(e=>({day:e.day,kind:e.kind,title:e.title})),
-        radar:rd&&rd.consensus?rd.consensus:null});
+        radar:rd&&rd.consensus?rd:null});
     }catch(e){qa=null;console.error('borsa-pro: olasilik:',msg(e))}
     // Her zaman dilimi icin teknik ozet (hareketli ortalama + osilator oylari); olasilik hatasindan bagimsiz
     if(quant&&typeof quant.techSummary==='function'){techFrames={};
@@ -283,7 +291,9 @@ function registerBorsaPro({ipcMain,app,BrowserWindow,path,screen,Notification,sh
     const list=(Array.isArray(a)?a:a&&Array.isArray(a.symbols)?a.symbols:[]).filter(s=>typeof s==='string'&&s.trim()&&s.length<=20).slice(0,MAX_WATCH);
     if(!list.length)return [];
     const r=await data.quotes(list,{market:mkt});if(!Array.isArray(r))return [];
-    if(mkt==='BIST')for(const q of r)if(q)remember(q.symbol,q);
+    if(mkt==='BIST')for(let i=0;i<r.length;i++){const q=r[i];if(!q)continue;const L=liveQuote(q.symbol);
+      if(L){const prev=fin(q.prev)&&q.prev>0?q.prev:null;r[i]={...q,price:L.price,time:L.time,chg:prev?r4(L.price-prev):q.chg,chgPct:prev?r2((L.price-prev)/prev*100):q.chgPct,stale:false,live:true}}
+      remember(r[i].symbol,r[i])}
     return r}
 
   function watch(o){o=obj(o);let w=conf().watch;const done=x=>({ok:true,watch:x});
@@ -549,11 +559,12 @@ function registerBorsaPro({ipcMain,app,BrowserWindow,path,screen,Notification,sh
   function prefs(o){const cur=conf().prefs;if(!o||typeof o!=='object'||Array.isArray(o))return cur;
     const inc=cleanPrefs(o),p=cleanPrefs({...cur,...inc,...(inc.show?{show:{...(cur.show||{}),...inc.show}}:{})});put({prefs:p});return p}
   // Borsa Okulu (okul-client): icerik Supabase'den (herkese acik okuma), ilerleme yerelde; "ogretmene sor" uygulamanin yapay zekasiyla
-  const OKUL_OPS=['list','get','today','quiz','answer','progress','markRead','ask','open'];
+  const OKUL_OPS=['list','get','today','quiz','answer','progress','markRead','sozluk','ask','open'];
   async function okulOp(o){o=obj(o);const op=o.op,a=o.args;
     if(!OKUL_OPS.includes(op))return err('Geçersiz işlem.');
     if(op==='open')return openUrl(a);
     if(!okul)return err('Borsa Okulu bu sürümde yok.');
+    if(op!=='ask'&&typeof okul.call==='function')try{const r=await okul.call(op,a);return r==null?{ok:true}:r}catch(e){return err('Borsa Okulu: '+msg(e))}
     const A=obj(a),slug=typeof a==='string'?a:A.slug;
     try{let r;
       if(op==='list')r=await okul.list(A);else if(op==='get')r=await okul.get(slug);else if(op==='today')r=await okul.today();
@@ -561,7 +572,7 @@ function registerBorsaPro({ipcMain,app,BrowserWindow,path,screen,Notification,sh
       else if(op==='markRead')r=await okul.markRead(slug);
       else{const soru=typeof a==='string'?a:A.soru;if(typeof soru!=='string'||!soru.trim())return err('Soru boş.');
         let baglam=A.baglam;if(A.symbol){const c=ctx.get('BIST:'+code(String(A.symbol)));if(c)baglam={...obj(baglam),hisse:{symbol:c.symbol,name:c.name,fiyat:c.quote&&c.quote.price,karar:c.pro&&c.pro.verdict&&{label:c.pro.verdict.label,score:c.pro.verdict.score},not:c.quant&&c.quant.rating&&c.quant.rating.label}}}
-        r=await okul.ask(soru.slice(0,1500),{baglam})}
+        r=await okul.ask(soru.slice(0,1500),{baglam,gecmis:Array.isArray(A.gecmis)?A.gecmis.slice(-6):[]})}
       return r==null?{ok:true}:r}
     catch(e){return err('Borsa Okulu: '+msg(e))}}
   function openUrl(o){const u=typeof o==='string'?o:obj(o).url;if(typeof u!=='string'||u.length>2048)return err('Geçersiz bağlantı.');

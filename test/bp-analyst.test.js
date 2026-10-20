@@ -91,6 +91,72 @@ function goodBrief(c) {
 }
 const mk = (o = {}) => A.createAnalyst({ Anthropic: noClaude, now: () => NOW, keys: { groq: () => 'gsk_test' }, ...o });
 
+// ---- 2. tur: istatistik motoru (bp-quant analyze), temel puan (bp-fund), Hisse Radar ornek ciktilari (gercek bicimlerden) ----
+const P0 = LAST.c, X = k => Math.round(P0 * k * 10000) / 10000;
+const QUANT = {
+  score: { score: 0.5, band: 0.12, n: 91, horizons: [
+    { h: 5, n: 91, mean: -0.17, median: 0.1, win: 54.2, p10: -3.1, p25: -1, p75: 1.5, p90: 3.2, baseMean: 0.49, baseWin: 57.1, edge: -0.66 },
+    { h: 20, n: 91, mean: 1.48, median: 1.2, win: 60.4, p10: -5.2, p25: -1.8, p75: 4.1, p90: 7.9, baseMean: 1.92, baseWin: 63.3, edge: -0.44 }] },
+  setup: { desc: 'Fiyat EMA200 üstünde · RSI 55–70 · MACD pozitif', n: 270, relaxed: false, horizons: [{ h: 10, n: 270, mean: 0.81, median: 0.7, win: 58.1 }, { h: 20, n: 270, mean: 1.03, median: 0.9, win: 58.3 }] },
+  odds: { n: 802, cond: 'trend', maxBars: 40, dir: 1, p1: 46.4, p2: 26.1, pStop: 52.6, pNone: 1, avgBars1: 10.7, stopAtr: 1.5, t1Atr: 1.76, rr: 1.17, ev: 0.02, breakEven: 46.1 },
+  ranges: { last: P0, volNow: 15.2, volLong: 18.4, ratio: 0.83, horizons: [
+    { h: 5, p05: X(0.96), p16: X(0.985), p50: X(1.004), p84: X(1.026), p95: X(1.04), n: 746 },
+    { h: 20, p05: X(0.94), p16: X(0.97), p50: X(1.012), p84: X(1.05), p95: X(1.08), n: 731 }] },
+  seasonality: { months: Array.from({ length: 12 }, (_, m) => ({ m, n: 3, avg: m - 5.5, win: 66.7 })), years: 3.1, current: 9 },
+  tech: { ma: { buy: 9, sell: 3, neutral: 0, score: 0.5, label: 'Güçlü Al', items: [{ name: 'SMA 5', value: 1, vote: 1 }] }, osc: { buy: 3, sell: 2, neutral: 4, score: 0.11, label: 'Al', items: [] }, overall: { score: 0.33, label: 'Al' } },
+  regime: { dir: 1, score: 0.85, label: 'Risk iştahı yüksek', last: 10500, trend: 'XU100 yükseliş trendinde (EMA50 > EMA200)', r20: 11.2, drawdown: -3.6, volPct: 15, breadthPct: null },
+  rating: { label: 'Al', idx: 3, score: 0.36, confidence: 64,
+    target: { base: X(1.012), low: X(0.97), high: X(1.05), low90: X(0.94), high90: X(1.08), upside: 1.2, h: 20 },
+    drivers: [{ text: 'Teknik karar AL (skor +30)', dir: 1 }, { text: 'Benzer skorlu günlerden sonra 20 mum ort. +%1,5 (yükselme %60, n=91)', dir: 1 }, { text: 'Piyasa: Risk iştahı yüksek', dir: 1 }],
+    calibration: { benzerYukselme: 60.4, karneIsabet: 53.3, n: 240, harman: 57.1, not: 'Benzer skor çalışması ile karne isabeti harmanlandı' },
+    warnings: ['Bilanço 5 gün içinde: açıklama sonrası sert hareket olabilir.'] },
+  karne: { 5: { n: 240, al: { n: 150, isabet: 54.7, ortGetiri: 0.42 }, sat: { n: 90, isabet: 51.1, ortGetiri: -0.1 }, genel: { n: 240, isabet: 53.3 }, son250: { n: 60, isabet: 55 } },
+    20: { n: 230, al: { n: 140, isabet: 58.6, ortGetiri: 1.9 }, sat: { n: 90, isabet: 47.8, ortGetiri: 0.3 }, genel: { n: 230, isabet: 54.3 } } },
+  histN: 1100, histFrom: Date.UTC(2022, 0, 3) };
+const FRAW = { source: 'yahoo', symbol: 'THYAO.IS', currency: 'TRY', financialCurrency: 'TRY', sector: 'Industrials', industry: 'Airlines', marketCap: 4.1e11,
+  pe: 4.8, fwdPe: 4.1, pb: 0.83, ps: 0.45, evEbitda: 5.2, divYield: 1.2, payout: 8, roe: 18.5, roa: 7.1, grossMargin: 21, opMargin: 9.5, netMargin: 12,
+  revenueGrowth: 35, earningsGrowth: -40, debtToEquity: 1.1, currentRatio: 0.9, beta: 1.1, target: { mean: 260, high: 310, low: 205, n: 14, rec: 'buy' }, nextEarnings: NOW + 5 * 86400000 };
+// bp-fund scoreFundamentals bicimi (main: fund = {...score, raw})
+const FUND = { ok: true, score: 0.28, label: 'Olumlu', coverage: 1, kind: 'genel', kindName: 'Sanayi / hizmet', valuation: { label: 'Ucuz', score: 0.6 }, quality: { label: 'Güçlü', score: 0.4 },
+  growth: { label: 'Orta', score: 0.1 }, health: { label: 'Belirsiz', score: null }, target: { mean: 260, upside: 31.4, realUpside: 5.1, n: 14, rec: 'buy', label: 'Al', high: 310, low: 205 },
+  lines: ['Değerleme: Ucuz — F/K 4,8'], flags: ['Yüksek enflasyon: nominal TL büyüme ve kârlar şişkin görünür.', 'Cari oran 1\'in altında (0,90): kısa vadeli likidite baskısı olabilir.'],
+  assumptions: { inflation: 25, priceInflation: 25, coe: 33, region: 'tr' }, note: 'Yatırım tavsiyesi değildir.', raw: FRAW };
+// hisse-radar forSymbol bicimi
+const RADAR = { symbol: 'THYAO', ad: null, updatedAt: NOW - 13 * 3600000, veriZamani: '19 Ekim 2026, 18:09', stale: false,
+  models: [
+    { id: 'groq', ad: 'Llama (Groq)', model: 'openai/gpt-oss-120b', karar: 'TUT', guven: 44, hedef: 203.5, neden: 'RSI 35, fiyat SMA10 altında', karar1a: 'TUT', hedef1a: 206, karar3a: 'TUT', hedef3a: 210, isabet: { n: 258, oran: 62.8 }, kaynak: 'ai', eski: false },
+    { id: 'cohere', ad: 'Cohere', model: 'command-a', karar: 'AL', guven: 55, hedef: 205, neden: 'Motor anlaşması haberi', karar1a: 'AL', hedef1a: 212, isabet: { n: 270, oran: 64.8 }, kaynak: 'ai', eski: false },
+    { id: 'mistral', ad: 'Mistral', model: 'mistral-large', karar: 'AL', guven: 60, hedef: 207, neden: 'Trend yukarı', isabet: { n: 8, oran: 75 }, kaynak: 'ai', eski: true }],
+  consensus: { karar: 'AL', skor: 0.52, guven: 41, hedef: 205.8, hedefYuzde: 3.1, n: 3, uyum: 0.71, agirlik: 'isabet', dagilim: { AL: 2, TUT: 1, SAT: 0 }, hamKarar: null, not: null },
+  outlook: { yon: 'yukselis', hedef: 215, guven: 62, neden: 'Yolcu trafiği güçlü', olay: 'Eylül trafik verisi', vade: '1 ay', karar: 'AL', eski: false },
+  olasilik: { son: '2026-10-19', vadeler: { '1h': { gun: 5, p: 0.508, q: [-2.45, 0.17, 2.83], n: 756, kosullu: false, beceri: false }, '1a': { gun: 21, p: 0.48, q: [-5.01, -0.41, 6.8], n: 756, kosullu: false, beceri: true } },
+    not: 'Geçmiş benzer durumlar yön tahmininde yazı-turadan iyi çıkmadı; aralık yalnız oynaklık bilgisi verir.' },
+  secim: null, backtest: { karar: 'AL', vade: '1a', isabet: 61, n: 44 }, risk: null, temel: { ceyrek: '2Ç26', puan: -1, karar: 'TUT', ozet: 'net kâr yıllık %72 azaldı' } };
+const full = (over = {}) => ctx({ quant: QUANT, fund: FUND, radar: RADAR, ...over });
+const bytes = o => Buffer.byteLength(JSON.stringify(o), 'utf8');
+// Verideki sayilarla yazilmis gecerli rapor
+function goodReport(c, over = {}) {
+  const H = c.analistNotu.hedef, s20 = c.benzerSkor.ufuklar.find(h => h.mum === 20);
+  return { not: 'Al', notGerekce: `İstatistiksel not ${c.analistNotu.etiket}, güven %${c.analistNotu.guven}.`,
+    hedef: { baz: H.baz, dusuk: H.dusuk68, yuksek: H.yuksek68, vade: '1 ay' },
+    ozet: `Karar ${c.karar.etiket}, skor ${c.karar.skor}. Fiyat ${tr(c.fiyat.son)}.`,
+    teknik: `Stop ${tr(c.plan.stop)}, hedef 1 ${tr(c.plan.h1)}.`,
+    temel: `F/K ${tr(c.temel.oranlar.fk)}; analist hedefi ${tr(c.temel.analistHedefi.ortalama)} (${c.temel.analistHedefi.kurumSayisi} kurum).`,
+    olasiliklar: `Benzer ${s20.n} günde 20 mum sonra yükselme %${s20.yukselmeYuzde}, taban oran %${s20.tabanYukselmeYuzde}. Plan için hedef önce %${c.planOlasiligi.h1OnceYuzde}.`,
+    senaryolar: [{ ad: 'Boğa', olasilik: 35, kosul: `${tr(c.plan.h1)} üzerinde kapanış`, hedef: H.yuksek68 }, { ad: 'Baz', olasilik: 40, kosul: 'Yatay seyir', hedef: H.baz },
+      { ad: 'Ayı', olasilik: 25, kosul: `${tr(c.plan.stop)} altında kapanış`, hedef: H.dusuk68 }],
+    katalizorler: ['3Ç bilanço'], riskler: ['Risk/ödül zayıf.'], izle: [`RSI ${tr(c.momentum.rsi)}`], sonuc: 'Kademeli alım düşünülebilir.', ...over };
+}
+// Claude yapilandirilmis cikti kurallari: her nesnede additionalProperties false ve tum alanlar zorunlu; desteklenmeyen kisit yok.
+function schemaOk(s, path = '$') {
+  if (s.type === 'object') {
+    assert.equal(s.additionalProperties, false, path); assert.deepEqual([...s.required].sort(), Object.keys(s.properties).sort(), path);
+    for (const [k, v] of Object.entries(s.properties)) schemaOk(v, path + '.' + k);
+  }
+  if (s.type === 'array') schemaOk(s.items, path + '[]');
+  for (const bad of ['minimum', 'maximum', 'minLength', 'maxLength', 'multipleOf', 'minItems', 'maxItems']) assert.equal(s[bad], undefined, path + ' ' + bad);
+}
+
 // =====================================================================================================================
 test('providers: anahtari olanlar groq > claude > grok sirasinda; bos/hatali anahtar sayilmaz', () => {
   assert.deepEqual(A.createAnalyst({ keys: { grok: () => 'xai-1', claude: () => '   ', groq: () => 'gsk_1' } }).providers(), ['groq', 'grok']);
@@ -495,4 +561,278 @@ test('codeOf ve message: durum kodlari ve Turkce metinler', () => {
   assert.deepEqual(A.cleanHistory([{ role: 'assistant', content: 'a' }, { role: 'user', content: 'u' }, { role: 'user', content: 'v' }]), [{ role: 'user', content: 'u\n\nv' }]);
   assert.equal(A.cleanHistory(Array.from({ length: 30 }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', content: 'm' + i }))).length, 10);
   assert.deepEqual(A.ORDER, ['groq', 'claude', 'grok']);
+});
+
+// =====================================================================================================================
+// 2. tur: istatistik motoru + temel + Hisse Radar baglami, analist raporu (report) ve halusinasyon denetimi
+// =====================================================================================================================
+test('compact: istatistik motoru, temel analiz ve Hisse Radar alanlari; 8 KB alti ve deterministik', () => {
+  assert.ok(A.MAX_CTX < 8192);
+  const c = A.compact(full(), { now: NOW }), json = JSON.stringify(c);
+  assert.ok(bytes(c) <= A.MAX_CTX, 'bayt ' + bytes(c));
+  assert.deepEqual(A.compact(full(), { now: NOW }), c, 'ayni girdi ayni cikti');
+  // cekirdek eski alanlar korunur
+  assert.ok(c.karar && c.plan && c.seviyeler && c.trend && c.istatistik);
+  // not + hedef (baz, %68 ve %90 aralik, vade)
+  const an = c.analistNotu;
+  assert.deepEqual([an.etiket, an.skor, an.guven], ['Al', 0.36, 64]);
+  assert.deepEqual(an.hedef, { baz: Math.round(X(1.012) * 100) / 100, dusuk68: Math.round(X(0.97) * 100) / 100, yuksek68: Math.round(X(1.05) * 100) / 100,
+    dusuk90: Math.round(X(0.94) * 100) / 100, yuksek90: Math.round(X(1.08) * 100) / 100, potansiyelYuzde: 1.2, vadeMum: 20 });
+  assert.equal(an.etkenler[0], 'Teknik karar AL (skor +30)'); assert.equal(an.kalibrasyon.karneIsabet, 53.3); assert.equal(an.uyarilar.length, 1);
+  // karne: ufuk basina (anahtarli nesne bicimi), son 1 yil ayri
+  assert.deepEqual(c.karne.ufuklar.map(u => u.ufukMum), [5, 20]);
+  assert.deepEqual(c.karne.ufuklar[0].al, { n: 150, isabetYuzde: 54.7, ortGetiriYuzde: 0.42 }); assert.deepEqual(c.karne.ufuklar[0].son1Yil, { n: 60, isabetYuzde: 55 });
+  // benzer durumlar: ornek sayisi ve taban oran birlikte
+  const s20 = c.benzerSkor.ufuklar.find(h => h.mum === 20);
+  assert.deepEqual([s20.n, s20.yukselmeYuzde, s20.tabanYukselmeYuzde, s20.farkPuan], [91, 60, 63, -0.44]);
+  assert.equal(c.kurulum.ufuklar.length, 2); assert.equal(c.kurulum.tanim, QUANT.setup.desc);
+  assert.deepEqual([c.planOlasiligi.n, c.planOlasiligi.h1OnceYuzde, c.planOlasiligi.basabasYuzde, c.planOlasiligi.beklenenDegerR, c.planOlasiligi.kosul],
+    [802, 46, 46, 0.02, 'bugünkü trend tarafındaki günler']);
+  const r20 = c.beklenenAralik.ufuklar.find(h => h.mum === 20);
+  assert.equal(r20.p16Yuzde, -3); assert.equal(r20.p84Yuzde, 5); assert.equal(r20.n, 731);
+  assert.deepEqual(c.teknikOzet.ortalamalar, { al: 9, sat: 3, notr: 0, etiket: 'Güçlü Al' });
+  assert.equal(c.piyasaRejimi.etiket, 'Risk iştahı yüksek'); assert.equal(c.piyasaRejimi.yukselenOraniYuzde, undefined);
+  assert.deepEqual(c.mevsimsellik.buAy, { ay: 'Ekim', ortYuzde: 3.5, pozitifYilYuzde: 67, yil: 3 }); assert.equal(c.mevsimsellik.gelecekAy.ay, 'Kasım');
+  assert.deepEqual(c.gecmis, { mum: 1100, baslangic: '2022-01-03' });
+  // temel: puan, ayaklar ("Belirsiz" atilir), ham oranlar, analist hedefi, bilanco tarihi
+  const t = c.temel;
+  assert.deepEqual([t.puan, t.etiket, t.kapsamYuzde, t.tur], [0.28, 'Olumlu', 100, 'Sanayi / hizmet']);
+  assert.deepEqual(t.ayaklar, { degerleme: 'Ucuz', karlilik: 'Güçlü', buyume: 'Orta' });
+  assert.equal(t.oranlar.fk, 4.8); assert.equal(t.oranlar.roeYuzde, 18.5); assert.equal(t.oranlar.borcOzkaynak, 1.1); assert.equal(t.piyasaDegeriMilyar, 410);
+  assert.deepEqual(t.analistHedefi, { ortalama: 260, dusuk: 205, yuksek: 310, potansiyelYuzde: 31.4, reelPotansiyelYuzde: 5.1, kurumSayisi: 14, oneri: 'Al' });
+  assert.equal(t.sonrakiBilanco.kalanGun, 5); assert.equal(t.uyarilar.length, 2); assert.equal(t.enflasyonVarsayimiYuzde, 25);
+  // radar: konsensus + model kararlari/hedefleri/isabetleri + Claude beklentisi + olasilik (0..1 -> %)
+  const r = c.radar;
+  assert.deepEqual([r.konsensus.karar, r.konsensus.skor, r.konsensus.hedef, r.konsensus.uyumYuzde, r.konsensus.agirlik], ['AL', 0.52, 205.8, 71, 'isabete göre']);
+  assert.deepEqual(r.konsensus.dagilim, { AL: 2, TUT: 1, SAT: 0 });
+  assert.deepEqual(r.modeller.map(m => [m.ad, m.karar, m.hedef, m.isabet && m.isabet.oranYuzde]), [['Llama (Groq)', 'TUT', 203.5, 63], ['Cohere', 'AL', 205, 65], ['Mistral', 'AL', 207, 75]]);
+  assert.equal(r.modeller[2].isabet.n, 8); assert.equal(r.modeller[2].eski, true); assert.equal(r.modeller[0].hedef1Ay, 206);
+  assert.deepEqual([r.claudeBeklentisi.yon, r.claudeBeklentisi.hedef, r.claudeBeklentisi.vade], ['yükseliş', 215, '1 ay']);
+  assert.deepEqual(r.olasilik['1 ay'], { yukselisYuzde: 48, ceyreklerYuzde: [-5, -0.4, 6.8], n: 756, beceri: true });
+  assert.equal(r.olasilik['1 hafta'].beceri, false); assert.equal(r.once, '13 sa');
+  assert.deepEqual(r.kuralTesti, { karar: 'AL', vade: '1a', isabetYuzde: 61, n: 44 });
+  // bos alan / uzun ondalik yok
+  assert.ok(!/null|""|\[\]|\{\}/.test(json)); assert.ok(!/\d\.\d{5,}/.test(json), json.match(/\d\.\d{5,}/));
+  // zamana bagli alanlar yalniz 'simdi' ve 'once'
+  const later = A.compact(full(), { now: NOW + 3600000 });
+  assert.deepEqual(JSON.parse(JSON.stringify(later, (k, v) => k === 'simdi' || k === 'once' ? undefined : v)), JSON.parse(JSON.stringify(c, (k, v) => k === 'simdi' || k === 'once' ? undefined : v)));
+});
+
+test('compact: asiri buyuk radar/temel/istatistik verisinde sabit sirayla kirpilir; cekirdek, not/hedef ve konsensus kalir', () => {
+  const long = s => s + ' ' + 'ayrıntı '.repeat(80);
+  const radar = { ...RADAR, models: Array.from({ length: 12 }, (_, i) => ({ ...RADAR.models[i % 3], ad: 'Model ' + i, neden: long('gerekçe ' + i) })),
+    outlook: { ...RADAR.outlook, neden: long('neden'), olay: long('olay') } };
+  const quant = { ...QUANT, rating: { ...QUANT.rating, drivers: Array.from({ length: 9 }, (_, i) => ({ text: long('etken ' + i), dir: 1 })), warnings: Array.from({ length: 9 }, () => long('uyarı')) } };
+  const fund = { ...FUND, flags: Array.from({ length: 9 }, () => long('bayrak')) };
+  const news = Array.from({ length: 30 }, (_, i) => ({ title: long('Haber ' + i), score: 1, ts: NOW - i * 60000 }));
+  const lab = { ...LAB, results: [...LAB.results, ...Array.from({ length: 6 }, (_, i) => ({ id: 's' + i, name: long('Strateji ' + i), stats: { trades: 9, totalRet: i } }))] };
+  const big = full({ radar, quant, fund, news, lab, calendar: Array.from({ length: 9 }, () => ({ day: '2026-11-01', kind: 'genel kurul', title: long('kurul') })) });
+  const c = A.compact(big, { now: NOW });
+  assert.ok(bytes(c) <= A.MAX_CTX, 'bayt ' + bytes(c));
+  assert.deepEqual(A.compact(big, { now: NOW }), c, 'kirpma deterministik');
+  assert.ok(c.karar && c.plan && c.seviyeler && c.trend, 'cekirdek');
+  assert.ok(c.analistNotu && c.analistNotu.hedef && c.planOlasiligi && c.beklenenAralik, 'istatistik motoru cekirdegi');
+  assert.equal(c.radar.konsensus.karar, 'AL');
+  for (const m of (c.radar.modeller || [])) assert.equal(m.neden, undefined, 'model gerekceleri once atilir');
+  assert.ok(!/null|""|\[\]|\{\}/.test(JSON.stringify(c)));
+});
+
+test('compact: farkli karne bicimleri ve bozuk istatistik/temel/radar verisi atmaz', () => {
+  const k = karne => A.compact({ quant: { karne } }, { now: NOW }).karne;
+  assert.deepEqual(k([{ h: 10, n: 50, genel: { n: 50, isabet: 52 } }]), { ufuklar: [{ ufukMum: 10, n: 50, genel: { n: 50, isabetYuzde: 52 } }] });
+  assert.deepEqual(k({ horizons: [{ h: 5, n: 40, al: { n: 30, isabet: 60.04, ortGetiri: 1.234 } }] }).ufuklar[0].al, { n: 30, isabetYuzde: 60, ortGetiriYuzde: 1.23 });
+  assert.deepEqual(k({ h20: { n: 70, sat: { n: 20, isabet: 45 }, son250: { genel: { n: 30, isabet: 50 } } } }).ufuklar[0], { ufukMum: 20, n: 70, sat: { n: 20, isabetYuzde: 45 }, son1Yil: { genel: { n: 30, isabetYuzde: 50 } } });
+  assert.deepEqual(k({ n: 99, genel: { n: 99, isabet: 51.26 } }).ufuklar[0], { n: 99, genel: { n: 99, isabetYuzde: 51.3 } });
+  assert.deepEqual(k({ bilinmeyen: 1.23456, liste: [1, 2], 'Türkçe anahtar': 3 }), { bilinmeyen: 1.23, liste: [1, 2] }, 'bilinmeyen bicim kucultulerek gecer');
+  const bad = [{ quant: 5 }, { quant: { rating: 'x', score: { horizons: 'y' }, setup: { horizons: [null] }, odds: { n: 'abc' }, ranges: { horizons: [null, 5] }, seasonality: { months: [1, 2] }, tech: { overall: 3 } } },
+    { fund: 'x' }, { fund: { ok: false, error: 'Temel veri yok.', raw: null } }, { fund: { raw: { pe: 'abc', target: { mean: -5 } } } },
+    { radar: 7 }, { radar: { models: [null, 5, { karar: 'AL' }], consensus: null, olasilik: { vadeler: { '1h': null, x: { p: 'z', q: [1] } } } } }];
+  for (const x of bad) { const c = A.compact(x, { now: NOW }); assert.equal(typeof c, 'object'); assert.ok(!/null|NaN|""|\[\]|\{\}/.test(JSON.stringify(c)), JSON.stringify(c)); }
+  assert.deepEqual(A.compact({ fund: { ok: false, error: 'Temel veri yok.' } }, { now: NOW }).temel, { hata: 'Temel veri yok.' });
+  // eski bicim (yalniz ham oranlar)
+  assert.equal(A.compact({ fund: { raw: { pe: 7.123 } } }, { now: NOW }).temel.oranlar.fk, 7.1);
+});
+
+test('compact: gercek bp-quant ve bp-fund ciktisiyla calisir (8 KB alti, bos alan yok)', (t) => {
+  let Q, FU, qa, fs;
+  try {
+    Q = require('../bp-quant.js'); FU = require('../bp-fund.js');
+    const H = rows(1100, 11), D2 = H.slice(-400), P2 = E.proAnalyze({ '1g': D2, '1h': weekly(D2) }, { primary: '1g' }), B = rows(700, 5, 1000);
+    qa = Q.analyze({ rows: D2, daily: D2, hist: H, pro: P2, bench: B, now: D2[D2.length - 1].t });
+    fs = FU.scoreFundamentals(FRAW, { last: D2[D2.length - 1].c, now: NOW });
+    const c = A.compact({ symbol: 'X', tf: '1g', quote: { price: D2[D2.length - 1].c }, pro: P2, quant: qa, fund: { ...fs, raw: FRAW }, radar: RADAR }, { now: NOW });
+    assert.ok(bytes(c) <= A.MAX_CTX); assert.ok(!/null|NaN|""|\[\]|\{\}/.test(JSON.stringify(c)));
+    if (qa && qa.rating) { assert.equal(c.analistNotu.etiket, qa.rating.label); assert.ok(c.analistNotu.hedef.baz > 0); }
+    if (qa && qa.odds) assert.equal(c.planOlasiligi.n, qa.odds.n);
+    if (fs && fs.ok) assert.equal(c.temel.puan, fs.score);
+  } catch (e) { if (!Q || !FU || qa === undefined) return t.skip('bp-quant/bp-fund yuklenemedi: ' + e.message); throw e; }
+});
+
+test('report: Groq istek bicimi, normalizasyon ve halusinasyon denetimi (uydurma sayili cumleler atilir)', async () => {
+  const c0 = A.compact(full(), { now: NOW }), good = goodReport(c0);
+  const bad = { ...good, ozet: good.ozet + ' Hedef 987,65 TL olabilir.', riskler: ['Risk/ödül zayıf.', 'Beta 3,77 ile yüksek.'] };
+  const F = fakeFetch([[GROQ, chat(JSON.stringify(bad))]]);
+  const an = mk({ fetch: F }), r = await an.report(full());
+  assert.equal(r.ok, true, r.error); assert.equal(r.provider, 'groq'); assert.equal(r.cost, 0); assert.equal(r.error, null);
+  const d = r.data;
+  assert.equal(d.not, 'Al'); assert.equal(d.notGerekce, good.notGerekce);
+  assert.deepEqual(d.hedef, { baz: good.hedef.baz, dusuk: good.hedef.dusuk, yuksek: good.hedef.yuksek, vade: '1 ay' });
+  assert.equal(d.ozet, good.ozet, 'uydurma sayili cumle atildi, gecerli cumleler kaldi');
+  assert.deepEqual(d.riskler, ['Risk/ödül zayıf.']);
+  assert.equal(d.teknik, good.teknik); assert.equal(d.temel, good.temel); assert.equal(d.olasiliklar, good.olasiliklar);
+  assert.deepEqual(d.senaryolar, good.senaryolar); assert.deepEqual(d.katalizorler, good.katalizorler); assert.deepEqual(d.izle, good.izle);
+  assert.deepEqual(r.unverified, ['987,65', '3,77']); assert.equal(r.removed, 2);
+  assert.equal(d.sonuc, 'Kademeli alım düşünülebilir. Veride karşılığı bulunmayan sayı içeren 2 ifade rapordan çıkarıldı. ' + A.DISCLAIMER);
+  assert.deepEqual(d.uyarilar, ['Veride karşılığı bulunmayan sayı içeren 2 ifade rapordan çıkarıldı.']);
+  // istek: JSON modu, rapor istemi, dusuk sicaklik, veri = compact
+  const q = F.calls[0].body;
+  assert.deepEqual(q.response_format, { type: 'json_object' }); assert.equal(q.temperature, 0.2); assert.equal(q.model, 'openai/gpt-oss-120b');
+  assert.equal(q.messages[0].content, A.REPORT_SYSTEM);
+  const u = q.messages[1].content; assert.match(u, /^THYAO \(Günlük\) için analiz verisi aşağıda\. Analist raporunu/);
+  assert.deepEqual(JSON.parse(u.slice(u.indexOf('\n\n') + 2)), c0);
+  // temiz rapor: uyari yok, sonuca yalniz uyari eki
+  const G = fakeFetch([[GROQ, chat(JSON.stringify(good))]]), r2 = await mk({ fetch: G }).report(full());
+  assert.deepEqual(r2.unverified, []); assert.equal(r2.removed, 0); assert.deepEqual(r2.data.uyarilar, []);
+  assert.equal(r2.data.sonuc, 'Kademeli alım düşünülebilir. ' + A.DISCLAIMER);
+  // onbellek: ayni veri tekrar istenmez; fresh yeniler
+  const again = await an.report(full()); assert.equal(again.cached, true); assert.equal(F.calls.length, 1);
+  await an.report(full(), { fresh: true }); assert.equal(F.calls.length, 2);
+});
+
+test('report: hedef veride yoksa istatistik hedefi; uydurma senaryo hedefi ve kosul metni atilir; Guclu Al tutarlilik', async () => {
+  const c0 = A.compact(full(), { now: NOW }), json = JSON.stringify(c0), good = goodReport(c0);
+  // veride olmayan ama makul fiyat (son fiyatin %3-%20 ustu)
+  let fake = null; for (let k = 1.03; k < 1.2 && fake == null; k += 0.0037) { const v = Math.round(P0 * k * 100) / 100; if (A.checkNumbers(tr(v), json).length) fake = v; }
+  assert.ok(fake);
+  const out = { ...good, not: 'Güçlü Al', hedef: { baz: fake, dusuk: null, yuksek: null, vade: '3 ay' },
+    senaryolar: [{ ad: 'Boğa', olasilik: 60, kosul: `${tr(fake)} üzerine çıkış`, hedef: fake }, { ad: 'Ayı', olasilik: 40, kosul: 'Destek kırılırsa', hedef: good.hedef.dusuk }] };
+  const quant = { ...QUANT, rating: { ...QUANT.rating, label: 'Tut', idx: 2 } };
+  const r = await mk({ fetch: fakeFetch([[GROQ, chat(JSON.stringify(out))]]) }).report(full({ quant }));
+  assert.equal(r.ok, true, r.error);
+  const d = r.data, c1 = A.compact(full({ quant }), { now: NOW }), H = c1.analistNotu.hedef;
+  assert.deepEqual(d.hedef, { baz: H.baz, dusuk: H.dusuk68, yuksek: H.yuksek68, vade: '1 ay', kaynak: 'istatistik' });
+  assert.equal(d.senaryolar[0].hedef, null); assert.equal(d.senaryolar[1].hedef, good.hedef.dusuk);
+  assert.equal(d.senaryolar[0].kosul, 'Koşul metni veride doğrulanamayan sayı içerdiği için çıkarıldı.');
+  assert.deepEqual(d.senaryolar.map(s => s.olasilik), [60, 40]);
+  assert.equal(d.not, 'Al', 'istatistik notu Tut iken Guclu Al bir kademe iner');
+  assert.ok(r.unverified.includes(tr(fake))); assert.equal(r.removed, 3);
+  assert.ok(d.uyarilar.some(u => /istatistiksel hedefle değiştirildi/.test(u)));
+  assert.ok(d.uyarilar.some(u => /"Güçlü Al" notu .* "Al"a indirildi/.test(u)));
+  assert.ok(d.sonuc.endsWith(A.DISCLAIMER) && d.sonuc.includes('indirildi'));
+});
+
+test('report: Claude json_schema (REPORT_SCHEMA), effort high, iki kat sure; sema Claude kurallarina uygun', async () => {
+  schemaOk(A.REPORT_SCHEMA); schemaOk(A.SCHEMA);
+  assert.deepEqual(A.REPORT_SCHEMA.properties.not.enum, ['Güçlü Al', 'Al', 'Tut', 'Sat', 'Güçlü Sat']);
+  const c0 = A.compact(full(), { now: NOW }), costs = [];
+  const C = fakeAnthropic(() => cmsg(JSON.stringify(goodReport(c0))));
+  const r = await A.createAnalyst({ Anthropic: C, now: () => NOW, keys: { claude: () => 'sk-ant-test' }, addCost: x => costs.push(x) }).report(full());
+  assert.equal(r.ok, true, r.error); assert.equal(r.provider, 'claude'); assert.equal(r.data.not, 'Al');
+  assert.deepEqual(C.opts[0], { apiKey: 'sk-ant-test', maxRetries: 1, timeout: 90000 });
+  const { api, req } = C.calls[0];
+  assert.equal(api, 'messages'); assert.equal(req.system, A.REPORT_SYSTEM); assert.equal(req.max_tokens, 16000);
+  assert.deepEqual(req.output_config, { effort: 'high', format: { type: 'json_schema', schema: A.REPORT_SCHEMA } });
+  assert.equal(costs.length, 1); assert.equal(r.cost, costs[0]);
+  // yarim kalan ama okunabilir JSON kabul edilir; okunamayan yarim yanit hata
+  const T = fakeAnthropic(() => cmsg('{"not":"Al","ozet":"yar', { stop_reason: 'max_tokens' }));
+  const rt = await A.createAnalyst({ Anthropic: T, now: () => NOW, keys: { claude: () => 'k' } }).report(full());
+  assert.equal(rt.ok, false); assert.equal(rt.data, null); assert.equal(rt.error, 'Claude yanıtı yarıda kesildi. Tekrar dene.');
+});
+
+test('report: saglayici yedegi, tum saglayicilar basarisiz, veri ya da anahtar yoksa ag istegi yok', async () => {
+  const c0 = A.compact(full(), { now: NOW }), good = JSON.stringify(goodReport(c0));
+  const F = fakeFetch([[GROQ, err(401, 'Invalid API Key')]]), C = fakeAnthropic(() => cmsg(good));
+  const r = await A.createAnalyst({ fetch: F, Anthropic: C, now: () => NOW, keys: { groq: () => 'g', claude: () => 'c' } }).report(full());
+  assert.equal(r.ok, true); assert.equal(r.provider, 'claude'); assert.match(r.notice, /^Groq kullanılamadı/);
+  // Groq yanitlari JSON degil (uc model), Grok kredisiz: birlesik Turkce hata, data null
+  const G = fakeFetch([[GROQ, chat('Bu bir rapor değil.')], [XMODELS, { body: { data: [{ id: 'grok-4' }] } }], [XCHAT, err(403, 'Your team has run out of credits')]]);
+  const r2 = await A.createAnalyst({ fetch: G, Anthropic: noClaude, now: () => NOW, keys: { groq: () => 'g', grok: () => 'x' } }).report(full());
+  assert.equal(r2.ok, false); assert.equal(r2.data, null); assert.equal(G.calls.filter(x => GROQ.test(x.url)).length, 3);
+  assert.equal(r2.error, 'Groq yanıtı okunamadı. Tekrar dene. Grok hesabında kredi yok (console.x.ai).');
+  // Grok: rapor semasi json_schema ile gider
+  const xs = G.calls.find(x => XCHAT.test(x.url)).body;
+  assert.equal(xs.response_format.json_schema.name, 'analist_raporu'); assert.deepEqual(xs.response_format.json_schema.schema, A.REPORT_SCHEMA);
+  const N0 = fakeFetch([]);
+  assert.equal((await mk({ fetch: N0 }).report({ symbol: 'THYAO' })).error, 'Rapor için önce hisseyi yükle (teknik analiz verisi yok).');
+  assert.equal((await mk({ fetch: N0 }).report({ pro: { ok: false, error: 'Yeterli mum yok (9/50).' } })).error, 'Rapor için teknik analiz gerekli: Yeterli mum yok (9/50).');
+  const nk = await A.createAnalyst({ fetch: N0, Anthropic: noClaude, keys: {} }).report(full());
+  assert.equal(nk.ok, false); assert.equal(nk.data, null); assert.match(nk.error, /anahtar gerekli/);
+  assert.equal(N0.calls.length, 0);
+});
+
+test('Groq: cikti butcesi dakikalik token sinirina gore; 413 (istek buyuk) siradaki modele gecer', async () => {
+  const c0 = A.compact(full(), { now: NOW }), good = JSON.stringify(goodReport(c0));
+  const F = fakeFetch([[GROQ, req => /gpt-oss/.test(req.body.model) ? err(413, 'Request too large for model on tokens per minute (TPM): Limit 8000, Requested 9500') : chat(good, req.body.model)]]);
+  const r = await mk({ fetch: F }).report(full());
+  assert.equal(r.ok, true, r.error); assert.equal(r.model, 'llama-3.3-70b-versatile');
+  const [b0, b1, b2] = F.calls.map(x => x.body);
+  assert.deepEqual([b0.model, b1.model, b2.model], A.GROQ_MODELS);
+  const est = Math.ceil((b0.messages[0].content.length + b0.messages[1].content.length) / 3);
+  assert.ok(b0.max_completion_tokens >= 1200 && b0.max_completion_tokens < 4000 && est + b0.max_completion_tokens <= 8000, 'gpt-oss butcesi ' + b0.max_completion_tokens);
+  assert.equal(b0.reasoning_effort, 'low', 'butce kisilinca dusunme azalir');
+  assert.equal(b2.max_completion_tokens, 4000, 'llama (12K sinir) tam butce'); assert.equal(b2.reasoning_effort, undefined);
+});
+
+test('normalizeReport: not esanlamlilari, olasilik kirpma/kesir/100, hedef makullugu ve bicimleri', () => {
+  const n = (o, ref = { price: 100 }) => A.normalizeReport({ ozet: 'Özet.', ...o }, ref);
+  for (const [v, want] of [['STRONG BUY', 'Güçlü Al'], ['güçlü al', 'Güçlü Al'], ['AL', 'Al'], ['Endeks Üstü', 'Al'], ['tut', 'Tut'], ['Nötr', 'Tut'], ['BEKLE', 'Tut'],
+    ['Azalt', 'Sat'], ['Endeks Altı', 'Sat'], ['sell', 'Sat'], ['Güçlü Sat', 'Güçlü Sat']]) assert.equal(n({ not: v }).not, want, v);
+  const f = n({ not: 'harika' }, { price: 100, fallbackNot: 'Azalt' });
+  assert.equal(f.not, 'Sat'); assert.match(f.uyarilar[0], /notu okunamadı; "Sat" uygulamanın notundan/);
+  assert.equal(n({}).not, 'Tut');
+  const p = sc => n({ senaryolar: sc }).senaryolar.map(s => s.olasilik);
+  assert.deepEqual(p([{ olasilik: 50 }, { olasilik: 30 }, { olasilik: 30 }]), [46, 27, 27]);
+  assert.deepEqual(p([{ olasilik: 0.5 }, { olasilik: 0.3 }, { olasilik: 0.2 }]), [50, 30, 20]);
+  assert.deepEqual(p([{ olasilik: -10 }, { olasilik: 150 }, { olasilik: 50 }]), [0, 67, 33]);
+  assert.deepEqual(p([{ olasilik: null }, { ad: 'x' }]), [50, 50]);
+  assert.deepEqual(p([{ olasilik: '%35' }, { 'olasılık': '65' }]), [35, 65]);
+  assert.deepEqual(p(Array.from({ length: 6 }, () => ({ olasilik: 10 }))), [25, 25, 25, 25], 'en fazla 4 senaryo');
+  const o = n({ senaryolar: { 'Boğa': { olasilik: 40, kosul: 'x' }, 'Ayı': 60 } }).senaryolar;
+  assert.deepEqual(o.map(s => [s.ad, s.olasilik, s.kosul, s.hedef]), [['Boğa', 40, 'x', null], ['Ayı', 60, '', null]]);
+  for (const ps of [[33, 33, 34], [1, 1, 1], [0.2, 0.2], [99.6, 0.4]]) assert.equal(p(ps.map(x => ({ olasilik: x }))).reduce((a, b) => a + b, 0), 100);
+  // hedef: Turkce bicim, ters aralik, bazi kapsamayan aralik, makul olmayan deger
+  const h = (x, price = 100) => n({ hedef: x }, { price }).hedef;
+  assert.deepEqual(h({ baz: '105,5', dusuk: 120, yuksek: 90, vade: '1 ay' }), { baz: 105.5, dusuk: 90, yuksek: 120, vade: '1 ay' });
+  assert.deepEqual(h({ baz: 104, dusuk: 106, yuksek: 110 }), { baz: 104, dusuk: null, yuksek: null, vade: null });
+  assert.deepEqual(h({ baz: 1000, dusuk: 40, yuksek: 130 }), { baz: null, dusuk: null, yuksek: 130, vade: null });
+  assert.deepEqual(h({ base: '1.234,5 TL', low: '1.100', high: 1300 }, 1200), { baz: 1234.5, dusuk: 1100, yuksek: 1300, vade: null });
+  assert.deepEqual(h('98,4'), { baz: 98.4, dusuk: null, yuksek: null, vade: null });
+  assert.deepEqual(h(null), { baz: null, dusuk: null, yuksek: null, vade: null });
+  assert.equal(n({ senaryolar: [{ hedef: 5000 }] }).senaryolar[0].hedef, null);
+  // Turkce/Ingilizce anahtarlar, metin listeler, uyari eki; ozet yoksa gecersiz
+  const d = A.normalizeReport({ 'Özet': 'Ö', 'Not Gerekçe': 'G', 'Teknik': 't', 'risks': '1. a\n2. b', 'Sonuç': 'Bekle.' });
+  assert.deepEqual([d.ozet, d.notGerekce, d.teknik, d.riskler, d.sonuc], ['Ö', 'G', 't', ['a', 'b'], 'Bekle. ' + A.DISCLAIMER]);
+  for (const bad of [null, 'x', [], {}, { ozet: '' }, { not: 'Al' }]) assert.equal(A.normalizeReport(bad), null);
+});
+
+test('guardReport: Guclu notlar uc kaynakla tutarli olmali; iki kademe fark ve hedef yonu uyarilir; metinler temizlenir', () => {
+  const d = (o = {}) => A.normalizeReport({ ozet: 'Fiyat 100 civarında.', ...o }, { price: 100 });
+  const g = (o, opt) => A.guardReport(d(o), { allowed: [100, 110, 90, 95], price: 100, ...opt }).data;
+  assert.equal(g({ not: 'Güçlü Al', hedef: { baz: 110 } }, { qPos: 4, dir: 1, weekly: 1 }).not, 'Güçlü Al');
+  for (const opt of [{ qPos: 2, dir: 1, weekly: 1 }, { qPos: 4, dir: 0, weekly: 1 }, { qPos: 4, dir: 1, weekly: -1 }]) assert.equal(g({ not: 'Güçlü Al', hedef: { baz: 110 } }, opt).not, 'Al', JSON.stringify(opt));
+  assert.equal(g({ not: 'Güçlü Sat', hedef: { baz: 90 } }, { qPos: 0, dir: -1, weekly: -1 }).not, 'Güçlü Sat');
+  assert.equal(g({ not: 'Güçlü Sat', hedef: { baz: 90 } }, { qPos: 0, dir: 1, weekly: -1 }).not, 'Sat');
+  assert.equal(g({ not: 'Güçlü Al' }, {}).not, 'Güçlü Al', 'referans yoksa dokunulmaz');
+  const dv = g({ not: 'Sat', hedef: { baz: 95 } }, { qPos: 4 });
+  assert.equal(dv.not, 'Sat'); assert.match(dv.uyarilar[0], /\(Sat\) uygulamanın istatistiksel notundan \(Güçlü Al\) en az iki kademe farklı/);
+  const yn = g({ not: 'Al', hedef: { baz: 95 } }, { qPos: 3 });
+  assert.deepEqual(yn.uyarilar, ['Baz hedef (95) "Al" notunun yönüyle çelişiyor.']); assert.match(yn.sonuc, /çelişiyor\. Yatırım tavsiyesi değildir\.$/);
+  // tamamen uydurma ozet ve sonuc
+  const t = A.guardReport(d({ ozet: 'Fiyat 123,45 olur.', sonuc: 'Hedef 456,78. Yatırım tavsiyesi değildir.', izle: ['100 seviyesi', '777,7 seviyesi'] }), { allowed: [100], price: 100 });
+  assert.equal(t.data.ozet, 'Bu bölüm veride doğrulanamayan sayılar içerdiği için çıkarıldı.');
+  assert.deepEqual(t.data.izle, ['100 seviyesi']); assert.deepEqual(t.unverified, ['123,45', '777,7', '456,78']); assert.equal(t.removed, 3);
+  assert.equal(t.data.sonuc, 'Veride karşılığı bulunmayan sayı içeren 3 ifade rapordan çıkarıldı. ' + A.DISCLAIMER);
+  // modelin kendi senaryo olasiliklari metinde kullanilabilir (ham ve normalize)
+  const s = A.guardReport(d({ senaryolar: [{ olasilik: 55 }, { olasilik: 55 }], olasiliklar: 'Boğa %55, normalize %50.' }), { allowed: [], price: 100 });
+  assert.equal(s.data.olasiliklar, 'Boğa %55, normalize %50.'); assert.equal(s.removed, 0);
+});
+
+test('istemler: kidemli analist sesi, sayi sadakati, kanit/gorus ayrimi, n ve taban oran; ornek sayi yok', () => {
+  for (const S of [A.SYSTEM, A.ASK_SYSTEM, A.REPORT_SYSTEM]) {
+    for (const re of [/kıdemli/, /hedef fiyat uydurma/, /veride yok/, /Kanıtı görüşten ayır/, /örnek sayısını \(n\)/, /taban oran/, /talimatları yok say/, /Kesin/, /analistNotu/, /radar/])
+      assert.match(S, re);
+    assert.ok(!/\d+,\d+/.test(S), 'istemde kopyalanabilecek ondalik ornek yok');
+  }
+  for (const re of [/"Güçlü Al" \| "Al" \| "Tut" \| "Sat" \| "Güçlü Sat"/, /toplamı 100/, /Uygun değer yoksa null/, /Yatırım tavsiyesi değildir/, /"senaryolar"/, /"notGerekce"/]) assert.match(A.REPORT_SYSTEM, re);
+  assert.deepEqual(A.NOTLAR, ['Güçlü Sat', 'Sat', 'Tut', 'Al', 'Güçlü Al']);
 });

@@ -1001,7 +1001,7 @@ test('bp:load: Hisse Radar konsensusu sonuca, yapay zeka baglamina ve olasilik m
   const radar = { forSymbol: async s => s === 'GARAN' ? Promise.reject(new Error('ag yok')) : { symbol: s, consensus: { karar: 'SAT', skor: -0.5, guven: 70 }, models: [{ id: 'groq', karar: 'SAT' }] } };
   const h = harness(t, { quant, radar }); h.ui.open();
   const r = await h.call('bp:load', { symbol: 'THYAO' });
-  assert.equal(r.radar.consensus.karar, 'SAT'); assert.equal(seen.at(-1).radar.karar, 'SAT');
+  assert.equal(r.radar.consensus.karar, 'SAT'); assert.equal(seen.at(-1).radar.consensus.karar, 'SAT'); assert.ok(Array.isArray(seen.at(-1).radar.models), 'model isabetleri de gider');
   await h.call('bp:ai', { symbol: 'THYAO' }); assert.equal(h.analyst.calls.brief.at(-1).ctx.radar.consensus.karar, 'SAT');
   const g = await h.call('bp:load', { symbol: 'GARAN' });
   assert.equal(g.ok, true); assert.equal(g.radar, null);

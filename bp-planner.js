@@ -3,7 +3,8 @@
 //
 // Secim kurallari (sirayla; ilk takilan kural red nedeni olur):
 // - Yalniz alim (bireysel yatirimci icin BIST'te aciga satis pratik degil). "AL": rating varsa 'Al'/'Güçlü Al' (bp-quant analist notu,
-//   daha kalibre), yoksa verdict.label 'AL'. Plan olmali, plan.wait olmamali, plan.dir >= 0 ve stop giris referansinin altinda olmali.
+//   daha kalibre), yoksa verdict.label 'AL'. Plan olmali, plan.wait olmamali, plan.dir >= 0, stop giris bolgesinin altinda, hedef 1 ustunde olmali.
+// - Fiyat biliniyorsa stopun ustunde ve hedef 1'in altinda olmali (yoksa plan bozulmus ya da firsat gecmis).
 // - R/O: plan.rr >= 1,5 (rr yoksa hedef1'den hesaplanir). Giris bolgesinin ust ucundan R/O 1,5'in altina iniyorsa yalniz uyari.
 // - odds (bp-quant planOdds, yuzde) varsa hedef1'e stoptan once ulasma olasiligi p1 > basabas (breakEven). odds yoksa uyari, red yok.
 // - Likidite (gunluk ortalama islem hacmi, TL) >= minLiquidityTL. Bilinmiyorsa uyari, red yok.
@@ -28,7 +29,7 @@ const fin=v=>typeof v==='number'&&Number.isFinite(v);
 const num=v=>fin(v)?v:typeof v==='string'&&v.trim()&&Number.isFinite(+v)?+v:null;
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 const r2=v=>fin(v)?Math.round(v*100)/100:null;
-const nf=(v,d=2)=>fin(v)?v.toLocaleString('tr-TR',{minimumFractionDigits:d,maximumFractionDigits:d}):'—';
+const nf=(v,d=2,d0=d)=>fin(v)?v.toLocaleString('tr-TR',{minimumFractionDigits:d0,maximumFractionDigits:d}):'—';
 const tl=v=>nf(v,2)+' TL';
 const mn=v=>fin(v)?(v>=1e9?nf(v/1e9,1)+' mr TL':nf(v/1e6,1)+' mn TL'):'—';
 const pct=(v,d=1)=>fin(v)?'%'+nf(v,d):'—';
@@ -46,14 +47,17 @@ function rangeOf(ranges,h){if(!ranges||typeof ranges!=='object')return null;
   let x=ranges['h'+h];if(!x&&Array.isArray(ranges.horizons))x=ranges.horizons.find(q=>q&&q.h===h);
   if(!x)return null;const p16=num(x.p16),p50=num(x.p50),p84=num(x.p84);
   return fin(p16)&&fin(p50)&&fin(p84)&&p16>0&&p16<=p50&&p50<=p84?{p16,p50,p84}:null}
-// odds: bp-quant planOdds yuzde verir (p1 55 = %55). Ikisi de <=1 ise oran sayilip yuzdeye cevrilir.
-function oddsOf(o){if(!o||typeof o!=='object')return null;let p1=num(o.p1),be=num(o.breakEven);const ev=num(o.ev),ps=num(o.pStop),n=num(o.n);
-  if(!fin(p1)||!fin(be))return null;if(p1<=1&&be<=1&&be>0){p1*=100;be*=100}
-  return {p1,breakEven:be,ev:fin(ev)?ev:null,pStop:fin(ps)?(ps<=1&&p1>1&&ps>0&&o.pStop<=1&&num(o.p1)<=1?ps*100:ps):null,n:fin(n)?n:null}}
+// odds: bp-quant planOdds yuzde verir (p1 55 = %55). p1 ve basabas ikisi de <=1 ise oran sayilip (pStop ile) yuzdeye cevrilir.
+function oddsOf(o){if(!o||typeof o!=='object')return null;const p1=num(o.p1),be=num(o.breakEven),ev=num(o.ev),ps=num(o.pStop),n=num(o.n);
+  if(!fin(p1)||!fin(be)||p1<0||be<=0)return null;const f=p1<=1&&be<=1?100:1;
+  const sc=v=>f===1?v:Math.round(v*f*1e6)/1e6;   // 0.55*100 = 55.00000000000001 kayan nokta artigini temizle
+  return {p1:sc(p1),breakEven:sc(be),ev:fin(ev)?ev:null,pStop:fin(ps)?sc(ps):null,n:fin(n)?n:null}}
 const labelOf=c=>c.rating&&typeof c.rating.label==='string'&&c.rating.label?c.rating.label:c.verdict&&c.verdict.label?String(c.verdict.label):'—';
 const isBuy=c=>c.rating&&typeof c.rating.label==='string'&&c.rating.label?AL_RATING.has(c.rating.label.toLocaleLowerCase('tr-TR').trim()):!!(c.verdict&&String(c.verdict.label).toUpperCase()==='AL');
 const confOf=c=>{const v=c.rating&&fin(num(c.rating.confidence))?num(c.rating.confidence):c.verdict&&fin(num(c.verdict.confidence))?num(c.verdict.confidence):null;return fin(v)?clamp(v,0,100):null};
-const codeOf=s=>{s=String(s||'').trim().toLocaleUpperCase('tr-TR').replace(/\.IS$/,'');return /^[A-Z0-9]{2,12}$/.test(s)?s:null};
+// Turkce buyuk harf 'i' -> 'İ' verir ('isctr' -> 'İSCTR'): once ASCII'ye cevir, sonra '.IS' sonekini at
+const TRU={'Ş':'S','Ç':'C','Ğ':'G','Ö':'O','Ü':'U','İ':'I'};
+const codeOf=s=>{s=String(s||'').trim().toLocaleUpperCase('tr-TR').replace(/[ŞÇĞÖÜİ]/g,c=>TRU[c]).replace(/\.IS$/,'');return /^[A-Z0-9]{2,12}$/.test(s)?s:null};
 const sectorKey=s=>typeof s==='string'&&s.trim()?s.trim().toLocaleLowerCase('tr-TR'):null;
 
 // Tek aday: kurallari uygula. Gecerse hesaplanmis alanlarla {ok:true,...}, gecmezse {ok:false,why}
@@ -67,8 +71,11 @@ function screen(c,{minLiquidityTL,horizon,commission}){
   const stop=num(p.stop),t1=num(p.t1),t2=num(p.t2);
   if(!en.length||!fin(stop)||stop<=0||en.some(v=>v<=0))return {ok:false,why:'Plan seviyeleri eksik (giriş/stop).'};
   const lo=Math.min(...en),hi=Math.max(...en),ref=hi;
-  if(stop>=ref)return {ok:false,why:'Plan seviyeleri geçersiz: stop girişin altında olmalı.'};
+  if(stop>=lo)return {ok:false,why:'Plan seviyeleri geçersiz: stop giriş bölgesinin altında olmalı.'};
   if(fin(t1)&&t1<=ref)return {ok:false,why:'Plan seviyeleri geçersiz: hedef 1 girişin üstünde olmalı.'};
+  const px=num(c.price);
+  if(fin(px)&&px>0&&px<=stop)return {ok:false,why:'Fiyat ('+nf(px)+') stop seviyesinde ya da altında ('+nf(stop)+'); plan bozulmuş.'};
+  if(fin(px)&&fin(t1)&&px>=t1)return {ok:false,why:'Fiyat ('+nf(px)+') hedef 1\'e ('+nf(t1)+') ulaşmış; giriş fırsatı geçmiş.'};
   const rrRef=fin(t1)?(t1-ref)/(ref-stop):null,rr=fin(num(p.rr))?num(p.rr):rrRef;
   if(!fin(rr))return {ok:false,why:'Ödül/risk hesaplanamadı (hedef yok).'};
   if(rr<MIN_RR)return {ok:false,why:'Ödül/risk '+nf(rr,2)+' (en az '+nf(MIN_RR,1)+' gerekli).'};
@@ -114,7 +121,7 @@ function plan({capital,risk='dengeli',horizon='1h',maxPos=3,commission=0.2,minLi
   ok.sort((a,b)=>b.score-a.score||b.rr-a.rr||(a.sym<b.sym?-1:a.sym>b.sym?1:0));
   const picks=[],usedSec=new Map();let cash=cap;
   for(const s of ok){const c=s.c;
-    if(picks.length>=maxPos){rejected.push({symbol:s.sym,why:'Daha güçlü '+(SAY[maxPos]||maxPos)+' aday seçildi (en fazla '+maxPos+' pozisyon).'});continue}
+    if(picks.length>=maxPos){rejected.push({symbol:s.sym,why:(maxPos===1?'Daha güçlü bir aday seçildi':'Daha güçlü '+(SAY[maxPos]||maxPos)+' aday seçildi')+' (en fazla '+maxPos+' pozisyon).'});continue}
     const sk=sectorKey(s.sector);
     if(maxPos>=2&&sk&&usedSec.has(sk)){rejected.push({symbol:s.sym,why:'Aynı sektörden ('+s.sector+') daha güçlü aday seçildi: '+usedSec.get(sk)+'.'});continue}
     const perRisk=(s.ref-s.stop)+s.ref*s.k+s.stop*s.k,perCost=s.ref*(1+s.k);
@@ -122,7 +129,7 @@ function plan({capital,risk='dengeli',horizon='1h',maxPos=3,commission=0.2,minLi
     const room=Math.min(posCap,cash),maxByCash=Math.floor(room/perCost+1e-9);
     if(lots>maxByCash){lots=maxByCash;capped=true}
     if(lots<1){const why=Math.floor(budget/perRisk+1e-9)<1?'Sermaye bu hisse için yetersiz: 1 lotun stop riski '+tl(perRisk)+', pozisyon başı risk bütçesi '+tl(budget)+'.'
-        :cash<posCap?'Sermaye bu hisse için yetersiz: kalan nakit '+tl(cash)+', 1 lot '+tl(perCost)+'.'
+        :cash<posCap-0.005?'Sermaye bu hisse için yetersiz: kalan nakit '+tl(cash)+', 1 lot '+tl(perCost)+'.'
         :'Sermaye bu hisse için yetersiz: 1 lot '+tl(perCost)+', pozisyon sınırı '+tl(posCap)+' (sermaye / '+maxPos+').';
       rejected.push({symbol:s.sym,why});continue}
     const positionTL=lots*perCost,maxLossTL=lots*perRisk,riskTL=lots*(s.ref-s.stop),rtCom=lots*s.ref*s.k*2;
@@ -151,14 +158,17 @@ function plan({capital,risk='dengeli',horizon='1h',maxPos=3,commission=0.2,minLi
       p1:s.od?r2(s.od.p1):null,evTL:s.od&&fin(s.od.ev)?r2(s.od.ev*riskTL-rtCom):null,
       expected:{week:expOf(s,lots,s.rg.week,maxLossTL),month:expOf(s,lots,s.rg.month,maxLossTL)},
       rr:r2(s.rr),score:Math.round(s.score*1000)/1000,commissionTL:r2(rtCom),reasons,warnings})}
-  const sum=(k,h)=>{const xs=picks.map(p=>p.expected[h]).filter(Boolean);if(!xs.length)return null;
+  // Toplam aralik: pozisyon araliklarinin basit toplami (korelasyon yok sayilir; notlarda yazar)
+  const total=h=>{const xs=picks.map(p=>p.expected[h]).filter(Boolean);if(!xs.length)return null;
     return {lo:r2(xs.reduce((a,x)=>a+x.lo,0)),mid:r2(xs.reduce((a,x)=>a+x.mid,0)),hi:r2(xs.reduce((a,x)=>a+x.hi,0))}};
   const invested=picks.reduce((a,p)=>a+p.positionTL,0),maxLoss=picks.reduce((a,p)=>a+p.maxLossTL,0);
   const totals={invested:r2(invested),cash:r2(cap-invested),maxLoss:r2(maxLoss),maxLossPct:r2(maxLoss/cap*100),
-    expWeek:sum('lo','week'),expMonth:sum('lo','month'),positions:picks.length};
+    expWeek:total('week'),expMonth:total('month'),positions:picks.length};
+  const rk=typeof risk==='string'?RISK_AD[risk.trim().toLocaleLowerCase('tr-TR')]:null;
   const notes=['Yatırım tavsiyesi değildir. Seviyeler ve olasılıklar geçmiş veriden hesaplanır; gerçekleşme garanti değildir.',
-    'Pozisyon başına risk: sermayenin %'+nf(rp,rp%1?1:0)+(typeof risk==='string'&&RISK_AD[risk]?' ('+RISK_AD[risk]+')':'')+' = '+tl(budget)+'. Stopa gelinirse kayıp en fazla bu kadar olur (fiyat boşluğu hariç).',
-    'Giriş referansı giriş bölgesinin üst ucu (limit emir); komisyon alışta ve satışta ayrı ayrı %'+nf(com,2)+' varsayıldı.'];
+    'Pozisyon başına risk: sermayenin %'+nf(rp,2,0)+(rk?' ('+rk+')':'')+' = '+tl(budget)+'. Stopa gelinirse kayıp en fazla bu kadar olur (fiyat boşluğu hariç).',
+    'Giriş referansı giriş bölgesinin üst ucu (limit emir); komisyon alışta ve satışta ayrı ayrı %'+nf(com,3,0)+' varsayıldı.',
+    'Pozisyon üst sınırı: sermaye / '+maxPos+' = '+tl(posCap)+(maxPos>=2?'; aynı sektörden en fazla bir hisse.':'.')];
   if(!list.length)notes.push('Aday yok: önce tarama yap ya da izleme listesine hisse ekle.');
   else if(!picks.length)notes.push('Kriterlere uyan hisse çıkmadı; nakitte beklemek de bir karardır.');
   else if(picks.length<maxPos)notes.push('Kriterlere uyan '+picks.length+' hisse çıktı; kalan sermaye nakitte bekler.');

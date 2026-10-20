@@ -12,7 +12,9 @@
 //   olasilik.json  {son, dogrulama:{vade:{brier_kosullu,brier_kosulsuz}}, hisseler:{KOD:{r20,dilim,ust200,'1h':{p,pu,q,qu,n,N},..}}} q: %25/%50/%75 getiri
 //   secim.json     {updatedAt, zayif:[..], guclu:[..], riskli:{hisse:{KOD:neden}}, canli, gecmis}   backtest.json {bugun:[{kod,karar,vade,kosul,isabet,n,..}]}
 //   temel.json     {hisseler:{KOD:{ceyrek,puan,ozet,oranlar,satirlar,..}}}   gundem.json {haber_ai:{piyasa_havasi,ozet,sektorler,hisseler}, makro, sirket:{KOD:{haberler}}}
-//   endeksler.json {endeksler:{XU030:{ad,hisseler}}}   data dali: market.json {sutun:[..], hisseler:[[k,ad,fiyat,deg,..]]}, news.json {items:[{title,url,kaynak,ts}]}
+//   endeksler.json {endeksler:{XU030:{ad,hisseler}}}   riskli.json {hisseler:[{kod,neden,kaynak(url)}]} (elle dogrulanmis; secim.json riskli bunu + haberleri birlestirir)
+//   data dali: market.json {sutun:['k','ad','fiyat','deg','hacim','sektor',..], hisseler:[[..]]} (TradingView, ~15 dk gecikmeli, ~600 hisse; fiyat buradan),
+//              news.json {items:[{title,url,kaynak,kat,sym?,ts(sn),t}]}. snapshot.json (yalniz BIST 30 mumlari) okunmaz: fiyat market.json'da var.
 //
 // Konsensus (consensus()): model kararlari AL=+1 TUT=0 SAT=-1.
 //   agirlik = isabet * guven/100. isabet = ai.json isabet[model]['1h'].oran/100, yalniz n >= 20 ise (yoksa olculmemis sayilir).
@@ -23,14 +25,16 @@
 //   guven = sum(karari verenlerin agirligi*guveni)/sum(agirlik) (0-100; = agirlikli guven * uyum).
 //   hedef = gecerli hedeflerin agirlikli ortalamasi; gecerli: fiyat biliniyorsa 1 haftada en fazla %10 uzakta ve karar yonuyle celismiyor
 //   (AL'da fiyatin ustunde, SAT'ta altinda) -- uygulamadaki hedefOk ile ayni. hedefYuzde fiyata gore %.
-//   Riskli hisse (secim.json riskli: sorusturma, temerrut, tasfiye ...) AL ise TUT'a indirilir (hamKarar ve not alanlari).
+//   Riskli hisse (secim.json riskli, yoksa riskli.json: sorusturma, temerrut, tasfiye ...) AL ise TUT'a indirilir (hamKarar ve not alanlari).
+// Piyasa ozeti (market().ozet): yukselis/dusus = taze secim.json (gecmis testte dogrulanmis kurallar), bos ise taze Claude beklentisi,
+//   o da yoksa BIST 30 yapay zeka konsensusunun AL/SAT listesi (kaynak alani hangisi oldugunu soyler).
 // Yatirim tavsiyesi degildir.
 const BASE='https://raw.githubusercontent.com/maj834/Hisse';
 const FILES={ai:['main','data/ai.json'],ai_genis:['main','data/ai_genis.json'],outlook:['main','data/outlook.json'],olasilik:['main','data/olasilik.json'],
   secim:['main','data/secim.json'],backtest:['main','data/backtest.json'],temel:['main','data/temel.json'],gundem:['main','data/gundem.json'],
-  endeksler:['main','data/endeksler.json'],market:['data','market.json'],news:['data','news.json']};
-const SYM_FILES=['ai','ai_genis','outlook','olasilik','secim','backtest','temel','gundem','market','news'];
-const MKT_FILES=['ai','ai_genis','gundem','endeksler','secim','outlook','backtest'];
+  endeksler:['main','data/endeksler.json'],riskli:['main','data/riskli.json'],market:['data','market.json'],news:['data','news.json']};
+const SYM_FILES=['ai','ai_genis','outlook','olasilik','secim','backtest','temel','gundem','riskli','market','news'];
+const MKT_FILES=['ai','ai_genis','gundem','endeksler','secim','outlook','backtest','riskli','news'];
 const DAY=864e5,H=36e5;
 const MIN_ISABET_N=20,ESIK=0.5,HEDEF_SINIR=0.10,BRIER=0.2475;            // BRIER: yazi-tura 0,25; belirgin iyi olmali (uygulama ile ayni)
 const OUTLOOK_MAX=3*DAY,GENIS_MAX=10*DAY,GENIS_ESKI=3*DAY,OLS_MAX=12*DAY,SECIM_MAX=100*H,HABER_AI_MAX=3*DAY,MAX_BYTES=8e6;
@@ -41,8 +45,11 @@ const ALIAS={AEFES:['EFES'],AKBNK:['AKBANK'],ASELS:['ASELSAN'],BIMAS:['BİM'],EK
   GARAN:['GARANTİ'],GUBRF:['GÜBRETAŞ'],ISCTR:['İŞ BANKASI','İŞBANK'],KCHOL:['KOÇ HOLDİNG'],TRALT:['KOZA','TÜRK ALTIN'],KRDMD:['KARDEMİR'],MGROS:['MİGROS'],
   PETKM:['PETKİM'],SAHOL:['SABANCI'],SASA:['SASA'],SISE:['ŞİŞECAM'],TAVHL:['TAV'],TCELL:['TURKCELL'],THYAO:['THY','TÜRK HAVA YOLLARI'],TOASO:['TOFAŞ'],
   TTKOM:['TÜRK TELEKOM'],TUPRS:['TÜPRAŞ'],VAKBN:['VAKIFBANK'],YKBNK:['YAPI KREDİ'],PGSUS:['PEGASUS'],ASTOR:['ASTOR'],DSTKF:['DESTEK FAKTORİNG','DESTEK FİNANS']};
-const GENEL_AD=new Set(['TURKIYE','TURK','ANADOLU','BORSA','ISTANBUL','GLOBAL','YENI','DOGU','BATI','EGE','GRUP','HOLDING','THE']);
+const GENEL_AD=new Set(['TURKIYE','TURK','ANADOLU','BORSA','ISTANBUL','GLOBAL','YENI','DOGU','BATI','EGE','GRUP','HOLDING','THE','YAPI','EMLAK','ENERJI','BANK',
+  'BANKASI','YATIRIM','FINANS','GAYRIMENKUL','SANAYI','TICARET','ELEKTRIK','CIMENTO','GIDA','KIMYA','MADEN','METAL','ALTIN','PETROL','INSAAT','OTOMOTIV',
+  'TEKSTIL','KAGIT','CAM','HAVA','DENIZ','SIGORTA','KATILIM','TEKNOLOJI','ILAC','SAGLIK','TARIM','LOJISTIK','MEDYA','SPOR','TURIZM','OTEL','PORTFOY','DEMIR','CELIK']);
 const AY=['oca','şub','mar','nis','may','haz','tem','ağu','eyl','eki','kas','ara'];
+const AY_AD=['Ocak','Şubat','Mart','Nisan','Mayıs','Haziran','Temmuz','Ağustos','Eylül','Ekim','Kasım','Aralık'];
 
 const fin=v=>typeof v==='number'&&Number.isFinite(v);
 const num=v=>fin(v)?v:typeof v==='string'&&v.trim()&&Number.isFinite(+v)?+v:null;
@@ -56,7 +63,11 @@ const str=(v,n=400)=>typeof v==='string'&&v.trim()?v.trim().slice(0,n):null;
 const T=v=>{if(fin(v))return v<1e12?v*1000:v;const t=Date.parse(typeof v==='string'?v:'');return Number.isFinite(t)?t:null};
 const TRU={'Ş':'S','Ç':'C','Ğ':'G','Ö':'O','Ü':'U','İ':'I'};
 const upN=s=>' '+String(s||'').toLocaleUpperCase('tr-TR').replace(/[ŞÇĞÖÜİ]/g,c=>TRU[c]).replace(/[^A-Z0-9&]+/g,' ').trim()+' ';
-const codeOf=s=>{s=String(s||'').trim().toLocaleUpperCase('tr-TR').replace(/\.IS$/,'').replace(/[ŞÇĞÖÜİ]/g,c=>TRU[c]);return /^[A-Z0-9]{2,8}$/.test(s)?s:null};
+// Turkce buyuk harf 'i' -> 'İ' verir: once ASCII'ye cevir, sonra '.IS' sonekini at ('thyao.is' -> 'THYAO')
+const codeOf=s=>{s=String(s||'').trim().toLocaleUpperCase('tr-TR').replace(/[ŞÇĞÖÜİ]/g,c=>TRU[c]).replace(/\.IS$/,'');return /^[A-Z0-9]{2,8}$/.test(s)?s:null};
+// ms -> '16 Ekim 2026, 17:35' (Istanbul, UTC+3; ai.json 'veri' alaniyla ayni bicim)
+const trTarih=ms=>{if(!fin(ms))return null;const d=new Date(ms+3*H),p=n=>String(n).padStart(2,'0');
+  return d.getUTCDate()+' '+AY_AD[d.getUTCMonth()]+' '+d.getUTCFullYear()+', '+p(d.getUTCHours())+':'+p(d.getUTCMinutes())};
 const kararOf=v=>{const s=String(v||'').trim().toLocaleUpperCase('tr-TR');return KARAR.has(s)?s:null};
 const sum=a=>a.reduce((x,y)=>x+y,0);
 // "15 Eki" -> Istanbul gun basi (ms); yil yazmaz: simdiden ileri dusmeyen en yakin yil
@@ -156,6 +167,21 @@ function haberlerFor(code,{gundem,genis,news,ad},t){const out=[],seen=new Set();
     if(codeOf(n.sym)===code||words.some(w=>u.includes(' '+w+' ')))add(n.title,T(n.ts),n.kaynak,null,n.url,n.t)}
   out.sort((a,b)=>(b.zaman||0)-(a.zaman||0));return out.length?out.slice(0,10):null}
 
+// Risk listesi: secim.json riskli.hisse {KOD:neden} (elle + haberlerden), yoksa riskli.json hisseler [{kod,neden,kaynak(url)}]
+const RISK_KAYNAK='Hisse Radar risk listesi (elle doğrulanmış + haberlerden)';
+function riskOf(sec,rl,code){const R=arr(obj(rl).hisseler).find(x=>x&&codeOf(x.kod)===code)||null,url=R&&typeof R.kaynak==='string'&&/^https:\/\//.test(R.kaynak)?R.kaynak.slice(0,1000):null;
+  const n=str(obj(obj(obj(sec).riskli).hisse)[code])||(R&&str(R.neden));return n?{neden:n,kaynak:RISK_KAYNAK,url}:null}
+function riskList(sec,rl){const s=new Set(Object.keys(obj(obj(obj(sec).riskli).hisse)).map(codeOf).filter(Boolean));
+  for(const x of arr(obj(rl).hisseler)){const c=x&&codeOf(x.kod);if(c&&str(x.neden))s.add(c)}return [...s]}
+
+// Piyasa gundemi basliklari (arayuz listesi): data dali news.json, yoksa gundem.json sirket haberleri
+function gundemList(news,gundem,t){const out=[],seen=new Set();
+  const add=(baslik,url,kaynak,zaman,kat,sembol)=>{baslik=str(baslik,300);if(!baslik)return;const k=upN(baslik);if(seen.has(k))return;seen.add(k);
+    out.push({baslik,url:typeof url==='string'&&/^https:\/\//.test(url)?url.slice(0,1000):null,kaynak:str(kaynak,80),zaman,kat:str(kat,40),sembol:sembol||null})};
+  for(const n of arr(obj(news).items))if(n)add(n.title,n.url,n.kaynak,T(n.ts),n.kat,codeOf(n.sym));
+  if(!out.length)for(const [k,v] of Object.entries(obj(obj(gundem).sirket)))for(const h of arr(obj(v).haberler))if(h)add(h.baslik,h.url,h.kaynak,T(h.ts)||gunAy(h.zaman,t)||T(v.ts),null,codeOf(k));
+  out.sort((a,b)=>(b.zaman||0)-(a.zaman||0));return out.slice(0,12)}
+
 // Piyasa ozeti icin BIST 30 konsensus listesi (fiyatsiz: yalniz karar/skor/guven)
 function consensusList(ai,genis,out,risk,t){const A=obj(ai),res=[];
   for(const code of Object.keys(obj(A.hisseler))){const c=codeOf(code);if(!c)continue;const cs=consensus(modelsFor(c,{ai:A,genis,out},t),{risk:obj(risk)[c]||null});
@@ -177,10 +203,15 @@ function createRadar({fetch=globalThis.fetch,now=()=>Date.now(),ttl=300000,base=
     const run=(async()=>{let r;
       try{r=await fetch(url,{headers:{accept:'application/json',...(e.etag&&e.data?{'if-none-match':e.etag}:{})},signal:ctl?ctl.signal:undefined,cache:'no-store'})}
       catch(x){throw new Error(x&&x.name==='AbortError'?'Hisse Radar yanıt vermedi (zaman aşımı).':'Hisse Radar\'a bağlanılamadı.')}
+      if(!r||typeof r!=='object')throw new Error('Hisse Radar boş yanıt verdi.');
       if(r.status===304&&e.data)return {same:true};
       if(!r.ok)throw new Error(httpErr(r.status));
-      const tx=await r.text();if(typeof tx!=='string'||tx.length>MAX_BYTES)throw new Error('Dosya beklenenden büyük; okunmadı.');
-      let j;try{j=JSON.parse(tx)}catch(x){throw new Error('Dosya okunamadı (geçersiz JSON).')}
+      let j;
+      if(typeof r.text==='function'){let tx;try{tx=await r.text()}catch(x){throw new Error(x&&x.name==='AbortError'?'Hisse Radar yanıt vermedi (zaman aşımı).':'Dosya indirilemedi (bağlantı koptu).')}
+        if(typeof tx!=='string'||tx.length>MAX_BYTES)throw new Error('Dosya beklenenden büyük; okunmadı.');
+        try{j=JSON.parse(tx)}catch(x){throw new Error('Dosya okunamadı (geçersiz JSON).')}}
+      else if(typeof r.json==='function'){try{j=await r.json()}catch(x){throw new Error('Dosya okunamadı (geçersiz JSON).')}}
+      else throw new Error('Dosya okunamadı (boş yanıt).');
       if(!j||typeof j!=='object'||Array.isArray(j))throw new Error('Dosya biçimi beklenmedik.');
       return {data:j,etag:hdr(r,'etag')}})();
     try{return await Promise.race([run,new Promise((_,no)=>{tm=setTimeout(()=>{try{ctl&&ctl.abort()}catch(x){}no(new Error('Hisse Radar yanıt vermedi (zaman aşımı).'))},timeout);if(tm&&tm.unref)tm.unref()})])}
@@ -202,16 +233,15 @@ function createRadar({fetch=globalThis.fetch,now=()=>Date.now(),ttl=300000,base=
 
   async function forSymbol(code){const c=codeOf(code);if(!c)return null;
     const {d,stale,any}=await loadMany(SYM_FILES);if(!any)throw new Error('Hisse Radar verisi alınamadı: '+(errs()[0]||'bağlantı yok.'));
-    const t=now(),risk=obj(obj(obj(d.secim).riskli).hisse)[c],mk=marketRow(d.market,c);
+    const t=now(),mk=marketRow(d.market,c),rk=riskOf(d.secim,d.riskli,c);
     const models=modelsFor(c,{ai:d.ai,genis:d.ai_genis,out:d.outlook},t);
-    const rk=str(risk)?{neden:str(risk),kaynak:'Hisse Radar risk listesi (elle doğrulanmış + haberlerden)'}:null;
     const out={symbol:c,ad:mk&&mk.ad,sektor:mk&&mk.sektor,updatedAt:null,veriZamani:null,models,
       consensus:consensus(models,{price:mk&&mk.fiyat,risk:rk}),outlook:outlookOf(d.outlook,c,t),olasilik:olasilikOf(d.olasilik,c,t),
       secim:secimOf(d.secim,c,t),backtest:backtestOf(d.backtest,c,t),risk:rk,temel:temelOf(d.temel,c),haberler:null,haberAi:null,sektorEtkisi:null,piyasa:mk,stale};
     if(!models.length&&!out.outlook&&!out.olasilik&&!out.secim&&!out.backtest&&!rk&&!out.temel)return null;     // kapsam disi
     const src=models[0];
-    if(src&&src.kaynak==='ai'){out.updatedAt=T(obj(d.ai).updatedAt);out.veriZamani=str(obj(d.ai).veri,40)}
-    else if(src){out.updatedAt=src.zaman;out.veriZamani=new Date(src.zaman).toISOString()}
+    if(src&&src.kaynak==='ai'){out.updatedAt=T(obj(d.ai).updatedAt);out.veriZamani=str(obj(d.ai).veri,40)||trTarih(out.updatedAt)}
+    else if(src){out.updatedAt=src.zaman;out.veriZamani=trTarih(src.zaman)}
     else out.updatedAt=[out.olasilik,out.temel,out.secim].map(x=>x&&x.updatedAt).find(fin)||null;
     out.haberler=haberlerFor(c,{gundem:d.gundem,genis:d.ai_genis,news:d.news,ad:mk&&mk.ad},t);
     const ha=obj(obj(d.gundem).haber_ai),hz=T(ha.zaman)||T(ha.ts);
@@ -222,18 +252,22 @@ function createRadar({fetch=globalThis.fetch,now=()=>Date.now(),ttl=300000,base=
   async function market(){const {d,stale,any}=await loadMany(MKT_FILES);if(!any)return null;const t=now(),A=obj(d.ai),G=obj(d.ai_genis);
     const modeller=[...arr(A.modeller).map(m=>({m,kapsam:'BIST 30'})),...arr(G.modeller).map(m=>({m,kapsam:'Geniş tarama'}))].filter(x=>x.m&&str(x.m.id,40)).map(({m,kapsam})=>({
       id:m.id,ad:str(m.ad,60)||m.id,model:str(m.model,80),durum:str(m.durum,12)||'ok',isabet:isabetOf(A,m.id),kapsam,hata:m.durum==='hata'||m.durum==='eski'?str(m.hata,120):null}));
-    const GU=obj(d.gundem),ha=obj(GU.haber_ai),mak=obj(GU.makro);
-    const gundem=has(GU)?{havasi:str(ha.piyasa_havasi,20),ozet:str(ha.ozet,1200),sektorler:arr(ha.sektorler).slice(0,12),hisseler:has(ha.hisseler)?ha.hisseler:{},
-      zaman:T(ha.zaman)||T(ha.ts),makro:arr(mak.seriler).slice(0,8),piyasaOzet:str(obj(GU.piyasa).ozet,1500),updatedAt:T(GU.updatedAt)}:null;
+    const GU=obj(d.gundem),ha=obj(GU.haber_ai),mak=obj(GU.makro),hz=T(ha.zaman)||T(ha.ts),haTaze=!!(hz&&t-hz<=HABER_AI_MAX),list=gundemList(d.news,GU,t);
+    // list: arayuzdeki haber kartlari ({baslik,url,kaynak,zaman}); yapay zeka piyasa yorumu (havasi/ozet) 3 gunden eskiyse verilmez
+    const gundem=has(GU)||list.length?{havasi:haTaze?str(ha.piyasa_havasi,20):null,ozet:haTaze?str(ha.ozet,1200):null,sektorler:haTaze?arr(ha.sektorler).slice(0,12):[],
+      hisseler:haTaze&&has(ha.hisseler)?ha.hisseler:{},zaman:hz,makro:arr(mak.seriler).slice(0,8),piyasaOzet:str(obj(GU.piyasa).ozet,1500),list,updatedAt:T(GU.updatedAt)}:null;
     const E=obj(obj(d.endeksler).endeksler),endeksler={};
     for(const [k,v] of Object.entries(E)){const hs=arr(obj(v).hisseler).map(codeOf).filter(Boolean);if(hs.length)endeksler[k]={ad:str(v.ad,40)||k,hisseler:hs,n:hs.length}}
-    // Yukselis/dusus beklentisi: taze secim.json (gecmis testte dogrulanmis kurallar + yapay zeka), yoksa taze Claude beklentisi
-    const S=obj(d.secim),O=obj(d.outlook),st=T(S.updatedAt),ot=T(O.updatedAt);let ozet={yukselis:[],dusus:[],kaynak:null};
+    // Yukselis/dusus beklentisi: taze secim.json (gecmis testte dogrulanmis kurallar + yapay zeka), yoksa taze Claude beklentisi, yoksa konsensus
+    const S=obj(d.secim),O=obj(d.outlook),st=T(S.updatedAt),ot=T(O.updatedAt),riskli=riskList(S,d.riskli);let ozet={yukselis:[],dusus:[],kaynak:null};
     if(st&&t-st<=SECIM_MAX)ozet={yukselis:arr(S.guclu).map(x=>codeOf(x&&x.kod)).filter(Boolean),dusus:arr(S.zayif).map(x=>codeOf(x&&x.kod)).filter(Boolean),kaynak:'secim'};
     if(!ozet.yukselis.length&&!ozet.dusus.length&&ot&&t-ot<=OUTLOOK_MAX)ozet={yukselis:arr(O.yukselis).map(x=>codeOf(x&&x.sembol)).filter(Boolean),dusus:arr(O.dusus).map(x=>codeOf(x&&x.sembol)).filter(Boolean),kaynak:'outlook'};
-    const cl=consensusList(A,G,O,obj(S.riskli).hisse,t).sort((a,b)=>b.skor-a.skor||(a.symbol<b.symbol?-1:1));
-    ozet.al=cl.filter(x=>x.karar==='AL');ozet.sat=cl.filter(x=>x.karar==='SAT').reverse();ozet.dagilim={AL:ozet.al.length,TUT:cl.length-ozet.al.length-ozet.sat.length,SAT:ozet.sat.length};
-    ozet.riskli=Object.keys(obj(obj(S.riskli).hisse)).map(codeOf).filter(Boolean);
+    const rmap={};for(const c of riskli)rmap[c]=riskOf(S,d.riskli,c);
+    const cl=consensusList(A,G,O,rmap,t).sort((a,b)=>b.skor-a.skor||(a.symbol<b.symbol?-1:1));
+    const al=cl.filter(x=>x.karar==='AL'),sat=cl.filter(x=>x.karar==='SAT').reverse();
+    if(!ozet.yukselis.length&&!ozet.dusus.length&&(al.length||sat.length))ozet={yukselis:al.map(x=>x.symbol),dusus:sat.map(x=>x.symbol),kaynak:'konsensus'};
+    ozet.yukselis=ozet.yukselis.filter(c=>!riskli.includes(c));               // riskli hisse yukselis listesinde gosterilmez (uygulama ile ayni)
+    ozet.al=al;ozet.sat=sat;ozet.dagilim={AL:al.length,TUT:cl.length-al.length-sat.length,SAT:sat.length};ozet.riskli=riskli;
     const neden=h=>!h?'.':/\b429\b|rate.?limit/i.test(h)?': kullanım sınırı doldu (429).':/\b40[13]\b|unauthor|invalid.?api/i.test(h)?': anahtar geçersiz ya da yetkisiz.':': '+h.slice(0,100);
     const hatalar=[...errs(),...modeller.filter(m=>m.durum==='hata').map(m=>m.ad+' ('+m.kapsam+') çalışmadı'+neden(m.hata))];
     return {updatedAt:T(A.updatedAt),veriZamani:str(A.veri,40),modeller,gundem,endeksler,ozet,hatalar,stale}}
@@ -245,4 +279,5 @@ function createRadar({fetch=globalThis.fetch,now=()=>Date.now(),ttl=300000,base=
 
   return {forSymbol,market,status,_load:load}}
 
-module.exports={createRadar,consensus,FILES,BASE,_util:{modelsFor,outlookOf,olasilikOf,secimOf,backtestOf,temelOf,marketRow,haberlerFor,isabetOf,codeOf,gunAy,consensusList}};
+module.exports={createRadar,consensus,FILES,BASE,_util:{modelsFor,outlookOf,olasilikOf,secimOf,backtestOf,temelOf,marketRow,haberlerFor,isabetOf,codeOf,gunAy,
+  consensusList,riskOf,riskList,gundemList,trTarih}};

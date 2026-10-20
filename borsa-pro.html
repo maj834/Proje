@@ -44,6 +44,7 @@ button,input,select{font:inherit;color:inherit}
 .wr:hover{background:var(--sunk)}.wr.on{background:var(--acc-soft)}
 .wr .c{font:600 12px var(--mono)}.wr .n{grid-column:1;font-size:10.5px;color:var(--fg-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .wr svg{grid-row:1/3;grid-column:2}
+.wr .lz{color:var(--acc);font-size:11px}
 .wr .p{text-align:right;font:500 12px var(--mono)}.wr .ch{grid-column:3;text-align:right;font:500 10.5px var(--mono)}
 .wr .vd{position:absolute;left:-2px;top:9px;width:3px;height:16px;border-radius:2px}
 .wr .x{position:absolute;right:2px;top:2px;display:none;border:0;background:var(--surface);color:var(--fg-3);border-radius:3px;width:16px;height:16px;line-height:14px;cursor:pointer;font-size:12px}
@@ -312,7 +313,7 @@ function renderWatch(){
   $('wll').replaceChildren(...w.map(s=>{const x=S.q.get(s)||{},v=verdictOf(s);
     return el('div',{class:'wr'+(s===S.sym?' on':''),onclick:()=>go(s),title:x.name||s},
       v?el('i',{class:'vd',style:'background:'+(v.label==='AL'?'var(--up)':v.label==='SAT'?'var(--dn)':'var(--line-2)'),title:'Son tarama: '+v.label}):null,
-      el('span',{class:'c'},s),spark(x.spark),el('span',{class:'p'},fp(x.price)),
+      el('span',{class:'c'},s,isLive(s)?el('span',{class:'lz',title:x.live?'Canlı (Telegram) fiyat':'Canlı listede; sıradaki güncelleme bekleniyor'},x.live?' ⚡':' ϟ'):null),spark(x.spark),el('span',{class:'p'},fp(x.price)),
       el('span',{class:'n'},x.error?'veri yok':x.name||''),el('span',{class:'ch '+sgnc(x.chgPct)},pct(x.chgPct)),
       el('button',{class:'x',title:'Listeden çıkar',onclick:async e=>{e.stopPropagation();const r=await call(bp.watch,{op:'remove',symbol:s});if(okr(r)){S.st.watch=r.watch;renderWatch()}}},'×'))}))}
 let qBusy=false;
@@ -515,8 +516,14 @@ function depthCard2(r){
     el('div',{class:'row',style:'margin-top:8px'},el('button',{class:'btn pri',onclick:()=>bp.depth({op:'setup'})},'Telegram\'ı bağla')));
   const btns=el('div',{class:'row',style:'flex-wrap:wrap'},el('button',{class:'btn pri',disabled:busy,onclick:()=>fetchDepth(r.symbol)},busy?'Alınıyor…':'Derinliği getir'),sel,
     el('button',{class:'btn',title:'Botun web terminalini aç',onclick:async()=>{const x=await call(bp.depth,{op:'terminal'})}},'Terminal'));
+  // Oncelikli canli liste: bu hisseler Telegram'dan sirayla taze fiyatla guncellenir (guvenli sinirlar icinde)
+  const LL=tg.liveList||[],inL=LL.includes(r.symbol),per=Math.max(1,LL.length)*45;
+  const liveBox=el('div',{style:'margin-top:8px'},el('div',{class:'row',style:'flex-wrap:wrap;gap:4px'},
+      el('button',{class:'btn'+(inL?'':' pri'),title:'Seans açıkken bu hissenin fiyatı ve grafiği Telegram botundan sırayla taze veriyle güncellenir',onclick:()=>setLive(r.symbol,!inL)},inL?'⚡ Canlı listeden çıkar':'⚡ Canlı listeye ekle'),
+      ...LL.map(x=>el('button',{class:'chip'+(x===r.symbol?' on':''),onclick:()=>go(x)},'⚡ '+x))),
+    LL.length?el('div',{class:'mu',style:'font-size:11px;margin-top:4px'},'Canlı liste ('+LL.length+'/6): her hisse yaklaşık '+(per>=90?Math.round(per/60)+' dk':per+' sn')+'da bir güncellenir (Telegram güvenli sınırı). Diğer hisseler ~15 dk gecikmeli.'):null);
   const safe=tg.safe?el('div',{class:'disc'},'Güvenli sınır: saatlik '+tg.safe.hour+'/'+tg.safe.hourCap+' · günlük '+tg.safe.day+'/'+tg.safe.dayCap+(tg.safe.market===false?' · seans kapalı (otomatik duraklar)':'')):null;
-  if(!D)return CARD(head,btns,el('div',{class:'mu',style:'margin-top:8px'},'Bu hisse için taze derinlik yok. "Derinliği getir" botdan kademe, AKD ve işlemleri çeker; 5 dakika boyunca analize katılır.'),safe);
+  if(!D)return CARD(head,btns,liveBox,el('div',{class:'mu',style:'margin-top:8px'},'Bu hisse için taze derinlik yok. "Derinliği getir" botdan kademe, AKD ve işlemleri çeker; 5 dakika boyunca analize katılır.'),safe);
   const pr=D.pressure,ls=D.live||D.signal;
   const lv=n=>{const b=(D.bids||[])[n],a=(D.asks||[])[n],mx=Math.max(1,...(D.bids||[]).map(x=>x.qty||0),...(D.asks||[]).map(x=>x.qty||0));
     const wb=b&&(D.walls||[]).some(w=>w.side==='bid'&&w.price===b.price),wa=a&&(D.walls||[]).some(w=>w.side==='ask'&&w.price===a.price);
@@ -524,7 +531,7 @@ function depthCard2(r){
       a?el('div',{class:'r a'+(wa?' w':'')},el('i',{style:'width:'+((a.qty||0)/mx*100)+'%'}),el('span',{class:'dn'},fp(a.price)),el('span',{},big(a.qty))):el('div')]};
   const n=Math.max((D.bids||[]).length,(D.asks||[]).length);
   const tp=D.tape,w5=tp&&tp.w5;
-  return CARD(head,btns,
+  return CARD(head,btns,liveBox,
     fin(pr)?[el('div',{class:'row',style:'margin-top:10px'},el('span',{class:'m2',style:'flex:1'},'Alış/satış baskısı'),el('b',{class:'num '+sgnc(pr)},(pr>0?'+':'')+pr)),
       el('div',{class:'gauge'},el('i',{style:'left:'+((Math.max(-100,Math.min(100,pr))+100)/2)+'%'})),D.trend?el('div',{class:'mu',style:'font-size:11px'},D.trend):null]:null,
     ls&&ls.dir?el('div',{class:'warn',style:'background:'+(ls.dir>0?'var(--up-soft)':'var(--dn-soft)')},(ls.dir>0?'Canlı AL: ':'Canlı SAT: ')+(ls.why||[]).join(', ')):null,
@@ -545,6 +552,11 @@ async function fetchDepth(sym){
   if(x&&x.ok&&x.depth){S.depthLive={symbol:sym,depth:x.depth};toast(sym+' derinliği alındı');refreshAnalysis()}
   else if(x&&x.error)toast(x.error);
   redrawDepth()}
+const isLive=s=>!!(S.tg&&Array.isArray(S.tg.liveList)&&S.tg.liveList.includes(s));
+async function setLive(sym,on){const L=(S.tg&&S.tg.liveList)||[],list=on?[...new Set([...L,sym])]:L.filter(x=>x!==sym);
+  if(on&&list.length>6){toast('Canlı listede en fazla 6 hisse olabilir.');return}
+  const x=await call(bp.depth,{op:'live',list});if(x&&x.ok&&x.tg){S.tg=x.tg;redrawDepth();renderWatch();
+    toast(on?sym+' canlı listeye eklendi'+(x.tg.connected===false?' (Telegram bağlı değil)':x.tg.safe&&x.tg.safe.market===false?' (seans açılınca başlar)':''):sym+' canlı listeden çıkarıldı')}}
 function redrawDepth(){const c=$('dpc');if(c&&S.data)c.replaceChildren(depthCard2(S.data))}
 // Derinlik gelince karar yeniden hesaplanir (derinlik bileseni); grafik ve panel kaydirmasi korunur
 let raT;function refreshAnalysis(){clearTimeout(raT);raT=setTimeout(()=>{if(S.sym)load(S.sym,{keepTrades:true,quiet:true})},400)}
@@ -624,7 +636,11 @@ async function applyPlan(alarms){const R=S.plan;if(!R||!R.picks)return;const x=a
 if(!window.BPOkul){const b=document.querySelector('nav [data-v="okul"]');if(b)b.remove()}
 function renderOkul(){const v=$('v-okul');
   if(!window.BPOkul||typeof BPOkul.render!=='function'){v.replaceChildren(el('div',{class:'empty'},el('b',{},'Borsa Okulu yüklenemedi'),'Uygulamayı güncelleyip yeniden aç.'));return}
-  try{BPOkul.render(v,{okul:(op,args)=>bp.okul({op,args})},{el,toast,go})}catch(e){v.replaceChildren(el('div',{class:'err'},'Borsa Okulu açılamadı: '+(e&&e.message||e)))}}
+  // Ogretmene sor: secili hissenin ozet analizi baglam olarak eklenebilir (yalniz hesaplanmis sayilar)
+  const baglam=async sym=>{const r=S.data;if(!r||r.symbol!==sym)return {sembol:sym};const P=r.pro&&r.pro.ok?r.pro:null,Q=r.quant||{};
+    return {sembol:sym,ad:r.name,fiyat:r.quote&&r.quote.price,gunluk_degisim:r.quote&&r.quote.chgPct,karar:P&&{etiket:P.verdict.label,skor:P.verdict.score,gerekceler:P.verdict.reasons},
+      plan:P&&P.plan&&!P.plan.wait?{giris:P.plan.entry,stop:P.plan.stop,hedef1:P.plan.t1}:null,analist_notu:Q.rating&&{not:Q.rating.label,guven:Q.rating.confidence},rsi:P&&P.momentum&&P.momentum.rsi}};
+  try{BPOkul.render(v,{okul:(op,args)=>bp.okul({op,args})},{el,toast,go,sembol:()=>S.sym||null,baglam})}catch(e){v.replaceChildren(el('div',{class:'err'},'Borsa Okulu açılamadı: '+(e&&e.message||e)))}}
 
 // --- analist ---------------------------------------------------------------------------------------
 const NC=['dn','dn','','up','up'];
@@ -1020,7 +1036,7 @@ if(typeof bp!=='undefined')bp.on(e=>{if(!e)return;
   else if(e.type==='status'){S.st.marketStatus=e.marketStatus;badge()}
   else if(e.type==='symbol'&&e.symbol){go(e.symbol)}
   else if(e.type==='plan'){if(S.planBusy){S.planBusy=e.symbol?e.symbol+' analiz ediliyor ('+(e.done+1)+'/'+e.total+')':'Hesaplanıyor…';const pp=$('pprog');if(pp)pp.textContent=S.planBusy}}
-  else if(e.type==='depth'&&e.symbol){S.depthLive={symbol:e.symbol,depth:e.depth};if(e.symbol===S.sym){redrawDepth();refreshAnalysis()}}});
+  else if(e.type==='depth'&&e.symbol){S.depthLive={symbol:e.symbol,depth:e.depth};if(isLive(e.symbol))refreshQuotes();if(e.symbol===S.sym){redrawDepth();refreshAnalysis()}}});
 function badge(){const m=S.st.marketStatus||{};$('mst').className='badge'+(m.open?' open':'');$('mst').lastChild.textContent=m.open?'Seans açık':'Seans kapalı'+(m.reason?' · '+m.reason:'');$('mst').title=m.reason||''}
 
 async function init(){
@@ -1029,7 +1045,7 @@ async function init(){
   if(!st||st.ok===false){ovl('Borsa Pro açılamadı',(st&&st.error)||'Uygulamayı yeniden başlat.');return}
   S.st=st;S.tf=(st.prefs&&st.prefs.tf)||st.tf||'1g';S.mkt=st.market||'BIST';S.show={...(st.prefs&&st.prefs.show||{})};S.provider=(st.prefs&&st.prefs.provider)||'auto';
   S.scan=st.lastScan||null;badge();countAlarms();renderWatch();chartInit();
-  bp.depth({op:'state'}).then(x=>{if(x&&x.tg){S.tg=x.tg;redrawDepth()}}).catch(()=>{});
+  bp.depth({op:'state'}).then(x=>{if(x&&x.tg){S.tg=x.tg;redrawDepth();renderWatch()}}).catch(()=>{});
   load(st.symbol||st.watch[0]||'THYAO');refreshQuotes();
   if(st.prefs&&st.prefs.tab&&st.prefs.tab!=='grafik')tab(st.prefs.tab);
   setInterval(refreshQuotes,60000);
