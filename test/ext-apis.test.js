@@ -9,7 +9,7 @@ const path = require('path');
 const X = require('../ext-apis.js');
 const { createExtApis, newsQuery, crosses, message, scrub, validKey, fold, clean, period, LIMITS, NEWS_NOTE, COINS } = X;
 
-const KEYS = { news: 'fakeNewsKeyForTests0000000000001', fx: 'fakeFxKeyForTests0000001', gecko: 'CG-fakeGeckoKeyForTests01' };
+const KEYS = { news: 'fakeNewsKeyForTests0000000000001', fx: 'fakeFxKeyForTests0000001', gecko: 'CG-fakeGeckoKeyForTests01', finnhub: 'fakefinnhubkeytests01' };
 const ALLKEYS = Object.values(KEYS);
 const T0 = Date.UTC(2026, 9, 20, 10, 0, 0);   // 20 Ekim 2026 10:00 UTC
 const MIN = 60000, HOUR = 3600000, DAY = 86400000;
@@ -41,11 +41,29 @@ function okGecko(url) {
     price_change_percentage_24h: 1.234, price_change_percentage_24h_in_currency: vs === 'usd' ? 2.345 : 9.9,
     sparkline_in_7d: sp ? { price: Array.from({ length: 168 }, (_, k) => 100 + k) } : undefined })));
 }
+function okFinnhub(url) {
+  const u = new URL(url), p = u.pathname.replace('/api/v1', ''), sym = u.searchParams.get('symbol');
+  if (p === '/quote') return res(200, { c: 187.5, d: 1, dp: 0.5 });
+  if (p === '/company-news') return res(200, [
+    { headline: 'Apple yeni ürün', source: 'Reuters', url: 'https://ornek.com/a', datetime: Math.floor((T0 - HOUR) / 1000), summary: '<b>Özet</b> &amp; ayrıntı' },
+    { headline: 'Apple yeni ürün', source: 'Kopya', url: 'https://ornek.com/b', datetime: Math.floor((T0 - 2 * HOUR) / 1000) },
+    { headline: 'Güvensiz', url: 'http://ornek.com/c', datetime: 1 },
+    { headline: 'Daha yeni', source: 'CNBC', url: 'https://ornek.com/d', datetime: Math.floor(T0 / 1000) }]);
+  if (p === '/stock/profile2') return res(200, { name: 'Apple Inc', exchange: 'NASDAQ', finnhubIndustry: 'Technology', country: 'US', currency: 'USD',
+    ipo: '1980-12-12', weburl: 'https://www.apple.com/', logo: 'https://static.finnhub.io/logo/x.png', marketCapitalization: 3000000, shareOutstanding: 15000 });
+  if (p === '/stock/metric') return res(200, { symbol: sym, metric: { '52WeekHigh': 260.1, '52WeekLow': 164.08, peTTM: 31.234, pbAnnual: 45.1, dividendYieldIndicatedAnnual: 0.45, beta: 1.21 } });
+  if (p === '/stock/recommendation') return res(200, [{ period: '2026-09-01', strongBuy: 10, buy: 20, hold: 8, sell: 1, strongSell: 0 },
+    { period: '2026-10-01', strongBuy: 12, buy: 21, hold: 7, sell: 1, strongSell: 1 }]);
+  if (p === '/calendar/earnings') return res(200, { earningsCalendar: [{ date: '2026-10-30', hour: 'amc', epsEstimate: 1.6, revenueEstimate: 1e11, quarter: 4, year: 2026, symbol: sym }] });
+  if (p === '/stock/earnings') return res(200, [{ period: '2026-06-30', actual: 1.57, estimate: 1.45, surprisePercent: 8.2759 }, { period: '2026-03-31', actual: 1.65, estimate: 1.62, surprisePercent: 1.85 }]);
+  return res(404, { error: 'yok' });
+}
 function router(over = {}) {
   return (url, opts, calls) => {
     if (url.startsWith('https://newsapi.org/v2/everything')) return (over.news || okNews)(url, opts, calls);
     if (url.startsWith('https://v6.exchangerate-api.com/v6/')) return url.endsWith('/quota') ? (over.quota || okQuota)(url, opts, calls) : (over.fx || okFx)(url, opts, calls);
     if (url.startsWith('https://api.coingecko.com/api/v3/')) return (over.gecko || okGecko)(url, opts, calls);
+    if (url.startsWith('https://finnhub.io/api/v1/')) return (over.finnhub || okFinnhub)(url, opts, calls);
     throw new Error('beklenmeyen adres ' + url);
   };
 }
@@ -57,7 +75,7 @@ function setup({ keys = KEYS, dir = mkdir(), handler = router(), timeoutMs = 200
   const clock = { t: t0 }, calls = [];
   const fetch = async (url, opts) => { calls.push({ url: String(url), opts }); return handler(String(url), opts, calls); };
   const api = createExtApis({ fetch, now: () => clock.t, dir, timeoutMs,
-    keys: { news: () => keys.news, fx: () => keys.fx, gecko: () => keys.gecko } });
+    keys: { news: () => keys.news, fx: () => keys.fx, gecko: () => keys.gecko, finnhub: () => keys.finnhub } });
   const only = pre => calls.filter(c => c.url.startsWith(pre));
   return { api, clock, calls, dir, only, file: path.join(dir, 'ext-apis.json') };
 }
@@ -622,7 +640,7 @@ test('crypto: TL isteği düşerse kısmi sonuç (önbelleğe girmez); 401 Türk
 test('status: arayüzün okuduğu biçim', async () => {
   const s = setup({ keys: { news: KEYS.news, fx: null, gecko: KEYS.gecko } });
   const st = s.api.status();
-  assert.deepEqual(Object.keys(st).sort(), ['fx', 'gecko', 'news']);
+  assert.deepEqual(Object.keys(st).sort(), ['finnhub', 'fx', 'gecko', 'news']);
   for (const p of ['news', 'fx', 'gecko']) {
     const x = st[p];
     for (const k of ['name', 'configured', 'valid', 'left', 'cap', 'unit', 'lastOk', 'lastError', 'lastErrorAt']) assert.ok(k in x, p + '.' + k);
@@ -738,4 +756,73 @@ test('anahtar hiçbir dönüşe, duruma, dosyaya ya da loga sızmaz', async t =>
   }
   noKey(logs.join('\n'), 'log');
   assert.equal(logs.length, 0, 'modül konsola yazmaz');
+});
+
+// ============================================================================================================================
+// Finnhub (ABD hisseleri)
+// ============================================================================================================================
+const FH = 'https://finnhub.io/';
+test('finnhub: anahtar baslikta, URL\'de yok; haberler https, tekil, yeniden eskiye', async () => {
+  const s = setup();
+  const r = await s.api.usNews('aapl');
+  assert.equal(r.ok, true); assert.equal(r.symbol, 'AAPL'); assert.equal(r.cached, false);
+  assert.deepEqual(r.items.map(x => x.title), ['Daha yeni', 'Apple yeni ürün']);
+  assert.equal(r.items[1].summary, 'Özet & ayrıntı'); assert.equal(r.items[1].time, T0 - HOUR);
+  const c = s.only(FH)[0];
+  assert.equal(c.opts.headers['X-Finnhub-Token'], KEYS.finnhub); assert.ok(!c.url.includes(KEYS.finnhub)); assert.ok(!/token=/i.test(c.url));
+  assert.match(c.url, /company-news\?symbol=AAPL&from=2026-10-13&to=2026-10-20/);
+  assert.equal((await s.api.usNews('AAPL')).cached, true); assert.equal(s.only(FH).length, 1);
+  s.clock.t += 31 * MIN; await s.api.usNews('AAPL'); assert.equal(s.only(FH).length, 2);
+});
+test('finnhub: sembol denetimi (BIST ve kripto reddedilir, istek atilmaz)', async () => {
+  const s = setup();
+  for (const [x, re] of [['THYAO.IS', /yalnız ABD/], ['BTC-USD', /yalnız ABD/], ['', /Geçerli bir ABD/], ['<x>', /Geçerli bir ABD/]]) {
+    const r = await s.api.usProfile(x); assert.equal(r.ok, false); assert.match(r.error, re);
+  }
+  assert.equal(s.calls.length, 0);
+  assert.deepEqual(X.usSymbol('brk.b'), { symbol: 'BRK.B', error: null });
+});
+test('finnhub: profil + oranlar + son tavsiye; biri duserse partial', async () => {
+  let s = setup();
+  let r = await s.api.usProfile('AAPL');
+  assert.equal(r.ok, true); assert.equal(r.partial, undefined); assert.equal(r.profile.name, 'Apple Inc'); assert.equal(r.profile.web, 'https://www.apple.com/');
+  assert.deepEqual(r.metrics, { high52: 260.1, low52: 164.08, pe: 31.23, pb: 45.1, divYield: 0.45, beta: 1.21, mcap: null });
+  assert.deepEqual(r.rec, { period: '2026-10-01', strongBuy: 12, buy: 21, hold: 7, sell: 1, strongSell: 1, total: 42 });
+  assert.equal(s.only(FH).length, 3);
+  s = setup({ handler: router({ finnhub: url => /recommendation/.test(url) ? res(403, { error: "You don't have access to this resource." }) : okFinnhub(url) }) });
+  r = await s.api.usProfile('AAPL');
+  assert.equal(r.ok, true); assert.equal(r.partial, true); assert.equal(r.rec, null); assert.match(r.error, /ücretsiz planda vermiyor/);
+});
+test('finnhub: bilanco takvimi ve son ceyrekler', async () => {
+  const s = setup();
+  const r = await s.api.usEarnings('AAPL');
+  assert.deepEqual(r.next, [{ date: '2026-10-30', hour: 'kapanıştan sonra', epsEst: 1.6, revEst: 1e11, quarter: 4, year: 2026 }]);
+  assert.deepEqual(r.past.map(x => [x.period, x.surprisePct]), [['2026-06-30', 8.28], ['2026-03-31', 1.85]]);
+  assert.match(s.only(FH)[0].url, /from=2026-10-20&to=2027-01-18&symbol=AAPL/);
+});
+test('finnhub: 429 -> bekleme, eski onbellek; gecersiz anahtar mesaji anahtari sizdirmaz', async () => {
+  let n = 0;
+  const s = setup({ handler: router({ finnhub: url => (n++ ? res(429, { error: 'API limit reached' }, { 'retry-after': '20' }) : okFinnhub(url)) }) });
+  await s.api.usNews('AAPL');
+  s.clock.t += 31 * MIN;
+  let r = await s.api.usNews('AAPL');
+  assert.equal(r.ok, true); assert.equal(r.stale, true); assert.match(r.error, /istek sınırı aşıldı.*20 sn/);
+  const before = s.calls.length; r = await s.api.usProfile('MSFT');
+  assert.equal(r.ok, false); assert.equal(s.calls.length, before, 'bekleme suresince istek yok');
+  const k = setup({ handler: router({ finnhub: () => res(401, { error: 'Invalid API key ' + KEYS.finnhub }) }) });
+  r = await k.api.usNews('AAPL');
+  assert.match(r.error, /Finnhub anahtarı geçersiz/); assert.ok(!r.error.includes(KEYS.finnhub));
+  assert.equal(scrub('x-finnhub-token: ' + 'abc123secret'), 'x-finnhub-token: ***');
+});
+test('finnhub: dakikalik pencere ve anahtar denemesi', async () => {
+  const s = setup();
+  const t = await s.api.test('finnhub');
+  assert.equal(t.ok, true); assert.match(t.msg, /AAPL 187,5 \$/);
+  const st = s.api.status().finnhub;
+  assert.equal(st.name, 'Finnhub'); assert.equal(st.configured, true); assert.equal(st.cap, 2000); assert.equal(st.minuteLeft, 49);
+  for (let i = 0; i < 16; i++) await s.api.usProfile('A' + String.fromCharCode(65 + i));   // 48 istek
+  const r = await s.api.usProfile('ZZ');
+  assert.equal(r.ok, false); assert.match(r.error, /dakikalık istek sınırı/);
+  const nk = setup({ keys: { ...KEYS, finnhub: null } });
+  assert.match((await nk.api.usNews('AAPL')).error, /Finnhub anahtarı girilmemiş/); assert.equal(nk.calls.length, 0);
 });

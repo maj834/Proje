@@ -1020,7 +1020,7 @@ test('bp:feeds: durum, anahtar kaydi + dogrulama, piyasa (doviz/kripto/radar), h
   const radar = { forSymbol: async () => null, market: async () => ({ updatedAt: 1, modeller: [{ id: 'groq', ad: 'Groq', durum: 'ok' }], ozet: { yukselis: ['THYAO'], dusus: [] } }), status: () => ({ ok: true }) };
   const h = harness(t, { apis, secrets, radar }); h.ui.open();
   let r = await h.call('bp:feeds', { op: 'status' });
-  assert.equal(r.ok, true); assert.deepEqual(Object.keys(r.status).sort(), ['fx', 'gecko', 'news']); assert.equal(r.status.news.configured, false);
+  assert.equal(r.ok, true); assert.deepEqual(Object.keys(r.status).sort(), ['finnhub', 'fx', 'gecko', 'news']); assert.equal(r.status.news.configured, false);
   // gecersiz bicim reddedilir, kaydedilmez
   r = await h.call('bp:feeds', { op: 'key', provider: 'news', key: 'kisa' }); assert.equal(r.ok, false); assert.equal(keys.news, undefined);
   r = await h.call('bp:feeds', { op: 'key', provider: 'evil', key: 'a'.repeat(32) }); assert.equal(r.ok, false);
@@ -1088,4 +1088,23 @@ test('bp:demo: bekleyen emir arka planda, kilitte durur ve yeniden acilista geri
   assert.equal(h.timers.pending,2);h.ui.close();assert.equal(h.timers.pending,1);
   h.power.set({locked:true});assert.equal(h.timers.pending,0);h.power.set({locked:false});assert.equal(h.timers.pending,1);
   h.clock.t+=60000;h.px=89;await h.timers.fire();await flush(20);assert.equal(h.notes.length,1);assert.equal(h.timers.pending,0);
+});
+
+test('bp:feeds us: Finnhub profil/haber/bilanco, sembol denetimi, anahtar yoksa needKey, kismi hata', async (t) => {
+  let on = false; const seen = [];
+  const apis = {
+    status: () => ({ news: {}, fx: {}, gecko: {}, finnhub: { configured: on, left: 1990 } }),
+    usProfile: async s => { seen.push(['p', s]); return { ok: true, symbol: s, profile: { name: 'Apple Inc' }, metrics: { pe: 31 }, rec: null }; },
+    usNews: async s => { seen.push(['n', s]); return { ok: true, items: Array.from({ length: 14 }, (_, i) => ({ title: 'H' + i, url: 'https://x.com/' + i })) }; },
+    usEarnings: async () => ({ ok: false, error: 'Finnhub bu veriyi ücretsiz planda vermiyor (HTTP 403).' }) };
+  const h = harness(t, { apis }); h.ui.open();
+  let r = await h.call('bp:feeds', { op: 'us', symbol: 'AAPL' });
+  assert.equal(r.ok, false); assert.equal(r.needKey, true); assert.equal(seen.length, 0);
+  on = true;
+  for (const bad of ['BTC-USD', 'THYAO.IS', '', 'a b', 42]) assert.equal((await h.call('bp:feeds', { op: 'us', symbol: bad })).ok, false, String(bad));
+  assert.equal(seen.length, 0);
+  r = await h.call('bp:feeds', { op: 'us', symbol: 'aapl.us' });
+  assert.equal(r.ok, true); assert.equal(r.symbol, 'AAPL'); assert.equal(r.profile.profile.name, 'Apple Inc'); assert.equal(r.news.length, 10);
+  assert.equal(r.earnings, null); assert.match(r.error, /ücretsiz planda/);
+  assert.deepEqual(seen, [['p', 'AAPL'], ['n', 'AAPL']]);
 });

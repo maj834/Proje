@@ -479,6 +479,7 @@ function renderAnalysis(){
   if(r.stats)out.push(statsCard(r.stats,r));
   out.push(aiCard(r));
   const nw=newsCard(r);if(nw)out.push(el('div',{id:'nwc'},nw));
+  if(isUsStock(r)){out.push(el('div',{id:'usc'},usCard(r)));if(!S.us||S.us.symbol!==r.symbol)loadUs(r.symbol)}
   if(!P&&r.market==='BIST')out.push(el('div',{id:'dpc'},depthCard2(r)));
   if(P&&P.backtest&&P.backtest.count){const B=P.backtest;out.push(CARD(['Sistem geçmişi',el('span',{class:'sp'}),el('a',{onclick:()=>tab('lab')},'Strateji Lab →')],
     el('div',{class:'kv'},el('span',{},'İşlem (10 mum ufuk)'),el('b',{},String(B.count)),el('span',{},'Doğru çıkma'),el('b',{class:B.winRate>=55?'up':B.winRate<45?'dn':''},'%'+B.winRate),
@@ -552,6 +553,34 @@ function newsCard(r){
     cal.length?el('div',{style:'margin-bottom:8px'},...cal.map(c=>el('div',{class:'kv'},el('span',{},c.kind+': '+c.title),el('b',{},c.day)))):null,
     akd&&akd.top&&akd.top.length?el('div',{class:'warn',style:'background:var(--sunk);margin:0 0 8px'},'Son '+akd.days+' gün kurum birikimi: ',...akd.top.map((x,i)=>[i?', ':'',el('b',{},x.name.split(' ')[0]),' '+big(x.net)+' lot'])):null,
     kids.length?el('div',{class:'news'},...kids):el('div',{class:'mu'},'Bu hisse için bot haberi yok.'),more)}
+// --- ABD hissesi (Finnhub): profil, oranlar, analist tavsiyesi, bilanco takvimi, sirket haberleri ---
+const usdBig=v=>{const a=Math.abs(v);return '$'+(a>=1e12?nf(v/1e12,2)+' Tn':a>=1e9?nf(v/1e9,1)+' Mr':a>=1e6?nf(v/1e6,0)+' Mn':nf(v,0))};
+const isUsStock=r=>r&&r.market==='US'&&!/-USD$/.test(String(r.symbol||''));
+function usCard(r){const U=S.us&&S.us.symbol===r.symbol?S.us:null;
+  if(!U||U.busy)return CARD('Şirket bilgisi · Finnhub',el('div',{class:'mu'},'Finnhub verisi alınıyor…'));
+  if(!U.ok)return CARD('Şirket bilgisi · Finnhub',el('div',{class:'mu'},U.error||'Finnhub verisi alınamadı.'),
+    U.needKey?el('div',{class:'row',style:'margin-top:8px'},el('button',{class:'btn',onclick:()=>tab('piyasa')},'Anahtar ekle →')):null);
+  const P=U.profile||{},pf=P.profile||{},m=P.metrics||{},rc=P.rec,E=U.earnings||{},usd=v=>fin(v)?'$'+nf(v,v>=100?0:2):'—';
+  const kv=(k,v)=>v==null||v==='—'?null:[el('span',{},k),el('b',{},v)];
+  const recBar=rc&&rc.total?(()=>{const seg=[[rc.strongBuy+rc.buy,'var(--up)','Al'],[rc.hold,'var(--fg-2)','Tut'],[rc.sell+rc.strongSell,'var(--dn)','Sat']];
+    return el('div',{style:'margin:6px 0 10px'},el('div',{class:'mu',style:'font-size:11px;margin-bottom:4px'},'Analist tavsiyesi · '+rc.total+' analist · '+(rc.period||'')),
+      el('div',{style:'display:flex;height:10px;border-radius:5px;overflow:hidden'},...seg.filter(x=>x[0]>0).map(([n,c])=>el('i',{style:'flex:'+n+';background:'+c}))),
+      el('div',{class:'row',style:'font-size:11px;margin-top:4px;gap:12px'},...seg.map(([n,c,t])=>el('span',{},el('b',{style:'color:'+c},String(n)),' '+t))))})():null;
+  const nx=(E.next||[])[0];
+  return CARD(['Şirket bilgisi · Finnhub',el('span',{class:'sp'}),U.error?el('span',{class:'mu',style:'text-transform:none;letter-spacing:0'},'kısmi veri'):null],
+    pf.name?el('div',{style:'margin-bottom:6px'},el('b',{},pf.name),el('span',{class:'mu'},' · '+[pf.exchange,pf.industry].filter(Boolean).join(' · '))):null,
+    recBar,
+    el('div',{class:'kv'},kv('52H yüksek',fin(m.high52)?usd(m.high52):null),kv('52H düşük',fin(m.low52)?usd(m.low52):null),
+      kv('F/K',fin(m.pe)?nf(m.pe,1):null),kv('PD/DD',fin(m.pb)?nf(m.pb,1):null),kv('Temettü',fin(m.divYield)?'%'+nf(m.divYield,2):null),
+      kv('Beta',fin(m.beta)?nf(m.beta,2):null),kv('Piy. değeri',fin(pf.mcap)?usdBig(pf.mcap*1e6):null)),
+    nx?el('div',{class:'mu',style:'font-size:12px;margin-top:6px'},'Sonraki bilanço: ',el('b',{style:'color:var(--fg)'},nx.date),(nx.hour?' · '+nx.hour:'')+(fin(nx.epsEst)?' · hisse başı kâr beklentisi '+usd(nx.epsEst):'')):null,
+    (E.past||[]).length?el('div',{style:'margin-top:8px'},el('div',{class:'mu',style:'font-size:11px;margin-bottom:4px'},'Son bilançolar (hisse başı kâr: gerçekleşen / beklenen)'),
+      ...E.past.map(x=>el('div',{class:'kv'},el('span',{},x.period||''),el('b',{class:fin(x.surprisePct)?sgnc(x.surprisePct):''},usd(x.actual)+' / '+usd(x.estimate)+(fin(x.surprisePct)?' ('+(x.surprisePct>0?'+':'')+nf(x.surprisePct,1)+'%)':''))))):null,
+    (U.news||[]).length?el('div',{class:'news',style:'margin-top:8px'},...U.news.slice(0,8).map(n=>el('a',{onclick:()=>n.url&&bp.open({url:n.url})},n.title,el('small',{},['Finnhub',n.source,dt(n.time)].filter(Boolean).join(' · '))))):null)}
+function redrawUs(){const c=$('usc');if(c&&S.data&&isUsStock(S.data))c.replaceChildren(usCard(S.data))}
+async function loadUs(sym){S.us={symbol:sym,busy:true};redrawUs();
+  const r=await bp.feeds({op:'us',symbol:sym}).catch(e=>({ok:false,error:String(e&&e.message||e)}));
+  if(!S.us||S.us.symbol!==sym)return;S.us=r&&r.ok?{...r,symbol:sym}:{symbol:sym,ok:false,error:(r&&r.error)||'Finnhub verisi alınamadı.',needKey:!!(r&&r.needKey)};redrawUs()}
 function redrawNews(){const c=$('nwc');if(c&&S.data){const n=newsCard(S.data);c.replaceChildren(...(n?[n]:[]))}}
 async function moreNews(sym){S.newsx={symbol:sym,busy:true,items:S.newsx&&S.newsx.symbol===sym?S.newsx.items:null};redrawNews();
   const r=await bp.feeds({op:'news',symbol:sym}).catch(e=>({ok:false,error:String(e.message||e)}));
@@ -1246,7 +1275,8 @@ async function loadOverview(){
 
 // --- ek veri kaynaklari (doviz, kripto, Hisse Radar) ve anahtarlari -------------------------------------
 const FEEDN={news:['NewsAPI','Hisse haberleri (günde 100 istek)','https://newsapi.org/register'],fx:['ExchangeRate-API','Döviz kurları (ayda 1.500 istek)','https://www.exchangerate-api.com/'],
-  gecko:['CoinGecko (Demo)','Kripto fiyatları (dakikada 30 istek)','https://www.coingecko.com/en/developers/dashboard']};
+  gecko:['CoinGecko (Demo)','Kripto fiyatları (dakikada 30 istek)','https://www.coingecko.com/en/developers/dashboard'],
+  finnhub:['Finnhub','ABD hisseleri: şirket haberleri, oranlar, analist tavsiyesi, bilanço takvimi (dakikada 60 istek)','https://finnhub.io/register']};
 const FXP=[['USD','Dolar'],['EUR','Euro'],['GBP','Sterlin'],['CHF','İsviçre frangı'],['JPY','100 Japon yeni',100],['CNY','Çin yuanı'],['AED','BAE dirhemi']];
 function feedsView(F){
   const out=[],st=F.status||{};

@@ -155,7 +155,7 @@ function addCost(c){
 }
 
 const bpData=require('./bp-data').createData({market,engine});
-const FEED_KEYS={news:'newsKey',fx:'fxKey',gecko:'geckoKey'};
+const FEED_KEYS={news:'newsKey',fx:'fxKey',gecko:'geckoKey',finnhub:'finnhubKey'};
 // Borsa Okulu: icerik kullanicinin Supabase projesinde (herkese acik okuma; publishable anahtar istemcide durmak icin tasarlanmistir).
 // "Ogretmene sor": once ucretsiz Groq (Neo'nun anahtari), yoksa Claude.
 const OKUL_URL='https://olengqbrkvmilsoelhxy.supabase.co',OKUL_KEY='sb_publishable_NohTNy9mknVRU3tGUc4iUg_DJwL0t6q';
@@ -173,7 +173,7 @@ async function okulAI({system,user}){
 const okulClient=(()=>{try{return require('./okul-client').createOkul({fetch:(...a)=>fetch(...a),now:()=>Date.now(),dir:app.getPath('userData'),url:OKUL_URL,anon:OKUL_KEY,ai:okulAI,open:u=>shell.openExternal(u)})}
   catch(e){console.error('okul:',e.message);return null}})();
 const extApis=(()=>{try{return require('./ext-apis').createExtApis({fetch:(...a)=>fetch(...a),now:()=>Date.now(),dir:app.getPath('userData'),
-  keys:{news:()=>dec(cfg().newsKey),fx:()=>dec(cfg().fxKey),gecko:()=>dec(cfg().geckoKey)}})}catch(e){console.error('ext-apis:',e.message);return null}})();
+  keys:{news:()=>dec(cfg().newsKey),fx:()=>dec(cfg().fxKey),gecko:()=>dec(cfg().geckoKey),finnhub:()=>dec(cfg().finnhubKey)}})}catch(e){console.error('ext-apis:',e.message);return null}})();
 // Borsa Pro: buyuk analiz penceresi (etkilesimli grafik, tarayici, strateji laboratuvari, portfoy, alarmlar, yapay zeka yorumu).
 // Borsa ozelligine baglidir: Merkez'de kapatilinca penceresi ve alarm izleyicisi durur. Yapay zeka yorumu once ucretsiz Groq
 // (Neo'nun anahtari), yoksa Claude ya da Grok anahtariyla; gorsel gonderilmez, yalniz hesaplanmis analiz ozeti.
@@ -183,7 +183,7 @@ const borsaPro=require('./borsa-pro-main').registerBorsaPro({ipcMain,app,Browser
   quant:require('./bp-quant'),history:require('./bp-history').createHistory(),fund:(()=>{try{return require('./bp-fund')}catch(e){return null}})(),
   // Kullanicinin Hisse Radar deposu (GitHub, herkese acik): cok modelli yapay zeka konsensusu; anahtar uygulamaya gelmez
   radar:(()=>{try{return require('./hisse-radar').createRadar()}catch(e){return null}})(),planner:(()=>{try{return require('./bp-planner')}catch(e){return null}})(),
-  // Ek veri kaynaklari (kullanicinin ucretsiz anahtarlari, safeStorage ile sifreli): NewsAPI, ExchangeRate-API, CoinGecko
+  // Ek veri kaynaklari (kullanicinin ucretsiz anahtarlari, safeStorage ile sifreli): NewsAPI, ExchangeRate-API, CoinGecko, Finnhub (ABD)
   okul:okulClient,apis:extApis,secrets:{set:(p,k)=>{const f=FEED_KEYS[p];if(f)save({[f]:k?enc(k):undefined})}},
   analyst:require('./bp-analyst').createAnalyst({keys:{groq:()=>dec(cfg().groqKey),claude:()=>getKey(),grok:()=>grokKey()},claudeModel:()=>model(),addCost:c=>addCost(c)}),
   ext:{botNews:s=>botNews(s),extSignals:s=>extSignals(s),depth:()=>lastDepth,riskPct:()=>+cfg().riskPct>0?+cfg().riskPct:1,

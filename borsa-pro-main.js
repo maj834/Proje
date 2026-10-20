@@ -362,7 +362,7 @@ function registerBorsaPro({ipcMain,app,BrowserWindow,path,screen,Notification,sh
     return p}
   // Ek veri kaynaklari: doviz (ExchangeRate-API), kripto (CoinGecko), haber (NewsAPI) ve Hisse Radar piyasa ozeti.
   // Anahtarlar ana surecte sifreli saklanir (secrets); pencereye yalniz "kayitli mi" bilgisi gider.
-  const FEEDS=['news','fx','gecko'];
+  const FEEDS=['news','fx','gecko','finnhub'];
   const feedStatus=()=>{let st={};if(apis&&typeof apis.status==='function')try{st=obj(apis.status())}catch(e){}
     const out={};for(const p of FEEDS){const x=obj(st[p]);out[p]={configured:!!x.configured,left:fin(x.left)?x.left:null,lastError:typeof x.lastError==='string'?x.lastError.slice(0,200):null,lastOk:fin(x.lastOk)?x.lastOk:null}}
     return out};
@@ -386,6 +386,15 @@ function registerBorsaPro({ipcMain,app,BrowserWindow,path,screen,Notification,sh
       const r=obj(await soft(()=>typeof apis.newsFor==='function'?apis.newsFor(sym,nm):apis.news('"'+nm+'" OR '+sym,{lang:'tr',days:7,max:10}),15000));
       if(!r.ok)return err(typeof r.error==='string'?r.error:'Haberler alınamadı.',{left:fin(r.left)?r.left:null});
       return {ok:true,symbol:sym,items:(Array.isArray(r.items)?r.items:[]).slice(0,12),left:fin(r.left)?r.left:null}}
+    // ABD hissesi (Finnhub): sirket haberleri + profil/oranlar/analist tavsiyesi + bilanco takvimi; kripto (-USD) ve BIST haric
+    if(op==='us'){const sym=typeof o.symbol==='string'?o.symbol.trim().toUpperCase().replace(/\.US$/,''):'';
+      if(!/^[A-Z][A-Z0-9.\-]{0,9}$/.test(sym)||/-USD$|\.IS$/.test(sym))return err('Geçerli bir ABD hisse kodu yaz (ör. AAPL).');
+      if(!apis||typeof apis.usProfile!=='function')return err('Finnhub bu sürümde yok.');
+      if(!feedStatus().finnhub.configured)return err('Finnhub anahtarı kayıtlı değil: Piyasa sekmesindeki Veri kaynakları bölümünden ekle.',{needKey:true});
+      const [pr,nw,ea]=await Promise.all([soft(()=>apis.usProfile(sym),15000),soft(()=>apis.usNews(sym),15000),soft(()=>apis.usEarnings(sym),15000)].map(p=>p.then(obj,()=>({}))));
+      const part=x=>x.ok?x:null,errs=[pr,nw,ea].map(x=>typeof x.error==='string'?x.error.slice(0,200):null).filter(Boolean);
+      if(!pr.ok&&!nw.ok&&!ea.ok)return err(errs[0]||'Finnhub verisi alınamadı.');
+      return {ok:true,symbol:sym,profile:part(pr),news:part(nw)?(nw.items||[]).slice(0,10):[],earnings:part(ea),error:errs[0]||null,at:now()}}
     return err('Geçersiz işlem.')}
   function search(q){q=typeof q==='string'?q:q&&typeof q.q==='string'?q.q:'';q=q.trim().slice(0,40);if(!q)return [];
     const r=data.search(q);return Array.isArray(r)?r.slice(0,12):[]}

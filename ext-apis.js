@@ -1,4 +1,5 @@
-// Dis veri API'leri (kullanicinin ucretsiz anahtarlariyla): NewsAPI.org (haber), ExchangeRate-API v6 (doviz), CoinGecko Demo (kripto).
+// Dis veri API'leri (kullanicinin ucretsiz anahtarlariyla): NewsAPI.org (haber), ExchangeRate-API v6 (doviz), CoinGecko Demo (kripto),
+// Finnhub (ABD hisseleri: sirket haberi, profil/oranlar/analist tavsiyesi, bilanco takvimi).
 // Anahtarlar main.js'te safeStorage ile sifreli saklanir (enc/dec, groqKey/grokKey gibi) ve cagri aninda keys.*() ile okunur;
 // koda, teste, loga ya da diske yazilmaz (sayac dosyasinda yalniz anahtarin kisa sha256 parmak izi durur: anahtar degisince sayac sifirlanir).
 // Kurallar: yalniz https; 12 sn zaman asimi (govde okuma dahil); yonlendirme reddedilir (baslikta giden anahtar baska adrese gitmesin);
@@ -12,17 +13,21 @@
 //   sunucudaki kalan sayiyi ve yenilenme gununu alir, sayaci esitler.
 //  CoinGecko Demo: dakikada 30 istek (kayan 60 sn penceresi), ayda ~10.000 (100 yedek); 429'da Retry-After kadar beklenir.
 //   Bir crypto() yenilemesi vs para birimi sayisi kadar istek atar (coins/markets tek vs_currency alir; sparkline yalniz ilkinde).
+//  Finnhub Free: dakikada 60 istek -> uygulama 50 (kayan 60 sn), gunde 2.000 yumusak tavan (UTC gunu). Anahtar X-Finnhub-Token
+//   basliginda (URL'de degil). 429'da Retry-After / X-Ratelimit-Reset kadar beklenir, eski onbellek doner. 403 ya gecersiz anahtar
+//   ya da ucretli uc noktadir (govdedeki metinle ayrilir). usProfile 3, usEarnings 2 istek atar; biri duserse partial:true.
 // fetch ve now enjekte edilir (testlerde sahte).
 const fs=require('fs'),path=require('path'),crypto=require('crypto');
 
 const TIMEOUT_MS=12000,MIN=60000,HOUR=3600000,DAY=86400000;
-const NEWS_URL='https://newsapi.org/v2/everything',FX_URL='https://v6.exchangerate-api.com/v6/',CG_URL='https://api.coingecko.com/api/v3';
-const LIMITS={news:{cap:90,plan:100,reserve:1,unit:'day'},fx:{cap:1500,reserve:20,unit:'month'},gecko:{cap:10000,reserve:100,unit:'month',perMin:30}};
-const NAMES={news:'NewsAPI',fx:'ExchangeRate-API',gecko:'CoinGecko'};
-const PROVIDERS=['news','fx','gecko'];
+const NEWS_URL='https://newsapi.org/v2/everything',FX_URL='https://v6.exchangerate-api.com/v6/',CG_URL='https://api.coingecko.com/api/v3',FH_URL='https://finnhub.io/api/v1';
+const LIMITS={news:{cap:90,plan:100,reserve:1,unit:'day'},fx:{cap:1500,reserve:20,unit:'month'},gecko:{cap:10000,reserve:100,unit:'month',perMin:30},
+  finnhub:{cap:2000,plan:60,reserve:0,unit:'day',perMin:50}};
+const NAMES={news:'NewsAPI',fx:'ExchangeRate-API',gecko:'CoinGecko',finnhub:'Finnhub'};
+const PROVIDERS=['news','fx','gecko','finnhub'];
 const ALIAS={news:'news',newsapi:'news',haber:'news',fx:'fx',doviz:'fx',kur:'fx',exchangerate:'fx','exchangerate-api':'fx',
-  gecko:'gecko',coingecko:'gecko',crypto:'gecko',kripto:'gecko'};
-const NEWS_TTL=30*MIN,CG_TTL=2*MIN,FX_MIN_TTL=HOUR,FX_MAX_TTL=26*HOUR,MEM_MAX=60,FXC_MAX=4;
+  gecko:'gecko',coingecko:'gecko',crypto:'gecko',kripto:'gecko',finnhub:'finnhub',abd:'finnhub',us:'finnhub'};
+const NEWS_TTL=30*MIN,CG_TTL=2*MIN,FH_NEWS_TTL=30*MIN,FH_PROF_TTL=6*HOUR,FH_EARN_TTL=12*HOUR,FH_PART_TTL=15*MIN,FX_MIN_TTL=HOUR,FX_MAX_TTL=26*HOUR,MEM_MAX=60,FXC_MAX=4;
 // NewsAPI /v2/everything 'language' secenekleri (Turkce yok)
 const NEWS_LANGS=new Set(['ar','de','en','es','fr','he','it','nl','no','pt','ru','sv','ud','zh']);
 // Arayuz mesajlari 200 karakterde keser (borsa-pro-main.js): not ve hata metinleri bu sinirin altinda kalir.
@@ -32,8 +37,16 @@ const MSG_MAX=200;
 const CROSS=['USD','EUR','GBP','CHF','JPY','CAD','AUD','SAR','AED','CNY','RUB','SEK','NOK','DKK','KWD','QAR','AZN'];
 const COINS=['bitcoin','ethereum','solana','binancecoin','ripple'];
 const FILE='ext-apis.json';
-// Anahtar bicimi: yalniz URL/baslik icin guvenli karakterler (NewsAPI 32 hex, ExchangeRate 24 hex, CoinGecko "CG-..."); esnek tutuldu.
-const KEY_RE={news:/^[A-Za-z0-9]{20,64}$/,fx:/^[A-Za-z0-9]{16,64}$/,gecko:/^[A-Za-z0-9_-]{10,80}$/};
+// Anahtar bicimi: yalniz URL/baslik icin guvenli karakterler (NewsAPI 32 hex, ExchangeRate 24 hex, CoinGecko "CG-...", Finnhub ~20 kucuk harf/rakam); esnek tutuldu.
+const KEY_RE={news:/^[A-Za-z0-9]{20,64}$/,fx:/^[A-Za-z0-9]{16,64}$/,gecko:/^[A-Za-z0-9_-]{10,80}$/,finnhub:/^[A-Za-z0-9]{16,64}$/};
+// ABD hisse kodu (Finnhub): AAPL, BRK.B, BF-B. BIST (.IS) ve kripto (-USD) reddedilir.
+const US_RE=/^[A-Z][A-Z0-9.\-]{0,9}$/;
+const US_ONLY='Finnhub yalnız ABD hisseleri içindir; BIST (.IS) ve kripto (-USD) sembolleri desteklenmez.',US_BAD='Geçerli bir ABD hisse kodu yaz (ör. AAPL).';
+function usSymbol(s){const t=String(s==null?'':s).trim().toUpperCase();
+  if(/\.IS$/.test(t)||/-USD$/.test(t))return {symbol:null,error:US_ONLY};
+  return US_RE.test(t)?{symbol:t,error:null}:{symbol:null,error:US_BAD}}
+// Bilanco saati (Finnhub calendar/earnings 'hour')
+const EHOUR={bmo:'açılıştan önce',amc:'kapanıştan sonra',dmh:'seans içinde'};
 
 // ---- yardimcilar ----------------------------------------------------------------------------------------------------
 const fin=v=>typeof v==='number'&&Number.isFinite(v);
@@ -146,13 +159,22 @@ function message0(p,code,o={}){
     case 'month':return 'CoinGecko aylık istek kotası dolmak üzere (Demo plan: ayda '+th(LIMITS.gecko.cap)+', '+th(o.left||0)+' kaldı); yeni istek atılmadı.';
     case 'bad':return 'CoinGecko isteği geçersiz buldu'+(d?': '+d:'.');
   }
+  if(p==='finnhub')switch(code){
+    case 'key':return 'Finnhub anahtarı geçersiz. Ayarlar\'dan kontrol et (ücretsiz anahtar finnhub.io panelinde).';
+    case 'premium':return 'Finnhub bu veriyi ücretsiz planda vermiyor'+(st?' (HTTP '+st+')':'')+'.';
+    case 'limit':return 'Finnhub istek sınırı aşıldı (ücretsiz plan: dakikada '+LIMITS.finnhub.plan+' istek). '+(wait?wait+' sn sonra':'Biraz bekleyip')+' tekrar dene.';
+    case 'minute':return 'Finnhub dakikalık istek sınırı ('+LIMITS.finnhub.perMin+') dolmak üzere; '+(wait||60)+' sn sonra tekrar dene.';
+    case 'budget':return 'Finnhub günlük istek bütçesi doldu (uygulama günde '+th(LIMITS.finnhub.cap)+' istek atar). Yarın (UTC 00:00) sıfırlanır.';
+    case 'notfound':return 'Finnhub bu sembol için veri bulamadı'+(o.symbol?': '+String(o.symbol).slice(0,12):'')+'.';
+    case 'bad':return 'Finnhub isteği geçersiz buldu'+(d?': '+d:'.');
+  }
   if(st===426)return N+' bu isteği mevcut planda kabul etmedi (HTTP 426).';
   return N+' isteği başarısız'+(st?' (HTTP '+st+')':'')+(d?': '+d:'.');
 }
 // Metinden anahtarlari ve anahtar tasiyabilecek URL parcalarini maskele
 function scrub(s,keys=[]){let t=String(s==null?'':s);
   for(const k of keys)if(typeof k==='string'&&k.length>=6){t=t.split(k).join('***');const e=encodeURIComponent(k);if(e!==k)t=t.split(e).join('***')}
-  return t.replace(/(\/v6\/)[^/\s?#"']+/g,'$1***').replace(/(api[_-]?key=|x-cg-demo-api-key[:=]\s*|x-api-key[:=]\s*)[^&\s"']+/gi,'$1***')}
+  return t.replace(/(\/v6\/)[^/\s?#"']+/g,'$1***').replace(/(api[_-]?key=|token=|x-cg-demo-api-key[:=]\s*|x-api-key[:=]\s*|x-finnhub-token["']?\s*[:=]\s*["']?)[^&\s"',}]+/gi,'$1***')}
 
 // ---- fabrika ----------------------------------------------------------------------------------------------------------
 function createExtApis({fetch:F=(...a)=>globalThis.fetch(...a),now=()=>Date.now(),keys={},dir=null,timeoutMs=TIMEOUT_MS}={}){
@@ -368,12 +390,92 @@ function createExtApis({fetch:F=(...a)=>globalThis.fetch(...a),now=()=>Date.now(
     });
   }
 
+  // ---- Finnhub (ABD hisseleri) ----------------------------------------------------------------------------------------
+  let fwin=[],fcool=0;   // son 60 sn'deki Finnhub istekleri, 429 sonrasi bekleme
+  const fhMinLeft=()=>{const t=now();fwin=fwin.filter(x=>t-x<MIN);return Math.max(0,LIMITS.finnhub.perMin-fwin.length)};
+  function fhGuard(key,need){const t=now();
+    if(fcool>t)throw xe('limit',{wait:Math.ceil((fcool-t)/1000)});
+    if(fhMinLeft()<need)throw xe('minute',{wait:Math.max(1,Math.ceil((fwin[0]+MIN-t)/1000))});
+    if(leftOf('finnhub',key)<need)throw xe('budget')}
+  function fhFail(r){const j=r.j&&typeof r.j==='object'?r.j:{},m=String(j.error||r.text||'').slice(0,160),s=r.status;
+    if(s===401||/invalid api key|api key required/i.test(m))return xe('key',{status:s});
+    if(s===403)return /access|premium|plan|subscri/i.test(m)?xe('premium',{status:s}):xe('key',{status:s});
+    if(s===429){const h=r.headers,ra=h&&typeof h.get==='function'?num(h.get('retry-after')):null;return xe('limit',{status:s,wait:ra&&ra>0?ra:60})}
+    if(s>=500)return xe('server',{status:s});
+    if(r.ok&&r.j==null)return xe('parse');
+    return xe('http',{status:s,detail:m})}
+  // Anahtar baslikta (X-Finnhub-Token), URL'de degil
+  async function fget(key,pathq){fwin.push(now());use('finnhub',key);
+    const r=await request(FH_URL+pathq,{'X-Finnhub-Token':key});
+    if(!r.ok||r.j==null){const e=fhFail(r);if(e.xcode==='limit')fcool=Math.max(fcool,now()+(e.wait||60)*1000);throw e}
+    return r.j}
+  const ymd=t=>new Date(t).toISOString().slice(0,10);
+  // Ortak sarmal: sembol denetimi, onbellek, es zamanli tekillestirme, hata durumunda eski onbellek
+  function fhCached(kind,symbol,ttl,need,fn){const P='finnhub',u=usSymbol(symbol);
+    const left=()=>({left:leftOf(P,keyOf(P)),minuteLeft:fhMinLeft()});
+    if(!u.symbol)return Promise.resolve({ok:false,symbol:null,...left(),error:fail(P,xe('input',{text:u.error}))});
+    const ck='f|'+kind+'|'+u.symbol,c=mem.get(ck);
+    if(c&&now()<c.exp)return Promise.resolve({...c.v,...left(),cached:true});
+    return once(ck,async()=>{const key=keyOf(P);
+      try{if(!key)throw xe('nokey');if(!validKey(P,key))throw xe('badkey');fhGuard(key,need);
+        const v=await fn(key,u.symbol);
+        putMem(ck,{...v,error:v.partial?v.error:null},now()+(v.partial?FH_PART_TTL:ttl));if(!v.partial)markOk(P);
+        return {...v,...left(),cached:false};
+      }catch(e){const m=fail(P,e);
+        if(c)return {...c.v,...left(),cached:true,stale:true,error:m};
+        return {ok:false,symbol:u.symbol,...left(),error:m}}
+    })}
+  // Sirket haberleri (son `days` gun, en fazla 15)
+  function usNews(symbol,{days=7}={}){days=int(days,1,30,7);
+    return fhCached('n'+days,symbol,FH_NEWS_TTL,1,async(key,sym)=>{const t=now();
+      const j=await fget(key,'/company-news?'+qs({symbol:sym,from:ymd(t-days*DAY),to:ymd(t)}));
+      if(!Array.isArray(j))throw xe('parse');
+      const seen=new Set(),items=[];
+      for(const a of j){if(!a||typeof a!=='object')continue;const url=httpsUrl(a.url),title=clean(a.headline,300);if(!url||!title)continue;
+        const k=title.toLowerCase();if(seen.has(k))continue;seen.add(k);
+        items.push({title,source:clean(a.source,80)||null,url,time:fin(a.datetime)?a.datetime*1000:null,summary:clean(a.summary,300)||null})}
+      items.sort((a,b)=>(b.time||0)-(a.time||0));
+      return {ok:true,symbol:sym,items:items.slice(0,15),time:now()}})}
+  // Profil + temel oranlar + analist tavsiyesi (3 istek; biri duserse partial)
+  function usProfile(symbol){
+    return fhCached('p',symbol,FH_PROF_TTL,3,async(key,sym)=>{
+      const res=await Promise.allSettled([fget(key,'/stock/profile2?'+qs({symbol:sym})),fget(key,'/stock/metric?'+qs({symbol:sym,metric:'all'})),
+        fget(key,'/stock/recommendation?'+qs({symbol:sym}))]);
+      const val=i=>res[i].status==='fulfilled'?res[i].value:null;
+      if(res.every(x=>x.status==='rejected'))throw res[0].reason;
+      const pr=val(0),mt=val(1)&&val(1).metric||null,rc=Array.isArray(val(2))?val(2):null;
+      if(pr&&typeof pr==='object'&&!pr.name&&!mt&&!(rc&&rc.length))throw xe('notfound',{symbol:sym});
+      const profile=pr&&pr.name?{name:clean(pr.name,120),exchange:clean(pr.exchange,80)||null,industry:clean(pr.finnhubIndustry,80)||null,country:clean(pr.country,8)||null,
+        currency:clean(pr.currency,8)||null,ipo:clean(pr.ipo,12)||null,web:httpsUrl(pr.weburl),logo:httpsUrl(pr.logo),
+        mcap:num(pr.marketCapitalization),shares:num(pr.shareOutstanding)}:null;
+      const metrics=mt&&typeof mt==='object'?{high52:num(mt['52WeekHigh']),low52:num(mt['52WeekLow']),pe:r2(num(mt.peTTM)),pb:r2(num(mt.pbAnnual)),
+        divYield:r2(num(mt.dividendYieldIndicatedAnnual)),beta:r2(num(mt.beta)),mcap:num(mt.marketCapitalization)}:null;
+      let rec=null;
+      if(rc&&rc.length){const L=rc.filter(x=>x&&typeof x==='object').sort((a,b)=>String(b.period).localeCompare(String(a.period)))[0];
+        if(L){const n=k=>Math.max(0,Math.round(num(L[k])||0));rec={period:clean(L.period,12),strongBuy:n('strongBuy'),buy:n('buy'),hold:n('hold'),sell:n('sell'),strongSell:n('strongSell')};
+          rec.total=rec.strongBuy+rec.buy+rec.hold+rec.sell+rec.strongSell}}
+      const bad=res.find(x=>x.status==='rejected');
+      return {ok:true,symbol:sym,profile,metrics,rec,time:now(),...(bad?{partial:true,error:fail('finnhub',bad.reason)}:{})}})}
+  // Bilanco takvimi (bugun..+90 gun) + son 4 ceyrek gerceklesen/beklenen
+  function usEarnings(symbol){
+    return fhCached('e',symbol,FH_EARN_TTL,2,async(key,sym)=>{const t=now();
+      const res=await Promise.allSettled([fget(key,'/calendar/earnings?'+qs({from:ymd(t),to:ymd(t+90*DAY),symbol:sym})),fget(key,'/stock/earnings?'+qs({symbol:sym,limit:4}))]);
+      if(res.every(x=>x.status==='rejected'))throw res[0].reason;
+      const cal=res[0].status==='fulfilled'&&res[0].value&&Array.isArray(res[0].value.earningsCalendar)?res[0].value.earningsCalendar:[];
+      const next=cal.filter(x=>x&&/^\d{4}-\d{2}-\d{2}$/.test(String(x.date))).sort((a,b)=>a.date.localeCompare(b.date)).slice(0,2)
+        .map(x=>({date:x.date,hour:EHOUR[x.hour]||null,epsEst:num(x.epsEstimate),revEst:num(x.revenueEstimate),quarter:num(x.quarter),year:num(x.year)}));
+      const pst=res[1].status==='fulfilled'&&Array.isArray(res[1].value)?res[1].value:[];
+      const past=pst.filter(x=>x&&typeof x==='object').sort((a,b)=>String(b.period).localeCompare(String(a.period))).slice(0,4)
+        .map(x=>({period:clean(x.period,12),actual:num(x.actual),estimate:num(x.estimate),surprisePct:r2(num(x.surprisePercent))}));
+      const bad=res.find(x=>x.status==='rejected');
+      return {ok:true,symbol:sym,next,past,time:now(),...(bad?{partial:true,error:fail('finnhub',bad.reason)}:{})}})}
+
   // ---- durum ve anahtar denemesi -----------------------------------------------------------------------------------
   function status(){const o={};
     for(const p of PROVIDERS){const k=keyOf(p),c=ctr(p,k);
       o[p]={name:NAMES[p],configured:!!k,valid:k?validKey(p,k):false,left:leftOf(p,k),cap:p==='fx'&&capOf(c)||LIMITS[p].cap,
         unit:LIMITS[p].unit,lastOk:info[p].lastOk,lastError:info[p].lastError,lastErrorAt:info[p].lastErrorAt}}
-    o.gecko.minuteLeft=minuteLeft();o.news.note=NEWS_NOTE;
+    o.gecko.minuteLeft=minuteLeft();o.news.note=NEWS_NOTE;o.finnhub.minuteLeft=fhMinLeft();o.finnhub.note='Yalnız ABD hisseleri: şirket haberleri, temel oranlar, analist tavsiyesi, bilanço takvimi.';
     return o}
   // Tek ucuz istek; onbellege bakmaz. news: 1 haberlik arama; fx: /quota (kalan istegi esitler); gecko: BTC fiyati.
   async function test(provider){
@@ -402,6 +504,10 @@ function createExtApis({fetch:F=(...a)=>globalThis.fetch(...a),now=()=>Date.now(
           const f=await fx('USD',{fresh:true});if(!f.ok||f.error)return {ok:false,msg:f.error||message(p,'parse')};
           msg='ExchangeRate-API anahtarı çalışıyor'+(f.crosses['USD/TRY']?' (1 USD = '+String(f.crosses['USD/TRY']).replace('.',',')+' TL)':'')+'. Bu ay kalan istek: '+th(f.left)+'.';
         }else throw fxFail(r,'USD');
+      }else if(p==='finnhub'){
+        fhGuard(key,1);
+        const j=await fget(key,'/quote?'+qs({symbol:'AAPL'})),c=num(j&&j.c);
+        msg='Finnhub anahtarı çalışıyor'+(c?' (AAPL '+String(c).replace('.',',')+' $)':'')+'. Bugün kalan istek: '+th(leftOf(p,key))+'.';
       }else{
         geckoGuard(key,1);
         let j;try{j=await gget(key,CG_URL+'/simple/price?'+qs({ids:'bitcoin',vs_currencies:'usd'}))}
@@ -417,7 +523,7 @@ function createExtApis({fetch:F=(...a)=>globalThis.fetch(...a),now=()=>Date.now(
     }
   }
 
-  return {news,newsFor,fx,crypto:cryptoQ,status,test,validKey};
+  return {news,newsFor,fx,crypto:cryptoQ,usNews,usProfile,usEarnings,status,test,validKey};
 }
 
-module.exports={createExtApis,newsQuery,crosses,message,scrub,validKey,fold,clean,period,LIMITS,NAMES,NEWS_NOTE,TIMEOUT_MS,COINS,CROSS};
+module.exports={createExtApis,usSymbol,newsQuery,crosses,message,scrub,validKey,fold,clean,period,LIMITS,NAMES,NEWS_NOTE,TIMEOUT_MS,COINS,CROSS};
