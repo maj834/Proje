@@ -118,7 +118,7 @@ function withTimeout(p,ms,m){return new Promise((ok,no)=>{const t=setTimeout(()=
   Promise.resolve(p).then(v=>{clearTimeout(t);ok(v)},e=>{clearTimeout(t);no(e)})})}
 
 function registerBorsaPro({ipcMain,app,BrowserWindow,path,screen,Notification,shell,nativeTheme,cfg,save,isOn=()=>true,market,engine,calendar,power,
-  data,lab,analyst,ext={},say=()=>{},now=()=>Date.now(),timers,meta=null,quant=null,history=null,fund=null,radar=null,planner=null,apis=null,secrets=null}){
+  data,lab,analyst,ext={},say=()=>{},now=()=>Date.now(),timers,meta=null,quant=null,history=null,fund=null,radar=null,planner=null,apis=null,secrets=null,demo=null}){
   const T=timers||{setTimeout:(f,ms)=>setTimeout(f,ms),clearTimeout:h=>clearTimeout(h)};
   ext=obj(ext);
   let win=null,enabled=false,timer=null,ticking=false,lastTick=0,statusKey=null,scanning=null,scanMem,loadSeq=0,ov=null,ovWait=null,bench=null,benchWait=null;
@@ -207,6 +207,9 @@ function registerBorsaPro({ipcMain,app,BrowserWindow,path,screen,Notification,sh
     return {ok:true,tg:info(),depth:sym?depthSummary(sym):null}}
   // main.js yeni derinlik geldiginde cagirir: pencere aciksa ozet olayi
   function onDepth(sym){const s=code(String(sym||''));if(!s||!alive())return;const d=depthSummary(s);if(d)send({type:'depth',symbol:s,depth:d})}
+
+  const demoCtl=require('./bp-demo-main').create({lib:demo,app,path,market,calendar,now,isOn,
+    active:kind=>kind==='battery'?battery():enabled&&isOn()&&!away(),timers:T,send,Notification,open,timeout:withTimeout});
 
   // Tek sembolun tam analizi (pencere, Neo ve yapay zeka baglami ortak). y: Yahoo sembolu, sym: gosterilen kod
   async function loadCore(y,sym,tf,mkt){
@@ -560,7 +563,7 @@ function registerBorsaPro({ipcMain,app,BrowserWindow,path,screen,Notification,sh
   const H={'bp:state':state,'bp:load':load,'bp:quotes':quotes,'bp:watch':watch,'bp:scan':scan,
     'bp:scanCancel':()=>{const was=!!scanning;cancelScan();return {ok:true,cancelled:was}},
     'bp:overview':overview,'bp:feeds':feeds,'bp:search':search,'bp:lab':labRun,'bp:ai':ai,'bp:report':aiReport,'bp:ask':ask,'bp:depth':depthOp,'bp:plan':planRun,'bp:planApply':planApply,'bp:alarm':alarm,'bp:portfolio':portfolio,
-    'bp:capital':capital,'bp:prefs':prefs,'bp:open':openUrl};
+    'bp:demo':demoCtl.op,'bp:capital':capital,'bp:prefs':prefs,'bp:open':openUrl};
   for(const [ch,f] of Object.entries(H))ipcMain.handle(ch,async(e,a)=>{
     if(!isWin(e))return err('İzin yok');if(!isOn())return err('Borsa özelliği kapalı.');
     try{const r=await f(a);return isOn()?r:err('Borsa özelliği kapalı.')}
@@ -590,14 +593,14 @@ function registerBorsaPro({ipcMain,app,BrowserWindow,path,screen,Notification,sh
     const n=conf().alarms.filter(pending).length;
     if(n)return n+' alarm izleniyor'+(mstatus().open?'':' · seans kapalı');
     return alive()?'Borsa Pro açık':null}
-  function enable(){if(!isOn())return;enabled=true;schedule()}
-  function disable(){enabled=false;cancelScan();if(timer!=null){T.clearTimeout(timer);timer=null}
+  function enable(){if(!isOn())return;enabled=true;schedule();demoCtl.enable()}
+  function disable(){enabled=false;demoCtl.disable();cancelScan();if(timer!=null){T.clearTimeout(timer);timer=null}
     if(alive())win.close();win=null;ov=null;ctx.clear();aiCache.clear();anCache.clear();vCand.clear();statusKey=null}
 
   // Guc durumu degisince (pil/priz, kilit, uyku) zamanlayici yeniden kurulur; uyanista seans durumu tazelenir
-  try{if(power&&typeof power.on==='function')power.on(()=>{schedule();if(!away())checkStatus()})}catch(e){}
+  try{if(power&&typeof power.on==='function')power.on(()=>{schedule();demoCtl.schedule(true);if(!away())checkStatus()})}catch(e){}
   if(app&&typeof app.whenReady==='function')app.whenReady().then(()=>{try{if(power&&typeof power.init==='function')power.init()}catch(e){}if(isOn())enable()});
-  if(app&&typeof app.on==='function')app.on('will-quit',()=>{cancelScan();if(timer!=null){T.clearTimeout(timer);timer=null}});
+  if(app&&typeof app.on==='function')app.on('will-quit',()=>{demoCtl.disable();cancelScan();if(timer!=null){T.clearTimeout(timer);timer=null}});
   return {open,close,enable,disable,status,analyzeSymbol,isWin,onDepth,plan:planRun};
 }
 module.exports={registerBorsaPro,clean,cleanAlarm,cleanPos,checkPos,cleanPrefs,code,summarize,nextChangeMs,alarmText,num,
