@@ -9,6 +9,7 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     env:
       # Electron ikili dosyasi testlerde gerekmez (zaten ilk calistirmada indirilir).
       ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
@@ -23,6 +24,7 @@ jobs:
   mac:
     needs: test
     runs-on: macos-latest
+    timeout-minutes: 60
     # GitHub Release olusturmak / eskileri silmek icin (yalniz push'ta kullanilir)
     permissions:
       contents: write

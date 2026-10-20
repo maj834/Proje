@@ -6,7 +6,7 @@
   "scripts": {
     "start": "electron .",
     "dist": "electron-builder --mac",
-    "test": "node --test test/*.test.js",
+    "test": "node --test --test-timeout=120000 test/*.test.js",
     "ses": "mkdir -p build/bin && swiftc -O -target arm64-apple-macos13 -o build/bin/ses-arm64 native/ses.swift && swiftc -O -target x86_64-apple-macos13 -o build/bin/ses-x64 native/ses.swift && lipo -create -output build/bin/ses-yardimcisi build/bin/ses-arm64 build/bin/ses-x64 && rm build/bin/ses-arm64 build/bin/ses-x64",
     "sistem": "mkdir -p build/bin && swiftc -O -target arm64-apple-macos13 -o build/bin/sistem-arm64 native/sistem.swift && swiftc -O -target x86_64-apple-macos13 -o build/bin/sistem-x64 native/sistem.swift && lipo -create -output build/bin/sistem-yardimcisi build/bin/sistem-arm64 build/bin/sistem-x64 && rm build/bin/sistem-arm64 build/bin/sistem-x64",
     "yardimcilar": "npm run ses && npm run sistem && npm run neo",

@@ -475,6 +475,8 @@ require('readline').createInterface({input:process.stdin}).on('line',l=>{try{fs.
     screen: { getCursorScreenPoint: () => ({ x: 0, y: 0 }), getDisplayNearestPoint: () => ({ workArea: { x: 0, y: 0, width: 100, height: 100 } }) },
     globalShortcut: { register: (k, f) => { sc[k] = f; return true; }, unregister() {} }, Notification: function () { return { show() {} }; },
     cfg: () => C, save: x => { C = { ...C, ...x }; }, keys: { get: p => store[p] || null, set: (p, k) => { store[p] = k; } }, shell: { openExternal() {} }, actions: {}, isOn: () => true, brain, eleven });
+  // Test bitince Neo kapatilir: sahte yardimci sureci acik kalirsa (macOS) test dosyasi hic bitmez
+  t.after(() => { try { ui.disable(); } catch (e) {} });
   const cmds = () => { if (!fs.existsSync(log)) return []; const s = fs.readFileSync(log, 'utf8'); return s.slice(0, s.lastIndexOf('\n') + 1).split('\n').filter(Boolean).map(JSON.parse); };
   const until = async (f, ms = 15000) => { const e = Date.now() + ms; while (!f()) { if (Date.now() > e) throw new Error('zaman asimi'); await new Promise(r => setTimeout(r, 15)); } };
   return { ui, h, e: { sender: wc }, cmds, until, plays, fetch: ff, asked, orbMsgs, store, sc, ready: () => ready(), conf: () => C };
