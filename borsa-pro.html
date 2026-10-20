@@ -22,7 +22,7 @@ button,input,select{font:inherit;color:inherit}
 .srch kbd{position:absolute;right:8px;top:6px;font:500 10.5px var(--mono);color:var(--fg-3);border:1px solid var(--line);border-radius:3px;padding:0 4px}
 .dd{position:absolute;left:0;right:0;top:34px;z-index:50;background:var(--surface);border:1px solid var(--line-2);border-radius:var(--r2);padding:4px;display:none;box-shadow:0 8px 24px rgba(0,0,0,.25)}
 .dd.on{display:block}.dd div{display:flex;gap:8px;align-items:baseline;padding:5px 8px;border-radius:4px;cursor:pointer}
-.dd div.sel,.dd div:hover{background:var(--acc-soft)}.dd b{font:600 12px var(--mono);min-width:56px}.dd span{color:var(--fg-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dd div.sel,.dd div:hover{background:var(--acc-soft)}.dd em.ddt{margin-left:auto;font:600 9.5px var(--font);font-style:normal;letter-spacing:.04em;text-transform:uppercase;color:var(--fg-3);border:1px solid var(--line-2);border-radius:8px;padding:0 5px;flex:none}.dd b{font:600 12px var(--mono);min-width:56px}.dd span{color:var(--fg-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tabs{display:flex;gap:2px;margin-left:var(--s2)}
 .tabs button{height:30px;padding:0 12px;border:0;border-radius:var(--r2);background:none;color:var(--fg-2);cursor:pointer;white-space:nowrap}
 .tabs button:hover{color:var(--fg);background:var(--sunk)}.tabs button.on{color:var(--fg);background:var(--sunk);box-shadow:inset 0 -2px 0 var(--acc)}
@@ -44,7 +44,7 @@ button,input,select{font:inherit;color:inherit}
 .wr:hover{background:var(--sunk)}.wr.on{background:var(--acc-soft)}
 .wr .c{font:600 12px var(--mono)}.wr .n{grid-column:1;font-size:10.5px;color:var(--fg-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .wr svg{grid-row:1/3;grid-column:2}
-.wr .lz{color:var(--acc);font-size:11px}
+.wr .lz{color:var(--acc);font-size:11px}.wr .wt{font:600 9.5px var(--font);color:var(--fg-3);margin-left:4px;vertical-align:1px}
 .wr .p{text-align:right;font:500 12px var(--mono)}.wr .ch{grid-column:3;text-align:right;font:500 10.5px var(--mono)}
 .wr .vd{position:absolute;left:-2px;top:9px;width:3px;height:16px;border-radius:2px}
 .wr .x{position:absolute;right:2px;top:2px;display:none;border:0;background:var(--surface);color:var(--fg-3);border-radius:3px;width:16px;height:16px;line-height:14px;cursor:pointer;font-size:12px}
@@ -54,7 +54,7 @@ button,input,select{font:inherit;color:inherit}
 #v-grafik{grid-template-columns:minmax(0,1fr) 352px;grid-template-rows:minmax(0,1fr)}
 .cw{display:grid;grid-template-rows:auto auto 1fr;min-width:0;min-height:0}
 .sh{display:flex;align-items:center;gap:var(--s3);padding:10px 14px 6px;min-width:0}
-.sh .sym{font:600 18px var(--mono);letter-spacing:.01em}.sh .nm{color:var(--fg-2);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px;min-width:90px;flex:0 1 auto}
+.sh .sym{font:600 18px var(--mono);letter-spacing:.01em;white-space:nowrap}.sh .nm{color:var(--fg-2);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px;min-width:90px;flex:0 1 auto}
 .sh .px{font:600 18px var(--mono)}.sh .chg{font:500 12.5px var(--mono);padding:2px 7px;border-radius:4px;white-space:nowrap}
 .chg.up{background:var(--up-soft)}.chg.dn{background:var(--dn-soft)}
 .seg{display:inline-flex;border:1px solid var(--line-2);border-radius:var(--r2);overflow:hidden;flex:none}
@@ -177,11 +177,52 @@ table.t tbody tr{cursor:pointer}table.t tbody tr:hover{background:var(--sunk)}ta
 @media(max-width:1180px){.sh .nm{display:none}.tb>.mu{display:none}.chip{padding:0 7px;height:22px;font-size:10.5px}.sh{flex-wrap:wrap;row-gap:6px}
   #v-grafik{grid-template-columns:minmax(0,1fr) 300px}.pv b{font-size:12px}.vl{min-width:78px}.ap{padding:10px 10px 24px}}
 @media(max-width:1100px){.brand span{display:none}.badge span{display:none}.body{grid-template-columns:180px 1fr}.wr svg{display:none}.wr{grid-template-columns:1fr auto}}
-.demo-form{display:grid;grid-template-columns:1fr 1fr;gap:10px}.demo-form label{display:grid;gap:4px;color:var(--fg-2)}.demo-form .inp{width:100%;min-width:0}.demo-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:14px 0}.demo-stats h2{font-size:17px}.demo-scroll{overflow:auto}.demo-scroll .t{white-space:nowrap}.tabs button{padding-left:10px;padding-right:10px}@media(max-width:1180px){.demo-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.tabs button{padding-left:7px;padding-right:7px}}
+.demo-form{display:grid;grid-template-columns:1fr 1fr;gap:10px}.demo-form label{display:grid;gap:4px;color:var(--fg-2);font-size:11.5px}.demo-form .inp{width:100%;min-width:0;color:var(--fg)}.demo-scroll{overflow:auto}.demo-scroll .t{white-space:nowrap}
+.tabs button{padding-left:10px;padding-right:10px}@media(max-width:1180px){.tabs button{padding-left:7px;padding-right:7px}}
+/* demo hesap ve emir formu */
+.dm-warn{margin:0 0 12px}
+.dm-top{grid-template-columns:repeat(4,minmax(0,1fr));margin-bottom:12px}
+.dm-top .mc b{font-size:19px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.dm-top .mc small{display:block;color:var(--fg-3);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dm-top .mc small.up{color:var(--up)}.dm-top .mc small.dn{color:var(--dn)}
+.dm-grid{display:grid;grid-template-columns:minmax(0,1fr) 324px;gap:12px;align-items:start;margin-bottom:12px}
+.dm-col{display:flex;flex-direction:column;gap:12px;min-width:0}
+.dm .card{margin:0;background:var(--surface)}.dm>.card{margin-bottom:12px}
+.dm-eq{width:100%;height:170px;display:block;color:var(--fg-3)}
+.dm-eqx{display:flex;justify-content:space-between;font:500 10.5px var(--mono);color:var(--fg-3);margin-top:4px}
+.dm-symc{cursor:pointer}.dm-symc:hover b{color:var(--acc)}.dm-symc b{font:600 12px var(--mono)}.dm-symc small{display:block;font:400 10.5px var(--font);color:var(--fg-3);max-width:150px;overflow:hidden;text-overflow:ellipsis}
+.dm-pt td{padding:6px 6px}.dm-pt td.dm-pl small{display:block;font-size:10.5px;opacity:.85}
+.dm-w{display:flex;align-items:center;gap:6px;justify-content:flex-end}.dm-w span{min-width:38px}
+.dm-wb{position:relative;width:36px;height:6px;border-radius:3px;background:var(--sunk);overflow:hidden}.dm-wb i{position:absolute;left:0;top:0;bottom:0;background:var(--acc);border-radius:3px}
+td.dm-act .btn{height:22px;padding:0 7px;font-size:11px;margin-left:3px}
+.dm-filt{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px}.dm-filt .seg button{font:500 11px var(--font)}
+.dm-wr{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;align-items:center}.dm-wr>div:first-child{grid-row:1/3;display:grid}
+.dm-wr>div:first-child b{font:600 24px var(--mono);line-height:1}.dm-wr>div:first-child span{font-size:10.5px;color:var(--fg-3)}.dm-wr>.mu{font-size:11px}
+.dm-wrb{display:flex;height:8px;border-radius:4px;overflow:hidden;background:var(--sunk)}.dm-wrb i{display:block;height:100%}.dm-wrb .w{background:var(--up)}.dm-wrb .l{background:var(--dn)}
+.dm-set>summary{cursor:pointer;font-weight:600}.dm-setg{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:12px}.dm-setg h4{margin:0 0 8px;font:600 11px var(--font);letter-spacing:.06em;text-transform:uppercase;color:var(--fg-3)}
+.btn.dm-rst{color:var(--dn);border-color:color-mix(in srgb,var(--dn) 55%,var(--line-2))}
+.dm-t h3{margin-bottom:6px}
+.dm-s{position:relative;margin-top:8px}.dm-s .inp{width:100%;height:30px}.dm-s .dd{top:32px}
+.dm-cur{display:flex;align-items:baseline;gap:8px;margin:8px 0 2px;min-width:0;flex-wrap:wrap}.dm-cur>b{font:600 14px var(--mono)}.dm-cur>.m2{font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:150px}
+.dm-cur.mu{font-size:11.5px;align-items:center;gap:5px}.dm-q{cursor:pointer!important}
+.seg.dm-side,.seg.dm-type{display:grid;width:100%}.dm-side{grid-template-columns:1fr 1fr;margin-top:10px}.dm-type{grid-template-columns:repeat(3,1fr);margin-top:6px}
+.dm-side button{height:30px;font:600 12px var(--font);letter-spacing:.04em}.dm-side button.on.b{background:var(--up);color:var(--bg)}.dm-side button.on.s{background:var(--dn);color:var(--bg)}
+.dm-type button{font:500 11.5px var(--font)}.seg button:disabled{opacity:.4;cursor:default}
+.dm-f{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}.dm-f label{display:grid;gap:3px;font-size:11px;color:var(--fg-3)}.dm-f .inp{width:100%;font-family:var(--mono);color:var(--fg)}
+.dm-pc{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin-top:6px}.dm-pc .btn{height:24px;padding:0;font:500 11px var(--mono)}
+.dm-info{margin-top:8px;font-size:11px;color:var(--fg-2)}
+.dm-est{margin-top:8px;padding:8px 10px;border-radius:var(--r1);background:var(--sunk)}.dm-est .kv>span{font-size:11.5px}.dm-est .kv>b{font-size:11.5px}.dm-est .dm-tot{font-weight:600;color:var(--fg)}
+.dm-msg{margin-top:8px;font-size:11.5px;min-height:17px;color:var(--fg-2)}.dm-msg.bad{color:var(--dn)}.dm-msg.ok{color:var(--up)}
+.btn.dm-go{width:100%;height:32px;margin-top:6px;font-weight:600;letter-spacing:.02em}.btn.dm-buy{background:var(--up);border-color:var(--up);color:var(--bg)}.btn.dm-sell{background:var(--dn);border-color:var(--dn);color:var(--bg)}
+.btn.dm-buy:hover,.btn.dm-sell:hover{filter:brightness(1.06)}
+.dm-posl{margin-top:6px}.dm-link{display:inline-block;margin-top:6px;color:var(--acc);cursor:pointer;font-size:11.5px}
+.dm-note{display:flex;gap:6px;align-items:flex-start;margin-top:8px;padding:6px 4px 6px 9px;border-left:3px solid var(--acc);background:var(--acc-soft);font-size:11.5px;border-radius:0 4px 4px 0}.dm-note span{flex:1}.dm-note .ib{width:18px;height:18px;font-size:13px}
+@media(max-width:1180px){.dm-top{grid-template-columns:repeat(2,minmax(0,1fr))}.dm-grid{grid-template-columns:minmax(0,1fr)}.dm-side-col{order:-1;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:start}
+  .dm-setg{grid-template-columns:1fr}}
 </style>
 <script src="node_modules/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
 <script src="engine.js"></script>
 <script src="bp-chart.js"></script>
+<script src="bp-symbols.js"></script>
 <script src="bp-okul.js"></script>
 </head><body><div class="app">
 <header class="top">
@@ -242,6 +283,9 @@ const pct=(v,d=2)=>fin(v)?(v>0?'+':v<0?'−':'')+'%'+nf(Math.abs(v),d):'—';
 const sgnc=v=>fin(v)?(v>0?'up':v<0?'dn':''):'';
 const big=v=>{if(!fin(v))return '—';const a=Math.abs(v);return a>=1e9?nf(v/1e9,2)+' Mr':a>=1e6?nf(v/1e6,2)+' Mn':a>=1e3?nf(v/1e3,1)+' B':nf(v,0)};
 const tl=v=>fin(v)?nf(v,2)+' ₺':'—';
+// Grafikteki sembolun para birimi (ABD hisseleri ve kripto USD)
+const curOf=r=>r&&(r.currency==='USD'||r.market==='US')?'$':'₺';
+const money=(v,r)=>fin(v)?nf(v,2)+' '+curOf(r):'—';
 const TFN={'1dk':'1 dk','5dk':'5 dk','15dk':'15 dk','1s':'Saatlik','1g':'Günlük','1h':'Haftalık'};
 const TFS=['5dk','15dk','1s','1g','1h'];
 const hm=t=>fin(t)?new Date(t).toLocaleTimeString('tr-TR',{timeZone:'Europe/Istanbul',hour:'2-digit',minute:'2-digit'}):'';
@@ -279,21 +323,28 @@ const q=$('q');
 q.addEventListener('input',()=>{clearTimeout(sT);sT=setTimeout(doSearch,90)});
 q.addEventListener('keydown',e=>{
   if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();if(!ddItems.length)return;ddSel=(ddSel+(e.key==='ArrowDown'?1:-1)+ddItems.length)%ddItems.length;drawDD()}
-  else if(e.key==='Enter'){e.preventDefault();const it=ddItems[ddSel],v=it?it.symbol:q.value.trim();if(v){go(v);q.value='';closeDD();q.blur()}}
+  else if(e.key==='Enter'){e.preventDefault();const it=ddItems[ddSel],v=q.value.trim();if(it)openItem(it);else if(v)go(v,/-USD$/i.test(v)?'US':S.mkt);if(it||v){q.value='';closeDD();q.blur()}}
   else if(e.key==='Escape'){q.value='';closeDD();q.blur()}});
 q.addEventListener('blur',()=>setTimeout(closeDD,150));
 async function doSearch(){const v=q.value.trim();if(!v){closeDD();return}
   let r=[];try{r=await bp.search(v)}catch(e){}
-  ddItems=Array.isArray(r)?r:[];if(!ddItems.length&&/^[a-zçğıöşü0-9]{2,8}$/i.test(v))ddItems=[{symbol:v.toLocaleUpperCase('tr-TR'),name:'Kodu doğrudan aç'}];ddSel=0;drawDD()}
-function drawDD(){const d=$('dd');d.replaceChildren(...ddItems.map((x,i)=>el('div',{class:i===ddSel?'sel':'',onmousedown:e=>{e.preventDefault();go(x.symbol);q.value='';closeDD();q.blur()}},el('b',{},x.symbol),el('span',{},x.name||''))));d.classList.toggle('on',ddItems.length>0)}
+  // BIST (bp.search) + populer ABD hisse/ETF ve kripto (bp-symbols); tam kod eslesmesi one alinir
+  const B=(Array.isArray(r)?r:[]).map(x=>({...x,market:'BIST'})),Y=window.BPSymbols,V=v.toLocaleUpperCase('tr-TR').replace(/-USD$/,'');
+  const X=Y?[...Y.search('US',v,4).map(x=>({symbol:x.symbol,code:x.code,name:x.name,market:'US',tag:'ABD'})),...Y.search('CRYPTO',v,4).map(x=>({symbol:x.symbol,code:x.code,name:x.name,market:'CRYPTO',tag:'Kripto'}))]:[];
+  ddItems=[...B.slice(0,X.length?8:12),...X].map((x,i)=>[(x.code||x.symbol)===V?0:1,i,x]).sort((a,b)=>a[0]-b[0]||a[1]-b[1]).map(a=>a[2]);
+  if(!ddItems.length&&/^[a-zçğıöşü0-9]{2,8}$/i.test(v))ddItems=[{symbol:v.toLocaleUpperCase('tr-TR'),name:'Kodu doğrudan aç ('+(S.mkt==='US'?'ABD':'BIST')+')',market:S.mkt}];ddSel=0;drawDD()}
+// Arama sonucu: BIST kodu, ABD kodu ya da kripto Yahoo cifti (BTC-USD; grafik 'US' veri yoluyla acilir)
+function openItem(x){return go(x.symbol,x.market==='BIST'?'BIST':'US')}
+function drawDD(){const d=$('dd');d.replaceChildren(...ddItems.map((x,i)=>el('div',{class:i===ddSel?'sel':'',onmousedown:e=>{e.preventDefault();openItem(x);q.value='';closeDD();q.blur()}},
+  el('b',{},x.code||x.symbol),el('span',{},x.name||''),x.tag?el('em',{class:'ddt'},x.tag):null)));d.classList.toggle('on',ddItems.length>0)}
 function closeDD(){$('dd').classList.remove('on');ddItems=[]}
 document.addEventListener('keydown',e=>{
   const a=document.activeElement,typing=a&&(a.tagName==='INPUT'||a.tagName==='TEXTAREA'||a.tagName==='SELECT');
   if(typing||e.metaKey||e.ctrlKey||e.altKey)return;
   if(e.key==='/'){e.preventDefault();q.focus();return}
   if(/^[1-5]$/.test(e.key)&&S.tab==='grafik'){setTf(TFS[+e.key-1]);return}
-  if((e.key==='ArrowDown'||e.key==='ArrowUp')&&S.st){const w=S.st.watch,i=w.indexOf(S.sym);if(!w.length)return;e.preventDefault();
-    go(w[(i+(e.key==='ArrowDown'?1:-1)+w.length)%w.length]);return}
+  if((e.key==='ArrowDown'||e.key==='ArrowUp')&&S.st){const w=S.st.watch,i=w.indexOf(wCur());if(!w.length)return;e.preventDefault();
+    wOpen(w[((i<0?(e.key==='ArrowDown'?-1:0):i)+(e.key==='ArrowDown'?1:-1)+w.length)%w.length]);return}
   if(/^[a-zA-ZçğıöşüÇĞİÖŞÜ]$/.test(e.key)){q.focus()}});
 
 // --- sekmeler ------------------------------------------------------------------------------
@@ -306,27 +357,38 @@ function tab(v){S.tab=v;for(const b of $('tabs').children)b.classList.toggle('on
 
 // --- izleme listesi -------------------------------------------------------------------------
 $('wlp').onclick=()=>{$('wla').classList.toggle('on');if($('wla').classList.contains('on'))$('wli').focus()};
-$('wli').addEventListener('keydown',async e=>{if(e.key==='Enter'){const v=e.target.value.trim();if(!v)return;const r=await call(bp.watch,{op:'add',symbol:v});
+// Izleme girdisi: BIST "THYAO", ABD "AAPL.US", kripto "BTC-USD" (ana surec wcode ile ayni kural)
+const wEntry=(sym,mkt)=>/-USD$/.test(sym)?sym:mkt==='US'?sym+'.US':sym;
+const wCur=()=>S.sym?wEntry(S.sym,S.mkt):null;
+const wDisp=w=>/-USD$/.test(w)&&window.BPSymbols?BPSymbols.display(w):String(w).replace(/\.US$/,'');
+const wTag=w=>/-USD$/.test(w)?'Kripto':/\.US$/.test(w)?'ABD':null;
+function wOpen(w){return /-USD$/.test(w)?go(w,'US'):/\.US$/.test(w)?go(w.slice(0,-3),'US'):go(w,'BIST')}
+// Elle ekleme: kripto/ABD listesindeyse o piyasa; BIST aramasinda tam kod varsa BIST; yoksa secili piyasa
+async function wMarketOf(v){const Y=window.BPSymbols,m=Y&&Y.marketOf(v);if(m==='CRYPTO'||/-USD$/i.test(v))return 'CRYPTO';
+  let r=[];try{r=await bp.search(v)}catch(e){}if(Array.isArray(r)&&r.some(x=>x&&x.symbol===v.toLocaleUpperCase('tr-TR')))return 'BIST';return m==='US'?'US':S.mkt}
+$('wli').addEventListener('keydown',async e=>{if(e.key==='Enter'){const v=e.target.value.trim();if(!v)return;const r=await call(bp.watch,{op:'add',symbol:v,market:await wMarketOf(v)});
   if(okr(r)){S.st.watch=r.watch;e.target.value='';renderWatch();refreshQuotes()}}else if(e.key==='Escape'){$('wla').classList.remove('on')}});
 function renderWatch(){
   const w=S.st?S.st.watch:[];
   if(!w.length){$('wll').replaceChildren(el('div',{class:'empty',style:'padding:20px 8px'},el('b',{},'Liste boş'),'+ ile hisse ekle.'));return}
-  $('wll').replaceChildren(...w.map(s=>{const x=S.q.get(s)||{},v=verdictOf(s);
-    return el('div',{class:'wr'+(s===S.sym?' on':''),onclick:()=>go(s),title:x.name||s},
+  const cur=wCur();
+  $('wll').replaceChildren(...w.map(s=>{const x=S.q.get(s)||{},v=wTag(s)?null:verdictOf(s),tg=wTag(s);
+    return el('div',{class:'wr'+(s===cur?' on':''),onclick:()=>wOpen(s),title:(x.name||wDisp(s))+(tg?' · '+tg:'')},
       v?el('i',{class:'vd',style:'background:'+(v.label==='AL'?'var(--up)':v.label==='SAT'?'var(--dn)':'var(--line-2)'),title:'Son tarama: '+v.label}):null,
-      el('span',{class:'c'},s,isLive(s)?el('span',{class:'lz',title:x.live?'Canlı (Telegram) fiyat':'Canlı listede; sıradaki güncelleme bekleniyor'},x.live?' ⚡':' ϟ'):null),spark(x.spark),el('span',{class:'p'},fp(x.price)),
+      el('span',{class:'c'},wDisp(s),tg?el('span',{class:'wt'},tg==='Kripto'?'₿':'$'):null,isLive(s)?el('span',{class:'lz',title:x.live?'Canlı (Telegram) fiyat':'Canlı listede; sıradaki güncelleme bekleniyor'},x.live?' ⚡':' ϟ'):null),spark(x.spark),el('span',{class:'p'},fp(x.price)),
       el('span',{class:'n'},x.error?'veri yok':x.name||''),el('span',{class:'ch '+sgnc(x.chgPct)},pct(x.chgPct)),
       el('button',{class:'x',title:'Listeden çıkar',onclick:async e=>{e.stopPropagation();const r=await call(bp.watch,{op:'remove',symbol:s});if(okr(r)){S.st.watch=r.watch;renderWatch()}}},'×'))}))}
 let qBusy=false;
 async function refreshQuotes(){
   if(qBusy||!S.st||!S.st.watch.length||document.hidden)return;
   // Seans kapaliyken fiyat degismez: tum listenin fiyati bir kez alindiysa tekrar sorma (pil ve istek tasarrufu)
-  if(S.st.marketStatus&&!S.st.marketStatus.open&&S.st.market!=='US'&&S.st.watch.every(s=>S.q.has(s)))return;qBusy=true;
+  if(S.st.marketStatus&&!S.st.marketStatus.open&&S.st.market!=='US'&&S.st.watch.every(s=>S.q.has(s)&&!wTag(s)))return;qBusy=true;
   try{const r=await bp.quotes(S.st.watch);if(Array.isArray(r))for(const x of r)if(x&&x.symbol)S.q.set(x.symbol,x);renderWatch();
     $('sbr').textContent='Fiyatlar '+hm(Date.now());}catch(e){}finally{qBusy=false}}
 
 // --- grafik + analiz -------------------------------------------------------------------------
-function go(sym){if(S.tab!=='grafik')tab('grafik');return load(sym)}
+// mkt verilmezse: "-USD" / ".US" sonekli kodlar ABD veri yolu, digerleri BIST (tarayici, plan, okul vb. BIST kodlari)
+function go(sym,mkt){sym=String(sym||'');S.mkt=mkt||(/-USD$|\.US$/i.test(sym)?'US':'BIST');if(S.tab!=='grafik')tab('grafik');return load(sym.replace(/\.US$/i,''))}
 function setTf(tf){if(!TFS.includes(tf)||tf===S.tf&&S.data)return;S.tf=tf;if(S.sym)load(S.sym)}
 async function load(sym,o={}){
   if(!sym)return;const seq=++S.loading;S.sym=String(sym).toLocaleUpperCase('tr-TR');renderWatch();renderHead();
@@ -337,7 +399,7 @@ async function load(sym,o={}){
   if(!r||!r.ok){S.data=null;ovl('Veri alınamadı',(r&&r.error)||'Bağlantıyı kontrol et.');renderHead();renderAnalysis();return}
   S.data=r;S.sym=r.symbol;S.ai=null;S.chat=[];if(!o.keepTrades)S.trades=null;
   ovl(null);renderHead();renderWatch();drawChart();renderAnalysis();if(keepScroll)$('ap').scrollTop=keepScroll;if(S.tab==='analist')renderAnalyst();
-  $('sbl').textContent='Veri: Yahoo Finance'+(r.market==='BIST'?' · BIST ~15 dk gecikmeli':'')+(r.stale?' · çevrimdışı, eski veri':'')+(r.errors&&r.errors.length?' · '+r.errors.length+' uyarı':'')}
+  $('sbl').textContent='Veri: Yahoo Finance'+(r.market==='BIST'?' · BIST ~15 dk gecikmeli':/-USD$/.test(r.symbol)?' · Kripto 7/24 · USD':' · ABD · USD')+(r.stale?' · çevrimdışı, eski veri':'')+(r.errors&&r.errors.length?' · '+r.errors.length+' uyarı':'')}
 function drawChart(){
   const r=S.data;if(!r||!chartInit())return;
   const alarms=(S.st.alarms||[]).filter(a=>a.symbol===r.symbol&&a.kind!=='verdict'&&!a.fired);
@@ -352,8 +414,9 @@ function renderHead(){
     r&&qt.stale?el('span',{class:'badge',title:'Bağlantı yok; son bilinen veri'},'eski veri'):null,
     el('span',{class:'sp'}),
     el('div',{class:'seg'},...TFS.map((t,i)=>el('button',{class:t===S.tf?'on':'',title:TFN[t]+' ('+(i+1)+')',onclick:()=>setTf(t)},t))),
+    /-USD$/.test(S.sym||'')?el('span',{class:'chip sm',title:'Kripto para: 7/24 işlem, USD'},'Kripto · USD · 7/24'):
     el('div',{class:'seg'},...['BIST','US'].map(m=>el('button',{class:m===S.mkt?'on':'',onclick:()=>{if(m!==S.mkt){S.mkt=m;bp.prefs({market:m}).catch(()=>{});if(S.sym)load(S.sym)}}},m==='US'?'ABD':m))),
-    el('button',{class:'btn',title:'Bu hisseyi izleme listesine ekle',onclick:async()=>{const x=await call(bp.watch,{op:'add',symbol:S.sym});if(okr(x)){S.st.watch=x.watch;renderWatch();refreshQuotes();toast(S.sym+' izleme listesinde')}}},'+ Liste'),
+    el('button',{class:'btn',title:'Bu sembolü izleme listesine ekle',onclick:async()=>{const x=await call(bp.watch,{op:'add',symbol:S.sym,market:/-USD$/.test(S.sym||'')?'CRYPTO':S.mkt});if(okr(x)){S.st.watch=x.watch;renderWatch();refreshQuotes();toast(S.sym+' izleme listesinde')}}},'+ Liste'),
     el('button',{class:'btn',title:'Grafiği yenile',onclick:()=>S.sym&&load(S.sym,{keepTrades:true})},'Yenile'));
   const sh=ch?ch.getShow():S.show;
   $('tb').replaceChildren(...IND.map(([k,n,c])=>{const on=k==='vwap'?sh.vwap===true||(sh.vwap==='auto'&&['5dk','15dk','1dk'].includes(S.tf)):!!sh[k];
@@ -422,7 +485,7 @@ function renderAnalysis(){
       el('span',{},'Ortalama net getiri'),el('b',{class:sgnc(B.avgRet)},pct(B.avgRet)),el('span',{},'En büyük düşüş'),el('b',{class:'dn'},pct(-B.maxDD))),
     !B.reliable?el('div',{class:'warn'},'Örnek az ('+B.count+'): güvenilir değil.'):null))}
   if(r.errors&&r.errors.length)out.push(el('div',{class:'disc'},'Uyarılar: '+r.errors.join(' · ')));
-  ap.replaceChildren(demoTicket(),...out);demoOverlays()}
+  ap.replaceChildren(demoChartTicket(),...out);demoOverlays()}
 
 function planCard(P,r){
   const pl=P.plan;if(!pl)return CARD('İşlem planı',el('div',{class:'mu'},'ATR hesaplanamadı; plan yok.'));
@@ -432,12 +495,12 @@ function planCard(P,r){
     el('div',{class:'row',style:'margin-top:8px'},fin(pl.triggerUp)?el('button',{class:'btn',onclick:()=>addAlarm(r.symbol,'above',pl.triggerUp,'AL tetik')},'↑ Alarm kur'):null,
       fin(pl.triggerDown)?el('button',{class:'btn',onclick:()=>addAlarm(r.symbol,'below',pl.triggerDown,'SAT tetik')},'↓ Alarm kur'):null));
   const ref=pl.dir>0?pl.entry[1]:pl.entry[0],cap=S.st.capital,rp=S.st.riskPct||1;
-  const capEl=el('input',{class:'inp num',style:'flex:1',placeholder:'Sermaye (₺)',value:fin(cap)?String(cap):'',inputmode:'decimal'});
+  const capEl=el('input',{class:'inp num',style:'flex:1',placeholder:'Sermaye ('+curOf(r)+')',value:fin(cap)?String(cap):'',inputmode:'decimal'});
   const res=el('div');
   const calc=c=>{res.replaceChildren();if(!fin(c)||c<=0)return;const per=Math.abs(ref-pl.stop);if(!(per>0))return;
     let lots=Math.floor(c*rp/100/per),capped=false;if(lots*ref>c){lots=Math.floor(c/ref);capped=true}
-    res.append(el('div',{class:'g2',style:'margin-top:8px'},el('div',{class:'pv'},el('span',{},'Lot (adet)'),el('b',{},nf(lots,0))),el('div',{class:'pv'},el('span',{},'Pozisyon'),el('b',{},tl(lots*ref))),
-      el('div',{class:'pv'},el('span',{},'Stopa risk'),el('b',{class:'dn'},tl(lots*per))),el('div',{class:'pv'},el('span',{},'Hedef 1 kazanç'),el('b',{class:'up'},tl(lots*Math.abs(pl.t1-ref))))),
+    res.append(el('div',{class:'g2',style:'margin-top:8px'},el('div',{class:'pv'},el('span',{},'Lot (adet)'),el('b',{},nf(lots,0))),el('div',{class:'pv'},el('span',{},'Pozisyon'),el('b',{},money(lots*ref,r))),
+      el('div',{class:'pv'},el('span',{},'Stopa risk'),el('b',{class:'dn'},money(lots*per,r))),el('div',{class:'pv'},el('span',{},'Hedef 1 kazanç'),el('b',{class:'up'},money(lots*Math.abs(pl.t1-ref),r)))),
       capped?el('div',{class:'warn'},'Sermaye sınırı: risk %'+nf(rp,1)+' yerine pozisyon sermayeyle sınırlandı.'):null)};
   capEl.addEventListener('change',async()=>{const v=capEl.value.trim();const x=await call(bp.capital,v===''?null:v);if(okr(x)){S.st.capital=x.capital;calc(x.capital)}});
   capEl.addEventListener('input',()=>{const v=+capEl.value.replace(/\./g,'').replace(',','.');calc(v)});
@@ -471,7 +534,7 @@ function statsCard(s,r){
       r.market==='BIST'?[el('span',{},'XU100\'e göre (1 ay / 3 ay)'),el('b',{},el('span',{class:sgnc(s.rs&&s.rs.d20)},pct(s.rs&&s.rs.d20,1)),' / ',el('span',{class:sgnc(s.rs&&s.rs.d60)},pct(s.rs&&s.rs.d60,1)))]:null,
       r.market==='BIST'?[el('span',{},'Beta · korelasyon'),el('b',{},nf(s.beta,2)+' · '+nf(s.corr,2))]:null,
       el('span',{},'Yıllık oynaklık'),el('b',{},fin(s.volAnn)?'%'+nf(s.volAnn,1):'—'),
-      el('span',{},'Ort. işlem hacmi (20g)'),el('b',{},fin(s.avgVolTL20)?big(s.avgVolTL20)+' ₺':'—')))}
+      el('span',{},'Ort. işlem hacmi (20g)'),el('b',{},fin(s.avgVolTL20)?big(s.avgVolTL20)+' '+curOf(r):'—')))}
 
 function newsCard(r){
   const b=r.news&&r.news.bot,y=(r.news&&r.news.yahoo)||[],kids=[];
@@ -641,7 +704,7 @@ function renderOkul(){const v=$('v-okul');
   const baglam=async sym=>{const r=S.data;if(!r||r.symbol!==sym)return {sembol:sym};const P=r.pro&&r.pro.ok?r.pro:null,Q=r.quant||{};
     return {sembol:sym,ad:r.name,fiyat:r.quote&&r.quote.price,gunluk_degisim:r.quote&&r.quote.chgPct,karar:P&&{etiket:P.verdict.label,skor:P.verdict.score,gerekceler:P.verdict.reasons},
       plan:P&&P.plan&&!P.plan.wait?{giris:P.plan.entry,stop:P.plan.stop,hedef1:P.plan.t1}:null,analist_notu:Q.rating&&{not:Q.rating.label,guven:Q.rating.confidence},rsi:P&&P.momentum&&P.momentum.rsi}};
-  try{BPOkul.render(v,{okul:(op,args)=>bp.okul({op,args})},{el,toast,go,sembol:()=>S.sym||null,baglam})}catch(e){v.replaceChildren(el('div',{class:'err'},'Borsa Okulu açılamadı: '+(e&&e.message||e)))}}
+  try{BPOkul.render(v,{okul:(op,args)=>bp.okul({op,args})},{el,toast,go,sembol:()=>S.sym||null,baglam,demo:demoFromOkul})}catch(e){v.replaceChildren(el('div',{class:'err'},'Borsa Okulu açılamadı: '+(e&&e.message||e)))}}
 
 // --- analist ---------------------------------------------------------------------------------------
 const NC=['dn','dn','','up','up'];
@@ -713,7 +776,7 @@ function renderAnalyst(){
   const regC=el('div',{class:'card'},el('h3',{},'Piyasa rejimi (XU100)'),g?[el('div',{class:'row'},el('span',{class:'lab3 '+(g.dir>0?'l3':g.dir<0?'l1':'l2'),style:'font-size:12px;padding:3px 9px'},g.label)),
       el('div',{class:'m2',style:'margin-top:8px'},g.trend),el('div',{class:'kv',style:'margin-top:6px'},el('span',{},'20 gün'),el('b',{class:sgnc(g.r20)},pct(g.r20,1)),
         el('span',{},'Zirveden'),el('b',{class:'dn'},pct(g.drawdown,1)),el('span',{},'Oynaklık yüzdeliği'),el('b',{},'%'+g.volPct),
-        fin(g.breadthPct)?[el('span',{},'Yükselen hisse oranı (son tarama)'),el('b',{},'%'+nf(g.breadthPct,0))]:null)]:el('div',{class:'mu'},r.market==='BIST'?'XU100 verisi alınamadı.':'ABD hisselerinde XU100 rejimi kullanılmaz.'));
+        fin(g.breadthPct)?[el('span',{},'Yükselen hisse oranı (son tarama)'),el('b',{},'%'+nf(g.breadthPct,0))]:null)]:el('div',{class:'mu'},r.market==='BIST'?'XU100 verisi alınamadı.':'XU100 piyasa rejimi BIST\'e özeldir; '+(/-USD$/.test(r.symbol)?'kriptoda':'ABD hisselerinde')+' kullanılmaz.'));
   kids.push(el('div',{class:'ag ag3'},seaC,regC,fundCard(r)));
   // rapor
   const AR=S.aiRep&&S.aiRep.symbol===r.symbol?S.aiRep:null;
@@ -724,7 +787,7 @@ function renderAnalyst(){
   v.replaceChildren(...kids)}
 function fundCard(r){
   const f=r.fund,F=f&&f.raw,sc=f&&f.score;
-  if(!F)return el('div',{class:'card'},el('h3',{},'Temel analiz'),el('div',{class:'mu'},r.market==='BIST'?'Temel veriler alınamadı (Yahoo). Bağlantı ya da veri sağlayıcı kısıtı olabilir; teknik analiz etkilenmez.':'Temel veri yok.'));
+  if(!F)return el('div',{class:'card'},el('h3',{},'Temel analiz'),el('div',{class:'mu'},r.market==='BIST'?'Temel veriler alınamadı (Yahoo). Bağlantı ya da veri sağlayıcı kısıtı olabilir; teknik analiz etkilenmez.':/-USD$/.test(r.symbol)?'Kripto paralarda şirket bilançosu yok; temel analiz uygulanmaz.':'Temel veri alınamadı (Yahoo).'));
   const m=(k,v,suf,d=1)=>[el('span',{},k),el('b',{},fin(v)?nf(v,d)+(suf||''):'—')];
   const lb=x=>x&&x.label?el('span',{class:'lab3 '+(x.score>0.2?'l3':x.score<-0.2?'l1':'l2')},x.label):null;
   return el('div',{class:'card'},el('h3',{},'Temel analiz',el('span',{class:'sp'}),F.sector?el('span',{style:'text-transform:none;letter-spacing:0;font-weight:500'},F.sector):null),
@@ -756,7 +819,9 @@ function copyReport(){const r=S.data;if(!r||!r.report)return toast('Rapor yok');
 
 // --- alarmlar -------------------------------------------------------------------------------------
 async function addAlarm(symbol,kind,price,note){
-  if(!fin(price))return;const r=await call(bp.alarm,{op:'add',alarm:{symbol,kind,price:+price.toFixed(price>=1?2:4),note:note||''}});
+  if(!fin(price))return;
+  // Alarm izleyicisi BIST seansina ve BIST fiyatlarina bagli; ABD/kripto sembollerinde kurulmaz
+  if(S.data&&S.data.market!=='BIST'&&symbol===S.data.symbol){toast('Fiyat alarmları şimdilik yalnız BIST hisselerinde çalışır (BIST\'e özel).');return}const r=await call(bp.alarm,{op:'add',alarm:{symbol,kind,price:+price.toFixed(price>=1?2:4),note:note||''}});
   if(okr(r)){S.st.alarms=r.alarms;countAlarms();drawChart();if(S.tab==='alarm')renderAlarms();
     toast(r.dup?'Bu alarm zaten var':symbol+' '+fp(price)+(kind==='above'?' üstüne':kind==='below'?' altına':'')+' alarm kuruldu')}}
 function countAlarms(){const n=(S.st.alarms||[]).filter(a=>a.kind==='verdict'||!a.fired).length;$('acount').textContent=n?String(n):''}
@@ -870,85 +935,272 @@ function eqChart(eq,bh){
   return svg}
 
 // --- demo: gercek para degil; araci kuruma baglanmaz ---------------------------------------
-let demoSummary=null,demoMarket='BIST',demoNode=null,demoKey='',demoFields=null,demoQuote=null,demoBusy=false,demoLoadBusy=false;
-const demoNum=v=>{const s=String(v).trim();return Number(s.includes(',')?s.replace(/\./g,'').replace(',','.'):s)};
-const demoMoney=(v,m=demoMarket)=>nf(v)+' '+(m==='US'?'$':'₺');
-const demoSym=s=>String(s).replace(/\.IS$/,'');
-function demoAccept(s){if(!s)return;demoSummary=s;demoEstimate();if(S.tab==='demo')renderDemo();demoOverlays()}
-function demoOverlays(){if(!ch||!S.data||!demoSummary)return;const r=S.data,y=r.yahoo||(r.market==='BIST'?r.symbol+'.IS':r.symbol),a=demoSummary.accounts[r.market];
+// Uc sanal hesap: BIST (TRY), ABD (USD), Kripto (USD, 7/24). Emir formu (bilet) hem grafik yan panelinde hem Demo sekmesinde;
+// ikisi de ayni kurallari (motorun dogrulamasini) yansitir, son karar ana surectedir. Okul "Demo'da uygula" -> demoFromOkul.
+const SY=window.BPSymbols||null;
+const DMK=['BIST','US','CRYPTO'],DMN={BIST:'BIST · TRY',US:'ABD · USD',CRYPTO:'Kripto · USD'},DMT={market:'Piyasa',limit:'Limit',stop:'Zarar durdur'};
+let demoSummary=null,demoBusy=false,demoLoadBusy=false,demoChart=null,demoTab=null,demoPrefill=null,DV=null;
+let demoMarket=(()=>{try{const v=localStorage.getItem('bp.demo.hesap');return DMK.includes(v)?v:'BIST'}catch(e){return 'BIST'}})();
+const demoTF={side:'',res:'',q:''};
+const demoNum=v=>{const s=String(v==null?'':v).trim().replace(/\s/g,'');if(!s)return NaN;return Number(s.includes(',')?s.replace(/\./g,'').replace(',','.'):s)};
+const demoCcy=m=>m==='BIST'?'₺':'$';
+const demoMoney=(v,m=demoMarket)=>fin(v)?nf(v)+' '+demoCcy(m):'—';
+const demoSigned=(v,m)=>fin(v)?(v>0?'+':'')+demoMoney(v,m):'—';
+const demoQty=(v,m)=>fin(v)?(Number.isInteger(v)?nf(v,0):v.toLocaleString('tr-TR',{maximumFractionDigits:m==='CRYPTO'?8:4})):'—';
+const demoQtyIn=v=>v.toLocaleString('tr-TR',{maximumFractionDigits:8,useGrouping:false});
+const demoPx=(v,m)=>!fin(v)?'—':m==='CRYPTO'&&Math.abs(v)<1?v.toLocaleString('tr-TR',{maximumSignificantDigits:6}):fp(v);
+const demoSym=s=>SY?SY.display(s):String(s).replace(/\.IS$/,'');
+const demoName=(s,fb)=>(SY&&SY.nameOf(s))||fb||'';
+const demoAcctOf=r=>r&&/-USD$/.test(r.yahoo||r.symbol||'')?'CRYPTO':r&&r.market==='US'?'US':'BIST';
+const demoYahoo=(s,m)=>{s=String(s||'').trim().toLocaleUpperCase('tr-TR');if(!s)return '';if(m==='CRYPTO')return (SY&&SY.cryptoSymbol(s))||s;
+  if(m==='BIST'){s=s.replace(/[ŞÇĞÖÜİ]/g,c=>({'Ş':'S','Ç':'C','Ğ':'G','Ö':'O','Ü':'U','İ':'I'})[c]);return /[.=^-]/.test(s)?s:s+'.IS'}return s};
+const demoDec=(m,side,pos)=>{const L=demoSummary&&demoSummary.limits&&demoSummary.limits.qty,d=L&&fin(L[m])?L[m]:m==='CRYPTO'?8:0;return m==='US'&&side==='sell'&&pos&&!Number.isInteger(pos.qty)?4:d};
+const demoRoundQ=(x,d)=>{const f=10**d;return Math.round(x*f)/f};
+const demoFloorQ=(x,d)=>{const f=10**d;return Math.floor(x*f+1e-7)/f};
+function demoSetMarket(m){demoMarket=m;try{localStorage.setItem('bp.demo.hesap',m)}catch(e){}}
+function demoAccept(s){if(!s)return;demoSummary=s;for(const t of [demoChart,demoTab])if(t)t.estimate();if(S.tab==='demo')renderDemo();demoOverlays()}
+function demoOverlays(){if(!ch||!S.data||!demoSummary)return;const r=S.data,m=demoAcctOf(r),y=demoYahoo(r.yahoo||r.symbol,m),a=demoSummary.accounts[m];
   const positions=((S.st.portfolio&&S.st.portfolio.positions)||[]).filter(p=>r.market==='BIST'&&p.symbol===r.symbol);
   const dp=a&&a.pos.find(p=>p.sym===y);if(dp)positions.push({cost:dp.avg,label:'DEMO maliyet'});
   const alarms=(S.st.alarms||[]).filter(a=>r.market==='BIST'&&a.symbol===r.symbol&&a.kind!=='verdict'&&!a.fired);
   for(const o of demoSummary.orders.filter(o=>o.sym===y))alarms.push({price:o.price,label:'DEMO '+(o.type==='stop'?'STOP':o.side==='buy'?'Limit AL':'Limit SAT')});
   ch.setOverlays({positions,alarms})}
 async function demoRequest(o){const r=await call(bp.demo,o);if(okr(r)&&r.summary)demoAccept(r.summary);return r}
-function demoTicket(){const r=S.data,key=r.market+'|'+r.symbol;
-  if(demoNode&&demoKey===key)return demoNode;demoKey=key;demoQuote=null;
-  const side=el('select',{class:'inp','aria-label':'Demo yön'},el('option',{value:'buy'},'AL'),el('option',{value:'sell'},'SAT'));
-  const type=el('select',{class:'inp','aria-label':'Demo emir türü'},el('option',{value:'market'},'Piyasa'),el('option',{value:'limit'},'Limit'),el('option',{value:'stop'},'Zarar durdur (satış)'));
-  const qty=el('input',{id:'dm-qty',class:'inp',type:'number',min:1,step:1,value:'1','aria-label':'Demo adet'});
-  const price=el('input',{id:'dm-price',class:'inp',inputmode:'decimal',value:fin(r.quote.price)?String(r.quote.price):'','aria-label':'Demo emir fiyatı'});
-  const priceLabel=el('label',{},'Emir fiyatı',price),est=el('div',{class:'kv'}),info=el('div',{class:'disc'}),pos=el('div',{class:'disc'}),feedback=el('div',{class:'disc','aria-live':'polite'});
-  const submit=el('button',{id:'dm-submit',class:'btn pri',style:'width:100%;margin-top:10px',disabled:true,onclick:demoSubmit},'Fiyat yükleniyor…');
-  demoFields={side,type,qty,price,priceLabel,est,info,pos,feedback,submit,key,market:r.market,symbol:r.symbol};
-  const changed=()=>{if(side.value==='buy'&&type.value==='stop')type.value='market';type.querySelector('[value=stop]').disabled=side.value==='buy';demoEstimate()};
-  side.onchange=type.onchange=changed;qty.oninput=price.oninput=demoEstimate;
-  demoNode=CARD(['Demo işlem',el('span',{class:'sp'}),el('span',{class:'tag'},'SANAL BAKİYE')],
-    el('div',{class:'disc',style:'margin-top:0'},'Gerçek para değil · broker emri gönderilmez'),
-    el('div',{class:'demo-form'},el('label',{},'Yön',side),el('label',{},'Emir türü',type),el('label',{},'Adet',qty),priceLabel),
-    el('div',{class:'row',style:'margin:8px 0'},...[25,50,100].map(p=>el('button',{class:'btn',onclick:()=>{const f=demoFields,a=demoSummary&&demoSummary.accounts[f.market];if(!a||!demoQuote)return;const base=f.side.value==='sell'?(a.pos.find(p=>p.sym===demoQuote.symbol)||{}).free||0:demoMax();qty.value=String(Math.floor(base*p/100));demoEstimate()}},'%'+p)),el('button',{class:'btn',onclick:()=>demoRefreshTicket()},'Fiyat ↻')),
-    info,est,submit,feedback,pos,el('a',{onclick:()=>{demoMarket=r.market;tab('demo')}},'Demo hesabı ve emirler →'));
-  changed();demoRefreshTicket();return demoNode}
-function demoMax(){const f=demoFields,a=demoSummary&&demoSummary.accounts[f.market];if(!f||!a||!demoQuote)return 0;
-  const p=f.type.value==='market'?demoQuote.price*(1+demoSummary.set.slippage/1e4):demoNum(f.price.value);if(!(p>0))return 0;
-  return Math.max(0,Math.min(demoSummary.limits.maxQty,Math.floor(a.available/(p*(1+demoSummary.set.commission)))))}
-async function demoRefreshTicket(){const f=demoFields;if(!f)return;f.submit.disabled=true;
-  const r=await demoRequest({op:'quote',symbol:f.symbol,market:f.market});if(demoFields!==f)return;
-  if(okr(r)){demoQuote=r.quote;f.feedback.textContent='';demoEstimate()}else{demoQuote=null;f.feedback.textContent=(r&&r.error)||'Fiyat alınamadı.';demoEstimate()}}
-function demoEstimate(){const f=demoFields;if(!f)return;const a=demoSummary&&demoSummary.accounts[f.market],q=demoQuote;
-  f.priceLabel.style.display=f.type.value==='market'?'none':'';
-  f.submit.textContent='DEMO '+(f.side.value==='buy'?'AL':'SAT')+' '+f.symbol;f.submit.disabled=demoBusy||!q||!a;
-  f.submit.className='btn '+(f.side.value==='buy'?'pri':'dn');
-  if(!a){f.info.textContent='Demo hesap yükleniyor…';return}
-  const p=a.pos.find(p=>q&&p.sym===q.symbol);f.pos.textContent=p?'Pozisyon: '+nf(p.qty,0)+' adet · satılabilir '+nf(p.free,0)+' · maliyet '+demoMoney(p.avg,f.market):'Bu hissede demo pozisyon yok.';
-  f.info.textContent=(a.session.open?'Seans açık':a.session.reason||'Seans kapalı')+(demoSummary.set.anyTime?' · seans dışı simülasyon AÇIK':'')+(q?' · son fiyat '+fp(q.price)+' ('+dt(q.time)+')':'');
-  const n=demoNum(f.qty.value),base=f.type.value==='market'?(q&&q.price):demoNum(f.price.value),px=base&&f.type.value==='market'?Math.round(base*(1+(f.side.value==='buy'?1:-1)*demoSummary.set.slippage/1e4)*1e4)/1e4:base;
-  const valid=Number.isSafeInteger(n)&&n>0&&fin(px)&&px>0,value=valid?Math.round(n*px*100)/100:null,fee=valid?Math.round(value*100*demoSummary.set.commission)/100:null;
-  f.est.replaceChildren(el('span',{},'Tahmini tutar'),el('b',{},demoMoney(value,f.market)),el('span',{},'Komisyon'),el('b',{},demoMoney(fee,f.market)),el('span',{},f.side.value==='buy'?'Toplam maliyet':'Net satış'),el('b',{},demoMoney(valid?value+(f.side.value==='buy'?fee:-fee):null,f.market)),el('span',{},'Kullanılabilir'),el('b',{},demoMoney(a.available,f.market)));
-}
-async function demoSubmit(){const f=demoFields;if(!f||demoBusy||!demoQuote)return;const qty=demoNum(f.qty.value),price=demoNum(f.price.value);
-  if(!Number.isSafeInteger(qty)||qty<1){f.feedback.textContent='Adet pozitif tam sayı olmalı.';return}
-  if(f.type.value!=='market'&&!(price>0)){f.feedback.textContent='Geçerli emir fiyatı yaz.';return}
-  const side=f.side.value,type=f.type.value,symbol=f.symbol,market=f.market;
-  if(!confirm('DEMO · gerçek para değil\n'+symbol+' · '+qty+' adet '+(side==='buy'?'AL':'SAT')+' · '+({market:'Piyasa',limit:'Limit',stop:'Zarar durdur'}[type])+'\n'+(type==='market'?'Gerçekleşme fiyatı yenilenen veriye göre değişebilir.':fp(price)+' fiyat seviyesi')+'\nOnaylıyor musun?'))return;
-  demoBusy=true;demoEstimate();try{const r=await demoRequest({op:'order',symbol,market,side,type,qty,price});
-    if(okr(r)){if(demoFields===f){demoQuote=r.quote;f.feedback.textContent=r.trade?'Demo işlem gerçekleşti.':'Demo emir beklemeye alındı.'}toast(r.trade?'Demo işlem gerçekleşti':'Demo emir kaydedildi')}
-    else if(demoFields===f)f.feedback.textContent=(r&&r.error)||'İşlem yapılamadı.';
-  }finally{demoBusy=false;demoEstimate()}}
-async function loadDemo(){if(demoLoadBusy)return;demoLoadBusy=true;try{const r=await demoRequest({op:'refresh'});if(!okr(r)&&!demoSummary)$('v-demo').replaceChildren(el('div',{class:'err'},(r&&r.error)||'Demo hesap yüklenemedi.'));else if(r&&r.errors&&r.errors.length)toast('Bazı demo fiyatları yenilenemedi; son bilinen değerler gösteriliyor.')}finally{demoLoadBusy=false}}
-async function demoOpen(sym,mkt,sell=false){const target=demoSym(sym);S.mkt=mkt;await go(target);
-  if(sell&&S.data&&S.sym===target&&S.mkt===mkt&&demoFields&&demoFields.symbol===target&&demoFields.market===mkt){demoFields.side.value='sell';demoFields.type.value='market';demoFields.side.onchange();demoFields.qty.focus()}}
-function renderDemo(){if(!demoSummary)return;const m=demoMarket,a=demoSummary.accounts[m],v=$('v-demo');
-  const stat=(label,value,cls='')=>el('div',{class:'card'},el('div',{class:'mu'},label),el('h2',{class:cls,style:'margin:8px 0 0'},value));
-  const table=(heads,rows)=>rows.length?el('div',{class:'demo-scroll'},el('table',{class:'t'},el('thead',{},el('tr',{},heads.map(h=>el('th',{},h)))),el('tbody',{},rows))):el('div',{class:'empty',style:'padding:20px'},'Henüz kayıt yok.');
-  const rows=a.pos.map(p=>el('tr',{},el('td',{},demoSym(p.sym)),el('td',{},nf(p.qty,0)),el('td',{},fp(p.avg)),el('td',{},fp(p.last)),el('td',{},demoMoney(p.value,m)),el('td',{class:sgnc(p.pnl)},demoMoney(p.pnl,m)+' · '+pct(p.pnlPct)),el('td',{},nf(p.free,0)),el('td',{},el('button',{class:'btn',onclick:()=>demoOpen(p.sym,m)},'Grafik'),el('button',{class:'btn dn',onclick:()=>demoOpen(p.sym,m,true)},'Sat'))));
-  const orders=demoSummary.orders.filter(o=>o.market===m).map(o=>el('tr',{},el('td',{},demoSym(o.sym)),el('td',{},o.side==='buy'?'AL':'SAT'),el('td',{},o.type==='stop'?'Zarar durdur':'Limit'),el('td',{},nf(o.qty,0)),el('td',{},fp(o.price)),el('td',{},dt(o.at)),el('td',{},el('button',{class:'btn',onclick:async()=>{if(confirm('Demo emir iptal edilsin mi?'))await demoRequest({op:'cancel',id:o.id})}},'İptal'))));
-  const trades=demoSummary.trades.filter(t=>t.market===m).map(t=>el('tr',{},el('td',{},dt(t.at)),el('td',{},demoSym(t.sym)),el('td',{class:t.side==='buy'?'up':'dn'},t.side==='buy'?'AL':'SAT'),el('td',{},({market:'Piyasa',limit:'Limit',stop:'Zarar durdur'}[t.type])),el('td',{},nf(t.qty,0)),el('td',{},fp(t.price)),el('td',{},demoMoney(t.fee,m)),el('td',{class:sgnc(t.pnl)},t.pnl==null?'—':demoMoney(t.pnl,m))));
-  const commission=el('input',{class:'inp',value:String(demoSummary.set.commission*100),inputmode:'decimal','aria-label':'Komisyon yüzdesi'}),slippage=el('input',{class:'inp',value:String(demoSummary.set.slippage),inputmode:'decimal','aria-label':'Kayma baz puan'}),any=el('input',{type:'checkbox',checked:demoSummary.set.anyTime,'aria-label':'Seans dışı simülasyon'}),start=el('input',{class:'inp',value:String(a.start),inputmode:'decimal','aria-label':'Başlangıç demo bakiyesi'});
-  v.replaceChildren(el('div',{class:'ph'},el('h2',{},'Demo hesap'),el('div',{class:'seg'},...['BIST','US'].map(k=>el('button',{class:k===m?'on':'',onclick:()=>{demoMarket=k;renderDemo()}},k==='US'?'ABD · USD':'BIST · TRY'))),el('span',{class:'sp'}),el('button',{class:'btn',onclick:loadDemo},'Fiyatları yenile')),
-    el('div',{class:'warn'},'DEMO · Gerçek para değil. BIST verileri yaklaşık 15 dk gecikmelidir. Likidite, kısmi dolum ve sıra önceliği modellenmez; gerçek işlem sonucuyla aynı değildir.'),
-    el('div',{class:'demo-stats'},stat('Toplam değer',demoMoney(a.equity,m)),stat('Toplam kâr / zarar',demoMoney(a.pnl,m)+' · '+pct(a.pnlPct),sgnc(a.pnl)),stat('Kullanılabilir nakit',demoMoney(a.available,m)),stat('Emirde ayrılan',demoMoney(a.reserved,m)),stat('Gerçekleşmemiş K/Z',demoMoney(a.unrealized,m),sgnc(a.unrealized)),stat('Gerçekleşmiş K/Z',demoMoney(a.realized,m),sgnc(a.realized)),stat('Toplam komisyon',demoMoney(a.fees,m)),stat('Kârlı satış oranı',a.winRate==null?'—':'%'+a.winRate+' · '+a.closed+' satış')),
-    a.pos.some(p=>!p.lastAt||Date.now()-p.lastAt>25*60000)?el('div',{class:'warn'},'Bazı pozisyon değerleri son bilinen fiyatlara dayanıyor; güncel olmayabilir.'):null,
-    CARD('Pozisyonlar',table(['Hisse','Adet','Birim maliyet¹','Son fiyat','Değer','Kâr / zarar','Satılabilir',''],rows),el('div',{class:'disc'},'¹ Alış komisyonu maliyete dahildir.')),
-    CARD('Bekleyen emirler',table(['Hisse','Yön','Tür','Adet','Fiyat','Oluşturulma',''],orders)),
-    CARD('İşlem geçmişi · son 100 işlem',table(['Zaman (TSİ)','Hisse','Yön','Tür','Adet','Fiyat','Komisyon','Net K/Z'],trades)),
-    el('details',{class:'card'},el('summary',{style:'cursor:pointer;font-weight:600'},'Demo ayarları ve hesabı sıfırlama'),
-      el('div',{class:'demo-form',style:'margin-top:12px'},el('label',{},'Komisyon % (0–1)',commission),el('label',{},'Kayma (0–100 baz puan)',slippage)),
-      el('label',{class:'row',style:'margin:10px 0'},any,'Seans dışı simülasyon (gerçekçi değildir)'),
-      el('button',{class:'btn pri',onclick:async()=>{const r=await demoRequest({op:'settings',commissionPct:demoNum(commission.value),slippageBp:demoNum(slippage.value),anyTime:any.checked});if(okr(r))toast('Demo ayarları kaydedildi')}},'Ayarları kaydet'),
-      el('div',{class:'disc'},'Ayarlar iki demo hesabına da uygulanır. Piyasa ve stop emirlerinde kayma; tüm işlemlerde komisyon kullanılır. ABD resmî tatilleri modellenmez.'),
-      el('div',{class:'row'},el('label',{},'Yeni başlangıç bakiyesi ('+a.ccy+')',start),el('button',{class:'btn dn',onclick:async()=>{if(confirm((m==='US'?'ABD':'BIST')+' demo hesabındaki pozisyonlar, emirler ve geçmiş silinecek. Devam?')&&confirm('Bu demo hesabını kalıcı olarak sıfırlamak istediğinden emin misin?'))await demoRequest({op:'reset',market:m,start:demoNum(start.value)})}},'Hesabı sıfırla'))));
-}
+
+// Emir formu. where: 'chart' (grafik yan paneli; sembol grafikten) | 'tab' (Demo sekmesi; sembol aramali)
+function demoTicketMake(where){
+  const T={where,market:'BIST',symbol:'',side:'buy',type:'market',quote:null,qerr:null,note:null,flash:null,loading:false,seq:0,E:null,node:el('div',{class:'card dm-t'})};
+  const pid=k=>(where==='chart'?'dm-':'dt-')+k;
+  T.set=o=>{o=o||{};let rebuild=!T.E,requote=false;
+    if(o.market&&DMK.includes(o.market)&&o.market!==T.market){T.market=o.market;T.symbol='';T.quote=null;T.qerr=null;rebuild=true}
+    if(o.symbol!==undefined){const y=demoYahoo(o.symbol,T.market);if(y!==T.symbol){T.symbol=y;T.quote=null;T.qerr=null;T.loading=false;T.seq++;rebuild=true;requote=!!y}}
+    if(o.side)T.side=o.side==='sell'?'sell':'buy';if(o.type&&DMT[o.type])T.type=o.type;
+    if(o.note!==undefined&&(o.note||null)!==T.note){T.note=o.note||null;rebuild=true}
+    T.flash=null;if(rebuild)T.build();else T.estimate();if(requote)T.refresh()};
+  T.build=()=>{const m=T.market,E=T.E={};
+    E.sideSeg=el('div',{class:'seg dm-side',role:'group','aria-label':'Demo yön'},el('button',{'data-v':'buy',onclick:()=>T.set({side:'buy'})},'AL'),el('button',{'data-v':'sell',onclick:()=>T.set({side:'sell'})},'SAT'));
+    E.typeSeg=el('div',{class:'seg dm-type',role:'group','aria-label':'Demo emir türü'},...[['market','Piyasa'],['limit','Limit'],['stop','Stop']].map(([k,t])=>
+      el('button',{'data-v':k,title:k==='stop'?'Zarar durdur (stop-loss): elindeki pozisyon için, fiyat bu seviyenin altına inerse satış':k==='limit'?'Belirlediğin fiyattan ya da daha iyisinden':'Son fiyattan hemen',onclick:()=>T.set({type:k})},t)));
+    const edit=()=>{T.flash=null;T.estimate()};
+    E.qty=el('input',{id:pid('qty'),class:'inp',inputmode:'decimal',autocomplete:'off',spellcheck:'false','aria-label':'Demo miktar',placeholder:m==='CRYPTO'?'ör. 0,001':'ör. 10',oninput:edit,onkeydown:e=>{if(e.key==='Enter')T.submit()}});
+    E.price=el('input',{id:pid('price'),class:'inp',inputmode:'decimal',autocomplete:'off',spellcheck:'false','aria-label':'Demo emir fiyatı',oninput:edit,onkeydown:e=>{if(e.key==='Enter')T.submit()}});
+    E.qtyT=el('span',{},'Adet');E.priceT=el('span',{},'Limit fiyatı');E.priceL=el('label',{},E.priceT,E.price);
+    E.pcts=el('div',{class:'dm-pc'},...[10,25,50,100].map(p=>el('button',{class:'btn',onclick:()=>T.pct(p)},p===100?'Tümü':'%'+p)));
+    E.info=el('div',{class:'dm-info'});E.est=el('div',{class:'kv'});E.msg=el('div',{class:'dm-msg','aria-live':'polite'});E.pos=el('div',{class:'disc dm-posl'});
+    E.submit=el('button',{id:pid('submit'),class:'btn dm-buy dm-go',disabled:true,onclick:()=>T.submit()},'DEMO AL');
+    const head=where==='tab'?demoSymBox(T,E):el('div',{class:'dm-cur'},el('span',{class:'chip sm'},DMN[m]),el('b',{class:'num'},T.symbol?demoSym(T.symbol):'—'),E.curNm=el('span',{class:'m2'},''),el('span',{class:'sp'}),E.curPx=el('b',{class:'num'},'…'));
+    T.node.replaceChildren(
+      el('h3',{},where==='chart'?'Demo işlem':'Emir gir',el('span',{class:'sp'}),el('span',{class:'tag'},'SANAL BAKİYE')),
+      el('div',{class:'disc',style:'margin-top:-4px'},'Gerçek para değil · aracı kuruma emir gönderilmez'),
+      head,T.note?el('div',{class:'dm-note'},el('span',{},T.note),el('button',{class:'ib',title:'Notu kapat',onclick:()=>T.set({note:null})},'×')):null,
+      E.sideSeg,E.typeSeg,el('div',{class:'dm-f'},el('label',{},E.qtyT,E.qty),E.priceL),E.pcts,E.info,el('div',{class:'dm-est'},E.est),E.msg,E.submit,E.pos,
+      where==='chart'?el('a',{class:'dm-link',onclick:()=>{demoSetMarket(T.market);tab('demo')}},'Demo hesabı, emirler ve geçmiş →')
+        :T.symbol?el('a',{class:'dm-link',onclick:()=>demoOpen(T.symbol,T.market)},'Grafiği aç →'):null);
+    if(T.quote&&fin(T.quote.price))E.price.value=String(T.quote.price).replace('.',',');
+    T.estimate()};
+  T.refresh=async()=>{if(!T.symbol)return;const seq=++T.seq,sym=T.symbol,m=T.market;T.loading=true;T.estimate();
+    let r;try{r=await bp.demo({op:'quote',symbol:sym,market:m})}catch(e){r={ok:false,error:String(e&&e.message||e)}}
+    if(seq!==T.seq||sym!==T.symbol||m!==T.market)return;T.loading=false;
+    if(r&&r.ok!==false&&r.quote&&fin(r.quote.price)){T.quote=r.quote;T.qerr=null;if(T.E&&!T.E.price.value)T.E.price.value=String(r.quote.price).replace('.',',');if(r.summary){demoAccept(r.summary);return}}
+    else{T.quote=null;T.qerr=(r&&r.error)||'Fiyat alınamadı.'}
+    T.estimate()};
+  // Yuzde dugmeleri: alista kullanilabilir nakdin, satista satilabilir miktarin yuzdesi (komisyon ve kayma dahil, adima yuvarli)
+  T.pct=p=>{const m=T.market,a=demoSummary&&demoSummary.accounts[m],q=T.quote,E=T.E;if(!a||!q||!E)return;const set=demoSummary.set,pos=a.pos.find(x=>x.sym===(q.symbol||T.symbol)),d=demoDec(m,T.side,pos);
+    let n=0;if(T.side==='sell')n=p===100?(pos?pos.free:0):demoFloorQ((pos?pos.free:0)*p/100,d);
+    else{const lp=demoNum(E.price.value),px=T.type==='market'?q.price*(1+set.slippage/1e4):lp;if(!(px>0)){T.flash={t:'Önce limit fiyatı yaz.',c:'bad'};return T.estimate()}
+      const avail=Math.round(a.available*100)*p/100,cost=x=>{const v=Math.round(x*px*100);return v+Math.round(v*set.commission)};
+      n=demoFloorQ(avail/(px*100*(1+set.commission)),d);for(let i=0;n>0&&cost(n)>avail&&i<500;i++)n=demoRoundQ(n-1/10**d,d)}
+    E.qty.value=n>0?demoQtyIn(n):'';T.flash=n>0?null:{t:T.side==='sell'?'Satılabilir pozisyon yok.':'Bu fiyattan alınabilecek miktar yok.',c:'bad'};T.estimate()};
+  T.estimate=()=>{const E=T.E;if(!E)return;const m=T.market,a=demoSummary&&demoSummary.accounts[m],q=T.quote,set=demoSummary&&demoSummary.set;
+    if(T.side==='buy'&&T.type==='stop')T.type='market';
+    for(const b of E.sideSeg.children)b.className=b.dataset.v===T.side?'on '+(T.side==='buy'?'b':'s'):'';
+    for(const b of E.typeSeg.children){b.classList.toggle('on',b.dataset.v===T.type);b.disabled=b.dataset.v==='stop'&&T.side==='buy'}
+    E.priceL.style.visibility=T.type==='market'?'hidden':'';E.priceT.textContent=T.type==='stop'?'Stop fiyatı':'Limit fiyatı';
+    const code=T.symbol?demoSym(T.symbol):'';
+    E.submit.textContent=(T.side==='buy'?'DEMO AL':'DEMO SAT')+(code?' · '+code:'');E.submit.className='btn dm-go '+(T.side==='buy'?'dm-buy':'dm-sell');
+    if(E.curPx)E.curPx.textContent=q?demoPx(q.price,m):T.loading?'…':'—';if(E.curNm){const nm=demoName(T.symbol,q&&q.name);E.curNm.textContent=nm&&nm.toLocaleUpperCase('tr-TR')!==code?nm:''}
+    const no=t=>{const f=T.flash;E.msg.textContent=f?f.t:t;E.msg.className='dm-msg '+(f?f.c:'bad');E.submit.disabled=true};
+    if(!a||!set){E.info.textContent='Demo hesap yükleniyor…';E.est.replaceChildren();return no('')}
+    const sess=a.session||{},pos=T.symbol?a.pos.find(x=>x.sym===((q&&q.symbol)||T.symbol)):null,d=demoDec(m,T.side,pos);
+    E.qtyT.textContent=m==='CRYPTO'?'Miktar'+(code?' ('+code+')':''):d>0?'Adet (kesirli)':'Adet';
+    E.pos.textContent=pos?'Pozisyon: '+demoQty(pos.qty,m)+' · satılabilir '+demoQty(pos.free,m)+' · ort. maliyet '+demoPx(pos.avg,m)+' '+demoCcy(m):T.symbol?'Bu sembolde demo pozisyon yok.':'';
+    E.info.replaceChildren(el('i',{class:'dot',style:'background:'+(sess.open?'var(--up)':'var(--fg-3)')}),
+      m==='CRYPTO'?'7/24 açık':sess.open?'Seans açık':(sess.reason||'Seans kapalı'),set.anyTime&&!sess.open?' · seans dışı simülasyon AÇIK':'',q&&fin(q.time)?' · fiyat '+dt(q.time):'');
+    const raw=E.qty.value.trim(),n0=demoNum(raw),lp=demoNum(E.price.value);
+    const base=T.type==='market'?(q&&q.price):lp,px=fin(base)&&base>0?(T.type==='limit'?base:base*(1+(T.side==='buy'?1:-1)*set.slippage/1e4)):null;
+    const n=fin(n0)?demoRoundQ(n0,d):NaN,ok=fin(n)&&n>0&&fin(px);
+    const value=ok?Math.round(n*px*100)/100:null,fee=ok?Math.round(value*100*set.commission)/100:null,total=ok?Math.round((value+(T.side==='buy'?fee:-fee))*100)/100:null;
+    E.est.replaceChildren(el('span',{},T.type==='market'?'Tahmini fiyat':T.type==='stop'?'Stop (kayma dahil)':'Limit fiyatı'),el('b',{},fin(px)?demoPx(px,m):'—'),
+      el('span',{},'Tutar'),el('b',{},demoMoney(value,m)),el('span',{},'Komisyon (%'+nf(set.commission*100,2)+')'),el('b',{},demoMoney(fee,m)),
+      el('span',{},T.side==='buy'?'Toplam maliyet':'Net satış geliri'),el('b',{class:'dm-tot'},demoMoney(total,m)),
+      el('span',{},'Kullanılabilir nakit'),el('b',{},demoMoney(a.available,m)));
+    // Dogrulama (motor kurallarinin aynisi; son karar ana surecte)
+    if(!T.symbol)return no(where==='tab'?'Önce bir sembol seç.':'Grafikte bir sembol aç.');
+    if(!q)return no(T.qerr||'Fiyat alınıyor…');
+    if(!raw)return no(T.side==='buy'?(m==='CRYPTO'?'Miktar yaz ya da nakdin yüzdesini seç.':'Adet yaz ya da nakdin yüzdesini seç.'):'Satılacak miktarı yaz ya da yüzde seç.');
+    if(!fin(n0)||n0<=0)return no('Geçerli bir '+(m==='CRYPTO'?'miktar':'adet')+' yaz.');
+    if(d===0&&!Number.isInteger(n0))return no('Adet tam sayı olmalı'+(m==='BIST'?' (BIST\'te kesirli hisse yok).':' (kesirli ABD hissesi Ayarlar\'dan açılabilir).'));
+    if(!(n>0))return no('Miktar çok küçük: en az '+(1/10**d).toLocaleString('tr-TR',{maximumFractionDigits:8})+'.');
+    if(n>demoSummary.limits.maxQty)return no('En fazla '+nf(demoSummary.limits.maxQty,0)+' adet.');
+    if(T.type!=='market'&&!(lp>0))return no(T.type==='stop'?'Stop fiyatı yaz (son fiyatın altında).':'Limit fiyatı yaz.');
+    if(T.type==='stop'&&lp>=q.price)return no('Stop fiyatı son fiyatın ('+demoPx(q.price,m)+') altında olmalı.');
+    if(T.type==='market'&&!sess.open&&!set.anyTime)return no((sess.reason||'Seans kapalı')+'. Limit emir verebilir ya da Ayarlar\'dan seans dışı simülasyonu açabilirsin.');
+    const closing=T.side==='sell'&&pos&&n===pos.free;
+    if(a.minValue&&(d>0||!Number.isInteger(n))&&!closing&&value<a.minValue)return no('En küçük işlem tutarı '+demoMoney(a.minValue,m)+'; miktarı artır.');
+    if(T.side==='sell'){const free=pos?pos.free:0;if(n>free)return no(free>0?'Satılabilir en fazla '+demoQty(free,m)+(pos&&free<pos.qty?' (kalanı bekleyen emirlerde).':'.'):'Bu sembolde satılabilir pozisyon yok (açığa satış kapalı).')}
+    else if(total>a.available+1e-9)return no('Yetersiz bakiye: gereken '+demoMoney(total,m)+', kullanılabilir '+demoMoney(a.available,m)+'.');
+    const f=T.flash;E.msg.className='dm-msg'+(f?' '+f.c:'');
+    E.msg.textContent=f?f.t:T.type==='limit'?((T.side==='buy'?lp>=q.price:lp<=q.price)?'Limit son fiyatın '+(T.side==='buy'?'üstünde':'altında')+': seans açıksa hemen dolar.':'Fiyat '+demoPx(lp,m)+' seviyesine '+(T.side==='buy'?'inerse':'çıkarsa')+' dolar.')
+      :T.type==='stop'?'Fiyat '+demoPx(lp,m)+' altına inerse piyasa fiyatından satılır.':'';
+    E.submit.disabled=demoBusy||T.loading};
+  T.submit=async()=>{const E=T.E;if(!E||demoBusy||!T.quote||E.submit.disabled)return;const m=T.market,a=demoSummary.accounts[m],q=T.quote,pos=a&&a.pos.find(x=>x.sym===(q.symbol||T.symbol));
+    const d=demoDec(m,T.side,pos),qty=demoRoundQ(demoNum(E.qty.value),d),price=demoNum(E.price.value),side=T.side,type=T.type,symbol=T.symbol,code=demoSym(symbol);
+    if(!confirm('DEMO · gerçek para değil\n'+DMN[m]+' hesabı\n'+code+' · '+demoQty(qty,m)+(m==='CRYPTO'?'':' adet')+' '+(side==='buy'?'AL':'SAT')+' · '+DMT[type]+'\n'+(type==='market'?'Gerçekleşme fiyatı yenilenen veriye göre değişebilir.':demoPx(price,m)+' fiyat seviyesi')+'\nOnaylıyor musun?'))return;
+    demoBusy=true;T.estimate();let r;
+    try{r=await demoRequest({op:'order',symbol,market:m,side,type,qty,price:type==='market'?undefined:price})}finally{demoBusy=false}
+    if(okr(r)){if(r.quote)T.quote=r.quote;E.qty.value='';const tr=r.trade;
+      T.flash={c:'ok',t:tr?'Gerçekleşti: '+demoQty(tr.qty,m)+' '+code+' · '+demoPx(tr.price,m)+(tr.pnl!=null?' · net K/Z '+demoSigned(tr.pnl,m):''):'Emir beklemeye alındı ('+DMT[type]+' '+demoPx(r.order.price,m)+'). Bekleyen emirlerden izleyebilirsin.'};
+      toast(tr?'Demo işlem gerçekleşti':'Demo emir kaydedildi')}
+    else T.flash={c:'bad',t:(r&&r.error)||'İşlem yapılamadı.'};
+    T.estimate()};
+  return T}
+// Demo sekmesindeki sembol arama: BIST bp.search; ABD/Kripto bp-symbols listeleri (listede olmayan gecerli kod da yazilabilir)
+function demoSymBox(T,E){const m=T.market;let items=[],sel=0,tm=null;
+  const inp=E.symInp=el('input',{class:'inp',autocomplete:'off',spellcheck:'false','aria-label':'Demo sembol',value:T.symbol?demoSym(T.symbol):'',
+    placeholder:m==='CRYPTO'?'Coin ara: BTC, ETH, SOL ya da XXX-USD':m==='US'?'Hisse/ETF ara: AAPL, NVDA, SPY…':'Hisse ara: THYAO, ASELS…'});
+  const dd=el('div',{class:'dd'});
+  const pick=s=>{dd.classList.remove('on');T.set({symbol:s})};
+  const draw=()=>{dd.replaceChildren(...items.map((x,i)=>el('div',{class:i===sel?'sel':'',onmousedown:e=>{e.preventDefault();pick(x.symbol)}},el('b',{},x.code||x.symbol),el('span',{},x.name||''))));dd.classList.toggle('on',items.length>0)};
+  const find=async()=>{const q=inp.value.trim();
+    if(m==='BIST'){let r=[];if(q)try{r=await bp.search(q)}catch(e){}items=(Array.isArray(r)?r:[]).slice(0,8).map(x=>({code:x.symbol,symbol:x.symbol,name:x.name}))}
+    else items=SY?SY.search(m,q,8):[];sel=0;if(document.activeElement===inp)draw()};
+  inp.oninput=()=>{clearTimeout(tm);tm=setTimeout(find,90)};inp.onfocus=()=>{if(!inp.value||inp.value===demoSym(T.symbol))find()};inp.onblur=()=>setTimeout(()=>dd.classList.remove('on'),150);
+  inp.onkeydown=e=>{if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();if(!items.length)return;sel=(sel+(e.key==='ArrowDown'?1:-1)+items.length)%items.length;draw()}
+    else if(e.key==='Enter'){e.preventDefault();const it=dd.classList.contains('on')&&items[sel],v=it?it.symbol:inp.value.trim();if(v)pick(v)}else if(e.key==='Escape'){dd.classList.remove('on');inp.blur()}};
+  return el('div',{},el('div',{class:'dm-s'},inp,dd),
+    T.symbol?el('div',{class:'dm-cur'},el('b',{class:'num'},demoSym(T.symbol)),E.curNm=el('span',{class:'m2'},''),el('span',{class:'sp'}),E.curPx=el('b',{class:'num'},'…'))
+      :el('div',{class:'dm-cur mu'},m==='CRYPTO'?'Popüler: ':'Örnek: ',...(m==='CRYPTO'?['BTC','ETH','SOL','XRP']:m==='US'?['AAPL','NVDA','SPY','QQQ']:['THYAO','ASELS','GARAN']).map(c=>el('button',{class:'chip sm dm-q',onclick:()=>pick(c)},c))))}
+function demoChartTicket(){const r=S.data,m=demoAcctOf(r),y=demoYahoo(r.yahoo||r.symbol,m);
+  if(!demoChart)demoChart=demoTicketMake('chart');
+  if(demoChart.market!==m||demoChart.symbol!==y)demoChart.set({market:m,symbol:y});else if(!demoChart.E)demoChart.build();
+  return demoChart.node}
+function demoOpen(sym,m){return go(m==='CRYPTO'?sym:demoSym(sym),m==='BIST'?'BIST':'US')}
+// Demo sekmesine gec, emir formunu doldur (Okul, pozisyon Al/Sat dugmeleri)
+function demoGo(p){p=p||{};const m=DMK.includes(p.market)?p.market:demoMarket;demoSetMarket(m);demoPrefill={...p,market:m};if(S.tab!=='demo')tab('demo');else renderDemo()}
+function demoFromOkul(sym,o){o=o||{};const raw=String(sym||'').trim(),m=DMK.includes(o.market)?o.market:(raw&&SY&&SY.marketOf(raw))||'BIST';
+  demoGo({market:m,symbol:raw,side:o.side,type:o.type,note:o.note?'Okul · '+String(o.note).slice(0,180):null});
+  toast('Demo emir formu hazır'+(raw?': '+demoSym(demoYahoo(raw,m)):'')+' · gerçek para değil')}
+async function loadDemo(){if(demoSummary)renderDemo();else if(!$('v-demo').firstChild)$('v-demo').replaceChildren(el('div',{class:'empty'},el('div',{class:'spin'}),'Demo hesap yükleniyor…'));
+  if(demoLoadBusy)return;demoLoadBusy=true;
+  try{const r=await demoRequest({op:'refresh'});if(!okr(r)&&!demoSummary)$('v-demo').replaceChildren(el('div',{class:'err'},(r&&r.error)||'Demo hesap yüklenemedi.'));else if(r&&r.errors&&r.errors.length)toast('Bazı demo fiyatları yenilenemedi; son bilinen değerler gösteriliyor.')}
+  finally{demoLoadBusy=false}
+  if(S.tab==='demo'&&demoTab&&demoTab.symbol&&!demoBusy)demoTab.refresh()}
+// Sermaye egrisi: gunluk oz sermaye (zaman olcekli), kesikli cizgi baslangic bakiyesi
+function demoCurve(pts,start){const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('class','dm-eq');svg.setAttribute('viewBox','0 0 600 170');svg.setAttribute('preserveAspectRatio','none');
+  const a=(pts||[]).filter(p=>p&&fin(p.v)&&fin(p.t));if(a.length<2)return svg;
+  const t0=a[0].t,t1=a[a.length-1].t,vs=[...a.map(p=>p.v),start],mn=Math.min(...vs),mx=Math.max(...vs),pad=(mx-mn)*0.1||Math.max(1,Math.abs(mx)*0.005),lo=mn-pad,hi=mx+pad;
+  const X=t=>(t1>t0?(t-t0)/(t1-t0)*592+4:300).toFixed(1),Y=v=>(164-(v-lo)/(hi-lo)*158).toFixed(1);
+  const line=a.map(p=>X(p.t)+','+Y(p.v)).join(' '),c=a[a.length-1].v>=start?'var(--up)':'var(--dn)';
+  svg.innerHTML='<line x1="0" x2="600" y1="'+Y(start)+'" y2="'+Y(start)+'" stroke="currentColor" opacity=".45" stroke-dasharray="4 4" vector-effect="non-scaling-stroke"/>'+
+    '<polygon fill="'+c+'" opacity=".12" points="'+X(t0)+',168 '+line+' '+X(t1)+',168"/>'+
+    '<polyline fill="none" stroke="'+c+'" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke" points="'+line+'"/>';
+  return svg}
+const demoTable=(heads,rows,empty,cls)=>rows.length?el('div',{class:'demo-scroll'},el('table',{class:'t'+(cls?' '+cls:'')},el('thead',{},el('tr',{},heads.map(h=>el('th',{},h)))),el('tbody',{},rows))):el('div',{class:'empty',style:'padding:18px'},empty||'Henüz kayıt yok.');
+function renderDemo(){const v=$('v-demo');if(!demoSummary)return;
+  if(!DV||DV.m!==demoMarket||!v.contains(DV.root))demoBuild();
+  demoUpdate();
+  if(demoPrefill){const p=demoPrefill;demoPrefill=null;demoTab.set({market:p.market,symbol:p.symbol||'',side:p.side||'buy',type:p.type||'market',note:p.note||null});
+    requestAnimationFrame(()=>{try{demoTab.node.scrollIntoView({block:'nearest'});const E=demoTab.E;if(E)(demoTab.symbol?E.qty:E.symInp||E.qty).focus()}catch(e){}})}}
+// Iskelet hesap degisince bir kez kurulur; emir formu ve filtre girdileri yeniden cizimde korunur (yazarken odak kaybolmaz)
+function demoBuild(){const m=demoMarket,v=$('v-demo');
+  if(!demoTab)demoTab=demoTicketMake('tab');
+  if(demoTab.market!==m||!demoTab.E)demoTab.set({market:m});
+  const P={badge:el('span',{class:'badge'},el('i'),el('span',{},'')),warn:el('div',{class:'warn dm-warn'}),cards:el('div',{class:'stat dm-top'}),curve:el('div',{class:'card'}),pos:el('div',{class:'card'}),
+    orders:el('div',{class:'card'}),stats:el('div',{class:'card'}),tbody:el('div'),tcount:el('span',{class:'mu',style:'text-transform:none;letter-spacing:0;font-weight:500'}),fsegs:el('div',{class:'row',style:'gap:6px'}),set:el('details',{class:'card dm-set'})};
+  const q=el('input',{class:'inp',style:'width:150px',placeholder:'Sembol filtrele','aria-label':'İşlem geçmişi sembol filtresi',value:demoTF.q,oninput:e=>{demoTF.q=e.target.value;demoTrades()}});
+  P.trades=el('div',{class:'card'},el('h3',{},'İşlem geçmişi',el('span',{class:'sp'}),P.tcount),el('div',{class:'dm-filt'},P.fsegs,q),P.tbody);
+  const root=el('div',{class:'dm'},
+    el('div',{class:'ph'},el('h2',{},'Demo hesap'),el('div',{class:'seg dm-acc'},...DMK.map(k=>el('button',{class:k===m?'on':'',onclick:()=>{if(k===demoMarket)return;demoSetMarket(k);renderDemo()}},DMN[k]))),P.badge,el('span',{class:'sp'}),
+      el('button',{class:'btn',onclick:()=>loadDemo()},'Fiyatları yenile')),
+    P.warn,P.cards,
+    el('div',{class:'dm-grid'},el('div',{class:'dm-col'},P.curve,P.pos,P.orders),el('div',{class:'dm-col dm-side-col'},demoTab.node,P.stats)),
+    P.trades,P.set);
+  v.replaceChildren(root);DV={m,root,P};demoSettings()}
+function demoUpdate(){const m=DV.m,a=demoSummary.accounts[m],P=DV.P;if(!a)return;const s=a.session||{};
+  P.badge.className='badge'+(s.open?' open':'');P.badge.lastChild.textContent=m==='CRYPTO'?'7/24 açık':s.open?'Seans açık':'Seans kapalı';P.badge.title=s.reason||'';
+  P.warn.textContent='DEMO · Gerçek para değil; sanal bakiye, aracı kuruma emir gönderilmez. '+({BIST:'BIST verileri yaklaşık 15 dk gecikmelidir.',US:'ABD seansı hafta içi 09:30–16:00 (New York); resmî tatiller modellenmez.',CRYPTO:'Kripto 7/24 işlem görür ve çok oynaktır; fiyatlar birkaç dakika gecikebilir.'}[m])+' Likidite, kısmi dolum ve sıra önceliği modellenmez.';
+  const mc=(label,value,cls,sub,subCls)=>el('div',{class:'mc'},el('span',{},label),el('b',{class:cls||''},value),sub?el('small',{class:subCls||''},sub):null);
+  P.cards.replaceChildren(mc('Toplam değer',demoMoney(a.equity,m),'','Başlangıç '+demoMoney(a.start,m)),
+    mc('Kullanılabilir nakit',demoMoney(a.available,m),'',a.reserved?'Emirde ayrılan '+demoMoney(a.reserved,m):'Pozisyonlarda '+demoMoney(a.positions,m)),
+    mc('Bugün K/Z',demoSigned(a.dayPnl,m),sgnc(a.dayPnl),pct(a.dayPct)+' · dünkü kapanışa göre',sgnc(a.dayPct)),
+    mc('Toplam getiri',pct(a.pnlPct),sgnc(a.pnl),demoSigned(a.pnl,m)+(a.since?' · '+day(a.since)+'\'den beri':' · henüz işlem yok')));
+  // sermaye egrisi
+  const cv=a.curve||[],vals=cv.map(p=>p.v);
+  P.curve.replaceChildren(el('h3',{},'Sermaye eğrisi',el('span',{class:'sp'}),cv.length>1?el('span',{class:'mu',style:'text-transform:none;letter-spacing:0;font-weight:500'},'en yüksek '+demoMoney(Math.max(...vals),m)+' · en düşük '+demoMoney(Math.min(...vals),m)):null),
+    cv.length>1?[demoCurve(cv,a.start),el('div',{class:'dm-eqx'},el('span',{},day(cv[0].t)),el('span',{},'- - - başlangıç bakiyesi'),el('span',{},'bugün'))]
+      :el('div',{class:'empty',style:'padding:26px 10px'},el('b',{},'Eğri ilk işlemle başlar'),'Her gün hesabın toplam değeri kaydedilir; kazanç ve düşüşlerini burada görürsün.'));
+  // pozisyonlar
+  const prow=p=>el('tr',{style:'cursor:default'},
+    el('td',{},el('div',{class:'dm-symc',title:'Grafiği aç',onclick:()=>demoOpen(p.sym,m)},el('b',{},demoSym(p.sym)),(n=>n&&n.toLocaleUpperCase('tr-TR')!==demoSym(p.sym)?el('small',{title:n},n):null)(demoName(p.sym,p.name)))),
+    el('td',{title:p.free<p.qty?'Satılabilir '+demoQty(p.free,m)+' (kalanı bekleyen satış emirlerinde)':null},demoQty(p.qty,m)+(p.free<p.qty?'*':'')),
+    el('td',{},demoPx(p.avg,m)),el('td',{title:p.lastAt?'Fiyat zamanı '+dt(p.lastAt):null},demoPx(p.last,m)),el('td',{},demoMoney(p.value,m)),
+    el('td',{class:'dm-pl '+sgnc(p.pnl)},demoSigned(p.pnl,m),el('small',{},pct(p.pnlPct))),
+    el('td',{},el('div',{class:'dm-w'},el('div',{class:'dm-wb'},el('i',{style:'width:'+Math.min(100,Math.max(0,p.weight||0))+'%'})),el('span',{},'%'+nf(p.weight,1)))),
+    el('td',{class:'dm-act'},el('button',{class:'btn',title:'Bu sembolden daha al',onclick:()=>demoGo({market:m,symbol:p.sym,side:'buy',type:'market'})},'Al'),
+      el('button',{class:'btn',title:'Pozisyonu sat ya da stop kur',onclick:()=>demoGo({market:m,symbol:p.sym,side:'sell',type:'market'})},'Sat')));
+  P.pos.replaceChildren(el('h3',{},'Pozisyonlar',el('span',{class:'sp'}),el('span',{class:'mu',style:'text-transform:none;letter-spacing:0;font-weight:500'},a.pos.length+' açık pozisyon')),
+    demoTable([m==='CRYPTO'?'Coin':'Sembol',m==='CRYPTO'?'Miktar':'Adet','Maliyet¹','Son','Değer','K/Z','Ağırlık',''],a.pos.map(prow),'Açık pozisyon yok. Sağdaki formdan ilk emrini ver.','dm-pt'),
+    a.pos.length?el('div',{class:'disc'},'¹ Ortalama maliyet, alış komisyonu dahil. Ağırlık: toplam değer içindeki pay. Sembole tıkla: grafik.'+(a.pos.some(p=>p.free<p.qty)?' * Bir kısmı bekleyen satış emrinde.':'')+(a.pos.some(p=>!p.lastAt||Date.now()-p.lastAt>25*60000)?' Bazı değerler son bilinen fiyata dayanıyor.':'')):null);
+  // bekleyen emirler
+  const ords=demoSummary.orders.filter(o=>o.market===m);
+  P.orders.replaceChildren(el('h3',{},'Bekleyen emirler',el('span',{class:'sp'}),el('span',{class:'mu',style:'text-transform:none;letter-spacing:0;font-weight:500'},ords.length?ords.length+' emir · '+({BIST:'seans açıkken',US:'seans açıkken',CRYPTO:'7/24'}[m])+' dakikada bir kontrol':'')),
+    demoTable(['Sembol','Yön','Tür','Miktar','Seviye','Ayrılan','Verildi',''],ords.map(o=>el('tr',{style:'cursor:default'},el('td',{},el('b',{},demoSym(o.sym))),
+      el('td',{class:o.side==='buy'?'up':'dn'},o.side==='buy'?'AL':'SAT'),el('td',{},DMT[o.type]),el('td',{},demoQty(o.qty,m)),el('td',{},demoPx(o.price,m)),
+      el('td',{},o.reserve?demoMoney(o.reserve,m):'—'),el('td',{},dt(o.at)),
+      el('td',{},el('button',{class:'btn',onclick:async()=>{if(confirm('Demo emir iptal edilsin mi?\n'+demoSym(o.sym)+' · '+DMT[o.type]+' '+demoPx(o.price,m)))await demoRequest({op:'cancel',id:o.id})}},'İptal')))),'Bekleyen emir yok. Limit ve stop emirleri burada bekler.'));
+  // performans
+  const st=a.stats||{},wr=st.winRate;
+  P.stats.replaceChildren(el('h3',{},'Performans'),
+    el('div',{class:'dm-wr'},el('div',{},el('b',{class:wr==null?'':wr>=50?'up':'dn'},wr==null?'—':'%'+wr),el('span',{},'kazanma oranı')),
+      el('div',{class:'dm-wrb'},el('i',{class:'w',style:'width:'+(st.sells?st.wins/st.sells*100:0)+'%'}),el('i',{class:'l',style:'width:'+(st.sells?st.losses/st.sells*100:0)+'%'})),
+      el('span',{class:'mu'},st.sells?st.wins+' kârlı · '+st.losses+' zararlı satış':'Henüz kapanan işlem yok')),
+    el('div',{class:'kv',style:'margin-top:10px'},
+      el('span',{},'İşlem sayısı'),el('b',{},String(st.trades||0)+(st.trades?' ('+st.buys+' alış / '+st.sells+' satış)':'')),
+      el('span',{},'Ortalama kazanç'),el('b',{class:'up'},demoSigned(st.avgWin,m)),el('span',{},'Ortalama kayıp'),el('b',{class:'dn'},demoSigned(st.avgLoss,m)),
+      el('span',{},'En iyi / en kötü'),el('b',{},el('span',{class:sgnc(st.best)},demoSigned(st.best,m)),' / ',el('span',{class:sgnc(st.worst)},demoSigned(st.worst,m))),
+      el('span',{},'Kâr faktörü'),el('b',{},fin(st.profitFactor)?nf(st.profitFactor,2):'—'),
+      el('span',{},'En büyük düşüş'),el('b',{class:st.maxDD>0?'dn':''},st.maxDD>0?'−%'+nf(st.maxDD,2)+' ('+demoMoney(st.maxDDAmt,m)+')':'—'),
+      el('span',{},'Gerçekleşen K/Z'),el('b',{class:sgnc(a.realized)},demoSigned(a.realized,m)),el('span',{},'Gerçekleşmemiş K/Z'),el('b',{class:sgnc(a.unrealized)},demoSigned(a.unrealized,m)),
+      el('span',{},'Ödenen komisyon'),el('b',{},demoMoney(a.fees,m))),
+    el('div',{class:'disc'},'Son 500 işlem ve günlük sermaye eğrisinden hesaplanır. Kâr faktörü: toplam kazanç / toplam kayıp.'));
+  demoTrades()}
+function demoTrades(){if(!DV||!demoSummary)return;const m=DV.m,P=DV.P,f=demoTF,qq=f.q.trim().toLocaleUpperCase('tr-TR');
+  const seg=(opts,k)=>el('div',{class:'seg'},...opts.map(([v,t])=>el('button',{class:f[k]===v?'on':'',onclick:()=>{f[k]=v;demoTrades()}},t)));
+  P.fsegs.replaceChildren(seg([['','Tümü'],['buy','Alış'],['sell','Satış']],'side'),seg([['','Hepsi'],['win','Kârlı'],['loss','Zararlı']],'res'));
+  const all=demoSummary.trades.filter(t=>t.market===m),list=all.filter(t=>(!f.side||t.side===f.side)&&(!f.res||(f.res==='win'?t.pnl>0:t.pnl!=null&&t.pnl<0))&&(!qq||demoSym(t.sym).includes(qq)||t.sym.includes(qq)));
+  P.tcount.textContent=list.length===all.length?all.length+' işlem':list.length+' / '+all.length+' işlem';
+  P.tbody.replaceChildren(demoTable(['Zaman (TSİ)','Sembol','Yön','Tür','Miktar','Fiyat','Tutar','Komisyon','Net K/Z'],list.slice(0,150).map(t=>el('tr',{style:'cursor:default'},el('td',{},dt(t.at)),el('td',{},el('b',{},demoSym(t.sym))),
+    el('td',{class:t.side==='buy'?'up':'dn'},t.side==='buy'?'AL':'SAT'),el('td',{},DMT[t.type]||t.type),el('td',{},demoQty(t.qty,m)),el('td',{},demoPx(t.price,m)),el('td',{},demoMoney(t.value,m)),
+    el('td',{},demoMoney(t.fee,m)),el('td',{class:sgnc(t.pnl)},t.pnl==null?'—':demoSigned(t.pnl,m)))),all.length?'Bu filtreye uyan işlem yok.':'Henüz işlem yok.'))}
+function demoSettings(){if(!DV||!demoSummary)return;const P=DV.P,m=DV.m,a=demoSummary.accounts[m],set=demoSummary.set;
+  const commission=el('input',{class:'inp',value:String(+(set.commission*100).toFixed(4)).replace('.',','),inputmode:'decimal','aria-label':'Komisyon yüzdesi'}),slippage=el('input',{class:'inp',value:String(set.slippage).replace('.',','),inputmode:'decimal','aria-label':'Kayma baz puan'});
+  const any=el('input',{type:'checkbox',checked:set.anyTime,'aria-label':'Seans dışı simülasyon'}),frac=el('input',{type:'checkbox',checked:!!set.usFrac,'aria-label':'ABD kesirli hisse'});
+  const start=el('input',{class:'inp',value:String(a.start).replace('.',','),inputmode:'decimal','aria-label':'Başlangıç demo bakiyesi'});
+  const save=async()=>{const r=await demoRequest({op:'settings',commissionPct:demoNum(commission.value),slippageBp:demoNum(slippage.value),anyTime:any.checked,usFrac:frac.checked});if(okr(r))toast('Demo ayarları kaydedildi')};
+  const reset=async()=>{const st=demoNum(start.value);
+    if(!(st>0)){toast('Geçerli bir başlangıç bakiyesi yaz.');return}
+    if(!confirm(DMN[m]+' demo hesabındaki pozisyonlar, emirler, işlem geçmişi ve sermaye eğrisi silinecek; yeni başlangıç bakiyesi '+demoMoney(st,m)+'. Devam?')||!confirm('Bu demo hesabını kalıcı olarak sıfırlamak istediğinden emin misin?'))return;
+    const r=await demoRequest({op:'reset',market:m,start:st});if(okr(r)){toast(DMN[m]+' demo hesabı sıfırlandı');demoSettings()}};
+  P.set.replaceChildren(el('summary',{},'Demo ayarları · başlangıç bakiyesi · hesabı sıfırla'),
+    el('div',{class:'dm-setg'},
+      el('div',{},el('h4',{},'İşlem ayarları (tüm hesaplar)'),el('div',{class:'demo-form'},el('label',{},'Komisyon % (0–1)',commission),el('label',{},'Kayma (0–100 baz puan)',slippage)),
+        el('label',{class:'row',style:'margin:10px 0 4px'},any,'Seans dışı simülasyon (gerçekçi değildir)'),
+        el('label',{class:'row',style:'margin:4px 0 10px'},frac,'ABD hesabında kesirli hisse (0,0001 adet adım, en az 1 $)'),
+        el('button',{class:'btn pri',onclick:save},'Ayarları kaydet'),
+        el('div',{class:'disc'},'Piyasa ve stop emirlerinde kayma; tüm işlemlerde komisyon uygulanır. Kripto 7/24 açıktır; ABD resmî tatilleri modellenmez.')),
+      el('div',{},el('h4',{},DMN[m]+' hesabı'),el('div',{class:'demo-form'},el('label',{},'Başlangıç bakiyesi ('+a.ccy+')',start)),
+        el('div',{class:'row',style:'margin-top:10px'},el('button',{class:'btn dm-rst',onclick:reset},'Hesabı sıfırla')),
+        el('div',{class:'disc'},'Sıfırlama yalnız bu hesabın pozisyonlarını, emirlerini, geçmişini ve eğrisini siler (onay istenir). Borsa Okulu’nda tamamlanan görevler korunur.'))))}
 
 // --- portfoy -------------------------------------------------------------------------------------------
 async function loadPort(){const r=await call(bp.portfolio,{op:'get'});if(okr(r)){S.st.portfolio=r;renderPort()}else renderPort()}
@@ -1052,7 +1304,7 @@ async function init(){
   load(st.symbol||st.watch[0]||'THYAO');refreshQuotes();
   if(st.prefs&&st.prefs.tab&&st.prefs.tab!=='grafik')tab(st.prefs.tab);
   setInterval(refreshQuotes,60000);
-  setInterval(()=>{if(document.hidden)return;if(S.tab==='portfoy')loadPort();if(S.tab==='demo'&&!$('v-demo').contains(document.activeElement))loadDemo();if(S.tab==='grafik'&&!demoBusy&&demoFields)demoRefreshTicket()},60000);
+  setInterval(()=>{if(document.hidden)return;if(S.tab==='portfoy')loadPort();if(S.tab==='demo'&&!$('v-demo').contains(document.activeElement))loadDemo();if(S.tab==='grafik'&&!demoBusy&&demoChart&&demoChart.symbol)demoChart.refresh()},60000);
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)refreshQuotes()});
   setTimeout(()=>{window.__ready=true},1200)}
 init();

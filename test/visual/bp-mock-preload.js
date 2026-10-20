@@ -1,5 +1,7 @@
 // Gorsel kontrol icin window.bp taklidi: gercek analiz modulleri (engine, bp-data, bp-strategy) + sentetik piyasa verisi.
-// shot.js bu preload'u sandbox:false ile yukler. Sekme: BP_TAB ortam degiskeni (grafik|tarama|lab|portfoy|alarm|piyasa|analist|plan).
+// shot.js bu preload'u sandbox:false ile yukler. Sekme: BP_TAB ortam degiskeni (grafik|tarama|lab|portfoy|alarm|piyasa|analist|plan|demo|okul).
+// Demo: gercek motor (bp-demo) + IPC denetleyicisi (bp-demo-main), 40 gunluk tohumlanmis sanal gecmis (uc hesap), sentetik fiyatlar.
+// Okul: gercek okul-client, sahte Supabase REST (kucuk icerik seti); pratik gorevleri demo gecmisinden dogrulanir.
 const {contextBridge,ipcRenderer}=require('electron');
 const path=require('path'),R=p=>require(path.join(__dirname,'..','..',p));
 const engine=R('engine.js'),D=R('bp-data.js'),lab=R('bp-strategy.js'),{summarize}=R('borsa-pro-main.js'),demo=require('./bp-demo-data.js');
@@ -15,7 +17,7 @@ const market={TF:{'1g':1},yahooSymbol:s=>String(s).toUpperCase().replace(/\.IS$/
   multi:async(s,{tf})=>{const fr={};for(const k of [tf,'1g','1h'])fr[k]=series(String(s).replace('.IS',''),k);return {frames:fr,quotes:{},errors:[]}}};
 const data=D.createData({market,engine,sleep:()=>Promise.resolve()});
 const bench=series('XU100','1g');
-let watch=['THYAO','ASELS','GARAN','AKBNK','BIMAS','EREGL','KCHOL','TUPRS','SISE','FROTO','YKBNK','PGSUS'];
+let watch=['THYAO','ASELS','GARAN','AKBNK','BIMAS','EREGL','KCHOL','TUPRS','SISE','FROTO','YKBNK','PGSUS','AAPL.US','BTC-USD'];
 let alarms=[{id:'a1a1a1a1',symbol:'THYAO',kind:'above',price:0,note:'Direnç kırılımı',created:Date.now()-3600e3,fired:null,last:null},
   {id:'b2b2b2b2',symbol:'ASELS',kind:'verdict',price:null,note:'',created:Date.now()-7200e3,fired:null,last:'BEKLE'},
   {id:'c3c3c3c3',symbol:'GARAN',kind:'below',price:100,note:'Stop',created:Date.now()-86400e3,fired:Date.now()-5400e3,text:'GARAN 100,00 seviyesinin altına indi (son 99,40)'}];
@@ -27,9 +29,63 @@ let lastScan=null,capital=250000,prefs={tab:process.env.BP_TAB||'grafik',univers
 const px=s=>{const r=series(s,'1g');return {price:r[r.length-1].c,prev:r[r.length-2].c,chgPct:(r[r.length-1].c/r[r.length-2].c-1)*100}};
 const port=()=>({positions,summary:summarize(positions,px,new Date().toISOString().slice(0,10))});
 let evt=()=>{},liveList=(process.env.BP_LIVE||'').split(',').filter(Boolean);
+// --- demo hesap taklidi -----------------------------------------------------------------------
+const os=require('os'),fs=require('fs');
+const Demo=R('bp-demo.js'),DemoMain=R('bp-demo-main.js'),SYMS=R('bp-symbols.js'),{createOkul}=R('okul-client.js');
+const ddir=fs.mkdtempSync(path.join(os.tmpdir(),'bp-demo-mock-'));
+const BASE={AAPL:232.4,NVDA:181.2,SPY:668.3,MSFT:512.6,TSLA:438.1,QQQ:603.5,'BTC-USD':108250,'ETH-USD':3912.4,'SOL-USD':187.42,'XRP-USD':2.41,'DOGE-USD':0.1987,'PEPE24478-USD':0.00001034};
+const DAYMS=86400000,T_NOW=Date.now();
+// Gun indeksine gore belirlenimci fiyat yolu (0 = bugun, -40 = 40 gun once)
+const pxAt=(y,d)=>{const h=hash(y),b=/\.IS$/.test(y)?(()=>{const r=series(y.replace('.IS',''),'1g');return r[r.length-1].c})():BASE[y]||(40+h%300);
+  const k=1+0.07*Math.sin((d+h%17)/6)+0.0025*d*((h%3)-1)-0.07*Math.sin((h%17)/6);const v=b*k;return v>=1?+v.toFixed(2):+v.toPrecision(6)};
+(function seed(){
+  let clk=T_NOW-40*DAYMS;const B=Demo.create({file:path.join(ddir,'bp-demo.json'),now:()=>clk,calendar:{status:()=>({open:true,reason:null})}});
+  B.settings({anyTime:true,usFrac:true});
+  const ccy=y=>/\.IS$/.test(y)?'TRY':'USD',mk=y=>/\.IS$/.test(y)?'BIST':/-USD$/.test(y)?'CRYPTO':'US';
+  const q=(y,d)=>({price:pxAt(y,d),currency:ccy(y),time:clk,name:SYMS.nameOf(y)||(D.NAMES&&D.NAMES[y.replace('.IS','')])||y.replace('.IS','')});
+  // Alis: hedef tutar (hesap para birimi); satis: pozisyonun orani
+  const plan={'-40':[['THYAO.IS','buy',25000],['AAPL','buy',2500],['BTC-USD','buy',3500]],'-37':[['ASELS.IS','buy',20000],['ETH-USD','buy',2500],['NVDA','buy',2200]],
+    '-33':[['SOL-USD','buy',2000],['SPY','buy',2000]],'-29':[['GARAN.IS','buy',15000],['SISE.IS','buy',12000]],'-24':[['THYAO.IS','sell',0.4],['SOL-USD','sell',0.4]],
+    '-19':[['SISE.IS','sell',1],['NVDA','sell',0.34]],'-12':[['XRP-USD','buy',1500],['MSFT','buy',1500]],'-8':[['XRP-USD','sell',0.45],['GARAN.IS','buy',6000]],'-3':[['DOGE-USD','buy',600]]};
+  const qtyFor=(y,v,d)=>{const m=mk(y),p=pxAt(y,d);if(m==='BIST')return Math.max(1,Math.floor(v/p));return m==='CRYPTO'?+(v/p).toFixed(m==='CRYPTO'&&p>1000?4:2):+(v/p).toFixed(1)};
+  for(let d=-40;d<=0;d++){clk=T_NOW+d*DAYMS-(d?0:5*60000);
+    for(const [y,side,v] of plan[String(d)]||[])try{const pos=B.summary().accounts[mk(y)].pos.find(p=>p.sym===y);
+      const qty=side==='buy'?qtyFor(y,v,d):v===1?pos.qty:mk(y)==='BIST'?Math.floor(pos.qty*v):+(pos.qty*v).toFixed(4);
+      B.place({symbol:y,market:mk(y),side,type:'market',qty},q(y,d))}catch(e){console.log('seed',y,e.message)}
+    for(const y of B.symbols())B.process(y,[],q(y,d))}
+  try{const ord=(y,side,type,v,f)=>{const p=pxAt(y,0),qty=side==='buy'?qtyFor(y,v,0):v,price=+(p*f).toPrecision(6);B.place({symbol:y,market:mk(y),side,type,qty,price},q(y,0))};
+    ord('EREGL.IS','buy','limit',8000,0.95);ord('ASELS.IS','sell','stop',Math.floor(B.summary().accounts.BIST.pos.find(p=>p.sym==='ASELS.IS').qty/3),0.93);
+    ord('TSLA','buy','limit',1200,0.94);ord('BTC-USD','sell','stop',0.01,0.9);ord('ETH-USD','sell','limit',0.2,1.12)}catch(e){console.log('seed emir',e.message)}
+  B.settings({anyTime:false,usFrac:false});
+})();
+const dmarket={yahooSymbol:(s,m)=>{s=String(s).toUpperCase();return /[.=^-]/.test(s)?s:m==='BIST'?s+'.IS':s},
+  candles:async y=>({rows:[],quote:{price:pxAt(y,0),currency:/\.IS$/.test(y)?'TRY':'USD',time:Date.now()-60000,name:SYMS.nameOf(y)||y.replace('.IS','')}})};
+const demoCtl=DemoMain.create({lib:Demo,app:{getPath:()=>ddir},path,market:dmarket,calendar:R('calendar.js'),now:()=>Date.now(),active:()=>false,isOn:()=>true,
+  timers:{setTimeout,clearTimeout},send:d=>evt(d),Notification:null,open:()=>{},timeout:p=>p});
+// --- Borsa Okulu taklidi: sahte PostgREST (okul_icerik) -----------------------------------------
+const BUGUN=new Date(T_NOW+3*3600000).toISOString().slice(0,10);
+const OKUL_ROWS=[
+  {slug:'analiz-'+BUGUN+'-aksam',tur:'analiz',baslik:'Bankalar taşıdı, BIST 100 günü %0,84 artıyla tamamladı',ozet:'Endeks, bankacılık hisselerinin öncülüğünde günün zirvesine yakın kapandı. İşlem hacmi 20 günlük ortalamanın yüzde 18 üzerinde.',tarih:BUGUN,konu:'genel',
+    govde:{piyasa:{xu100:{son:10482.37,degisim:0.84},xbank:{son:14210.5,degisim:2.36},usdtry:{son:41.86,degisim:0.11},altin:{son:5612,degisim:-0.42}},
+      bolumler:[{baslik:'Kapanış',metin:'BIST 100 günü **10.482** puandan, yüzde 0,84 artıyla kapattı. Bankacılık endeksi yüzde 2,4 yükseldi; yükselen hisse sayısı düşenlerin yaklaşık iki katı oldu.'}],
+      one_cikanlar:[{sembol:'AKBNK',yon:'yukari',neden:'Hacimli yükseliş; 20 günlük ortalamanın 2,1 katı işlem.'},{sembol:'PGSUS',yon:'asagi',neden:'Kâr satışı; 50 günlük ortalama test ediliyor.'},{sembol:'ASELS',yon:'izle',neden:'Yeni sözleşme açıklaması KAP’ta.'}],
+      yarin_izle:['10.350 desteği ve 10.600 direnci','Bankacılıktaki hacmin sürüp sürmediği'],uyari:'Yatırım tavsiyesi değildir.'},yayinda:true},
+  {slug:'ders-003-emir-turleri',tur:'ders',baslik:'Emir türleri: limit, piyasa ve zarar durdur',ozet:'Hangi emir ne zaman kullanılır? Limit emirle fiyatı, piyasa emriyle hızı seçersin.',sira:3,seviye:'baslangic',konu:'bist-kurallari',tarih:BUGUN,
+    govde:{hedefler:['Limit ve piyasa emrini ayırt etmek','Zarar durdur (stop-loss) emrinin işlevini bilmek'],bolumler:[{baslik:'Limit emir',metin:'Limit emirde fiyatı sen belirlersin; emir yalnız o fiyattan ya da daha iyisinden gerçekleşir.'}],
+      ornek:{sembol:'THYAO',aciklama:'THYAO 312 TL iken 305 TL’den limit alış emri verirsen, fiyat 305’e inmedikçe emir bekler.'},
+      alistirmalar:[{soru:'THYAO için son fiyatın %2 altına bir limit alış emri ver. Emir ne zaman gerçekleşir?',cevap:'Fiyat limit seviyesine inerse.'},{soru:'Elindeki pozisyon için %5 aşağıda bir zarar durdur (stop) emri kur.',cevap:'Fiyat stop seviyesinin altına inerse piyasa fiyatından satılır.'}],sure_dk:6},yayinda:true},
+  {slug:'ders-002-seanslar',tur:'ders',baslik:'BIST seansları',ozet:'Açılış, sürekli işlem ve kapanış seansları.',sira:2,seviye:'baslangic',konu:'bist-kurallari',tarih:'2026-10-01',govde:{bolumler:[]},yayinda:true},
+  {slug:'soru-'+BUGUN+'-01',tur:'soru',baslik:'s1',tarih:BUGUN,konu:'bist-kurallari',govde:{soru:'Limit alış emri hangi durumda hemen gerçekleşir?',secenekler:['Limit son fiyatın altındaysa','Limit son fiyatın üstündeyse','Hiçbir zaman','Yalnız kapanışta'],dogru:1,aciklama:'Alış limiti son fiyatın üstündeyse emir hemen eşleşebilir.',zorluk:1},yayinda:true},
+  {slug:'soru-'+BUGUN+'-02',tur:'soru',baslik:'s2',tarih:BUGUN,konu:'risk',govde:{soru:'Zarar durdur emrinin amacı nedir?',secenekler:['Kârı artırmak','Kaybı sınırlamak','Komisyonu düşürmek','Takası hızlandırmak'],dogru:1,aciklama:'Stop-loss kaybı önceden belirlenen seviyede sınırlar.',zorluk:1},yayinda:true}];
+const okulFetch=async u=>{const x=new URL(u);let out=OKUL_ROWS.slice(),order=[],limit=Infinity;
+  for(const [k,v] of x.searchParams){if(k==='select')continue;if(k==='order'){order=v.split(',');continue}if(k==='limit'){limit=+v;continue}
+    const [op,...rest]=v.split('.'),val=rest.join('.');out=out.filter(r=>{const a=r[k];return op==='eq'?String(a)===val:op==='lt'?a!=null&&a<val:op==='gt'?a!=null&&+a>+val:true})}
+  out.sort((a,b)=>{for(const o of order){const [c,dir]=o.split('.'),av=a[c],bv=b[c];if(av===bv)continue;if(av==null)return 1;if(bv==null)return -1;return (av<bv?-1:1)*(dir==='desc'?-1:1)}return 0});
+  const body=out.slice(0,limit).map(r=>{const c={...r};delete c.yayinda;return c});return {ok:true,status:200,json:async()=>body}};
+const okulClient=createOkul({fetch:okulFetch,now:()=>Date.now(),dir:ddir,url:'https://ornek.supabase.co',anon:'anon',ai:async()=>'Güzel soru. Yatırım tavsiyesi değildir.',open:async()=>{}});
 async function scanNow(u){const syms=u==='WATCH'?watch:D.U[u];const r=await data.scan(syms,{bench,onProgress:p=>evt({type:'scan',...p})});
   const rows=r.rows.map(x=>({...x,presets:D.PRESETS.filter(p=>data.matches(x,p.id)).map(p=>p.id)}));lastScan={...r,rows,universe:u,breadth:data.breadth(rows),sectors:D.sectorStats(rows)};return lastScan}
-async function load({symbol='THYAO',tf='1g'}={}){
+async function load({symbol='THYAO',tf='1g',market:mkt='BIST'}={}){
   const sym=String(symbol).toUpperCase(),fr={};for(const k of [tf,'1g','1h'])fr[k]=series(sym,k);
   const rows=fr[tf],pro=engine.proAnalyze(fr,{primary:tf,news:[{score:2},{score:1}],depth:{pressure:24,flow:1e6,live:1}});
   const q=await market.quote(sym),fsum={};for(const k in pro.trend.frames){const t=pro.trend.frames[k];fsum[k]={dir:t.dir,text:t.text,adx:t.adx}}
@@ -37,8 +93,9 @@ async function load({symbol='THYAO',tf='1g'}={}){
   const H=[...hist.filter(r=>r.t<fr['1g'][0].t).map(r=>{const k=fr['1g'][0].o/hist.filter(x=>x.t<fr['1g'][0].t).slice(-1)[0].c;return {...r,o:r.o*k,h:r.h*k,l:r.l*k,c:r.c*k}}),...fr['1g']];
   const quant=Q.analyze({rows,daily:fr['1g'],hist:H,pro,bench:bench,breadth:lastScan&&lastScan.breadth});const techFrames={};
   for(const k of [tf,'1g','1h']){const t=Q.techSummary(fr[k]);if(t)techFrames[k]={overall:t.overall,ma:t.ma,osc:t.osc}}
-  return {ok:true,symbol:sym,yahoo:sym+'.IS',market:'BIST',name:(D.NAMES&&D.NAMES[sym])||sym,tf,currency:'TRY',rows,pro,stats:data.stats(fr['1g'],bench),
-    quote:{...q,currency:'TRY',dayHigh:null,dayLow:null,volume:null,stale:false},signals:engine.systemSignals(rows).map(s=>({t:rows[s.i].t,dir:s.dir,why:s.why})),frames:fsum,
+  const us=mkt==='US'||/-USD$/.test(sym),ccy=us?'USD':'TRY';
+  return {ok:true,symbol:sym,yahoo:us?sym:sym+'.IS',market:us?'US':'BIST',name:(us?SYMS.nameOf(sym):D.NAMES&&D.NAMES[sym])||sym,tf,currency:ccy,rows,pro,stats:data.stats(fr['1g'],bench),
+    quote:{...q,currency:ccy,dayHigh:null,dayLow:null,volume:null,stale:false},signals:engine.systemSignals(rows).map(s=>({t:rows[s.i].t,dir:s.dir,why:s.why})),frames:fsum,
     news:{bot:{list:[{title:'Şirket yeni uçak siparişi için anlaşma imzaladı',summary:'Şirket 2027 teslimli 20 yeni uçak için anlaşma imzaladı; kapasite artışı beklentisi olumlu.',score:3,importance:4,source:'KAP',ts:new Date(Date.now()-5*3600e3).toISOString()},
       {title:'BIST 100 güne yükselişle başladı',score:1,importance:4,source:'AA',general:true,ts:new Date(Date.now()-2*3600e3).toISOString()}],
       calendar:[{day:'2026-10-28',kind:'Bilanço',title:'3. çeyrek finansal tablolar'}],akd:{days:5,top:[{name:'Bank of America',net:1250000,buyDays:4}]}},yahoo:[]},
@@ -86,7 +143,8 @@ contextBridge.exposeInMainWorld('bp',{
         {id:'solana',symbol:'sol',name:'Solana',price:{usd:187.4,try:7856},chg24h:3.1,spark7d:sp(180)},{id:'ripple',symbol:'xrp',name:'XRP',price:{usd:2.41,try:101.03},chg24h:-1.4,spark7d:sp(2.5)}]},
       radar:{updatedAt:Date.now()-40*60e3,modeller:[{id:'groq',ad:'Groq · Llama',durum:'ok',isabet:{'1h':{n:212,oran:57}}},{id:'cohere',ad:'Cohere · Command',durum:'ok',isabet:{'1h':{n:198,oran:54}}},{id:'cerebras',ad:'Cerebras',durum:'kota',isabet:null},{id:'hizli',ad:'Hızlı şerit',durum:'ok',isabet:null}],
         ozet:{yukselis:['THYAO','ASELS','TUPRS','BIMAS'],dusus:['PETKM','SASA']},gundem:[{baslik:'TCMB faiz kararı perşembe açıklanacak',kaynak:'AA',zaman:new Date(Date.now()-5*3600e3).toISOString()}],hatalar:[]}}},
-  demo:async()=>({ok:false,error:'Demo hesap taklitte yok'}),okul:async o=>({ok:false,error:'Borsa Okulu içeriği henüz yok (taklit).'}),
+  demo:async o=>demoCtl.op(o).catch(e=>({ok:false,error:e.message})),
+  okul:async o=>{o=o||{};const a=o.op==='gorevler'?{history:demoCtl.history()}:o.args;return okulClient.call(o.op,a)},
   ask:async o=>({ok:true,answer:'Stop seviyesi giriş bölgesinin altındaki yapı desteğine göre belirlendi. Yatırım tavsiyesi değildir.'}),
   alarm:async o=>{if(o.op==='add')alarms=[...alarms,{id:Math.random().toString(16).slice(2,10),...o.alarm,created:Date.now(),fired:null,last:null}];if(o.op==='remove')alarms=alarms.filter(a=>a.id!==o.id);return {ok:true,alarms}},
   portfolio:async o=>{if(o.op==='remove')positions=positions.filter(p=>p.id!==o.id);return {ok:true,...port()}},

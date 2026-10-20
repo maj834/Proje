@@ -1,5 +1,8 @@
-// Borsa Pro demo IPC denetleyicisi. Broker/API emri yok; yalniz yerel sahte hesap.
+// Borsa Pro demo IPC denetleyicisi. Broker/API emri yok; yalniz yerel sahte hesap (gercek para degil).
+// Hesaplar: BIST (TRY), ABD (USD), Kripto (USD, 7/24). Kripto sembolleri bp-symbols tablosundan Yahoo koduna cevrilir.
 'use strict';
+const SYMS=require('./bp-symbols');
+const qtyText=q=>Number.isInteger(q)?q.toLocaleString('tr-TR'):q.toLocaleString('tr-TR',{maximumFractionDigits:8});
 function create({lib,app,path,market,calendar,now,active,isOn,timers,send,Notification,open,timeout}){
   let D=null,queue=Promise.resolve(),timer=null,epoch=0;
   const engine=()=>{if(!lib)throw new Error('Demo motoru kullanılamıyor.');return D||(D=lib.create({file:path.join(app.getPath('userData'),'bp-demo.json'),now,calendar}))};
@@ -8,14 +11,15 @@ function create({lib,app,path,market,calendar,now,active,isOn,timers,send,Notifi
   function announce(r){if(!r.fills.length&&!r.failed.length)return;
     send({type:'demo',...r,summary:engine().summary()});
     for(const t of r.fills)try{if(Notification&&Notification.isSupported()){
-      const n=new Notification({title:'Borsa Pro · Demo',body:'DEMO: '+t.sym.replace(/\.IS$/,'')+' '+t.qty+' adet '+(t.side==='buy'?'alındı':'satıldı')+' · '+t.price.toLocaleString('tr-TR')});
+      const n=new Notification({title:'Borsa Pro · Demo',body:'DEMO: '+SYMS.display(t.sym)+' '+qtyText(t.qty)+(t.market==='CRYPTO'?'':' adet')+' '+(t.side==='buy'?'alındı':'satıldı')+' · '+t.price.toLocaleString('tr-TR',{maximumFractionDigits:8})});
       n.on('click',()=>open());n.show();}}catch(_){}
   }
   function schedule(force=false){
     if(timer!=null&&force){timers.clearTimeout(timer);timer=null}
     if(!lib||!active()||!D||!D.hasOrders()){if(timer!=null)timers.clearTimeout(timer);timer=null;return}
     if(timer!=null)return;
-    const a=D.summary().accounts,closed=!a.BIST.session.open&&!a.US.session.open;
+    // Bekleyen emri olan hesaplarin hepsi kapaliysa 15 dk; kripto 7/24 acik
+    const a=D.summary().accounts,closed=!D.raw().orders.some(o=>a[o.market]&&a[o.market].session.open);
     timer=timers.setTimeout(()=>{timer=null;if(!active())return;enqueue(e=>refresh(e)).catch(()=>{}).finally(schedule)},closed?900000:(active('battery')?180000:60000));
     if(timer&&timer.unref)timer.unref();
   }
@@ -45,10 +49,14 @@ function create({lib,app,path,market,calendar,now,active,isOn,timers,send,Notifi
     if(op==='refresh')return refresh(e);
     if(op==='cancel'){d.cancel(o.id);return {ok:true,summary:d.summary()}}
     if(op==='reset'){d.reset(o.market,o.start);return {ok:true,summary:d.summary()}}
-    if(op==='settings'){const set={};if(o.commissionPct!==undefined){if(typeof o.commissionPct!=='number'||!Number.isFinite(o.commissionPct))throw new Error('Geçerli komisyon yüzdesi yaz.');set.commission=o.commissionPct/100;}if(o.slippageBp!==undefined)set.slippage=o.slippageBp;if(o.anyTime!==undefined){if(typeof o.anyTime!=='boolean')throw new Error('Geçersiz seans ayarı.');set.anyTime=o.anyTime;}d.settings(set);return {ok:true,summary:d.summary()}}
+    if(op==='history')return {ok:true,history:d.history()};
+    if(op==='settings'){const set={};if(o.commissionPct!==undefined){if(typeof o.commissionPct!=='number'||!Number.isFinite(o.commissionPct))throw new Error('Geçerli komisyon yüzdesi yaz.');set.commission=o.commissionPct/100;}if(o.slippageBp!==undefined)set.slippage=o.slippageBp;
+      if(o.anyTime!==undefined){if(typeof o.anyTime!=='boolean')throw new Error('Geçersiz seans ayarı.');set.anyTime=o.anyTime;}
+      if(o.usFrac!==undefined){if(typeof o.usFrac!=='boolean')throw new Error('Geçersiz kesirli hisse ayarı.');set.usFrac=o.usFrac;}d.settings(set);return {ok:true,summary:d.summary()}}
     if(op!=='quote'&&op!=='order')throw new Error('Geçersiz demo işlemi.');
-    if(!lib.MARKETS[o.market])throw new Error('Geçersiz borsa.');
-    const sym=market.yahooSymbol(o.symbol,o.market);if(!sym||!/^[A-Z0-9.=^-]{1,20}$/.test(sym))throw new Error('Geçerli hisse kodu yaz.');
+    if(!lib.MARKETS[o.market])throw new Error('Geçersiz hesap.');
+    const sym=o.market==='CRYPTO'?SYMS.cryptoSymbol(o.symbol):market.yahooSymbol(o.symbol,o.market);
+    if(!sym||!/^[A-Z0-9.=^-]{1,20}$/.test(sym))throw new Error(o.market==='CRYPTO'?'Geçerli bir kripto kodu yaz (ör. BTC ya da BTC-USD).':'Geçerli bir sembol yaz.');
     const r=await update(sym,o.market,e);announce(r);guard(e);
     let placed={};if(op==='order'){
       // Yahoo/BIST fiyatlari yaklasik 15 dk gecikmeli olabilir. Daha eski fiyatla
@@ -59,7 +67,9 @@ function create({lib,app,path,market,calendar,now,active,isOn,timers,send,Notifi
     }
     return {ok:true,...placed,quote:{...r.quote,symbol:sym},maxBuy:d.maxBuy(o.market,r.quote.price),summary:d.summary()};
   }
-  return {op:o=>enqueue(e=>run(o,e)).finally(schedule),
+  // Borsa Okulu pratik gorevleri (ana surec ici; IPC sirasi gerekmez, yalniz okuma)
+  const history=()=>lib?engine().history():null;
+  return {op:o=>enqueue(e=>run(o,e)).finally(schedule),history,
     enable(){if(lib)try{engine();schedule(true)}catch(_){}},
     disable(){epoch++;if(timer!=null)timers.clearTimeout(timer);timer=null},
     schedule};

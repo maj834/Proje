@@ -1,6 +1,8 @@
 // Borsa Okulu arayuzu (Borsa Pro gorunum parcasi; tarayici). window.BPOkul.render(container, api, helpers)
 //   api.okul(op,args) -> Promise<{ok,...}> : okul-client.js call() koprusu (list|get|today|quiz|answer|progress|markRead|sozluk|ask|open)
-//   helpers: {el, toast, go(sembol)?, sembol()?|string, baglam(sembol)?}  (Borsa Pro'nun el()/toast() yardimcilari)
+//   helpers: {el, toast, go(sembol)?, sembol()?|string, baglam(sembol)?, demo(sembol,{side,type,market,note})?}  (Borsa Pro'nun el()/toast() yardimcilari)
+//   demo: "Demo'da uygula" -> Borsa Pro Demo sekmesi, emir formu sembolle dolu (gercek para degil). Pratik gorevleri api.okul('gorevler')
+//   ile demo hesabin gecmisinden dogrulanir.
 // Alt sekmeler: Bugun (sabah/aksam analizi, gunun dersi, gunun 3 sorusu, ilerleme), Dersler (mufredat, seviye/konu filtresi, ilerleme
 // cubugu, ders okuyucu, video rozeti, alistirmalar), Sorular (quiz, aninda geri bildirim, seri, konu bazli basari), Ogretmene sor, Sozluk.
 // Icerik yapay zeka uretimidir ve guvenilmez kabul edilir: yalniz textContent ile yazilir (innerHTML yalniz sabit SVG ikonlarda).
@@ -127,6 +129,14 @@ const CSS=`
 .ok-term small{display:block;margin-top:7px;color:var(--fg-3);font-size:11.5px;line-height:1.5}.ok-term small b{color:var(--fg-2);font-weight:600}
 .ok-load{padding:60px 20px;text-align:center;color:var(--fg-3)}
 .ok-off{display:flex;align-items:center;gap:8px;margin:0 0 12px}
+.ok-mov.d{grid-template-columns:68px 76px 1fr auto}
+.btn.ok-demo{height:22px;padding:0 8px;font:500 11px var(--font);color:var(--acc);border-color:color-mix(in oklch,var(--acc) 45%,var(--line-2));white-space:nowrap}
+.btn.ok-demo:hover{background:var(--acc-soft)}
+.ok-gv{display:grid;grid-template-columns:24px minmax(0,1fr) auto;gap:9px;align-items:center;padding:7px 0;border-top:1px solid var(--line)}
+.ok-gv:first-of-type{border-top:0}
+.ok-gv .t{font-size:12.5px;line-height:1.3}.ok-gv small{display:block;color:var(--fg-3);font-size:10.5px;margin-top:1px;line-height:1.4}
+.ok-gv.done .ok-num{background:var(--up);border-color:var(--up);color:var(--bg)}.ok-gv.done .t{color:var(--fg-2)}
+.ok-gvh{display:flex;align-items:center;gap:8px;margin-bottom:6px}.ok-gvh .prog{max-width:none}
 .okul .empty .btn{margin-top:12px}
 @media(max-width:1180px){.ok-grid{grid-template-columns:minmax(0,1fr)}.ok-split{grid-template-columns:280px minmax(0,1fr)}.ok-hs .prog{display:none}}
 `;
@@ -156,6 +166,7 @@ function render(container,api,helpers){
   const el=H.el||mkEl(doc);
   const toast=typeof H.toast==='function'?H.toast:()=>{};
   const go=typeof H.go==='function'?H.go:null;
+  const demo=typeof H.demo==='function'?H.demo:null;
   injectCss(doc);
   const call=async(op,a)=>{try{const r=await api.okul(op,a||{});return r&&typeof r==='object'?r:{ok:false,error:'Borsa Okulu boş yanıt döndürdü.'}}
     catch(e){return {ok:false,error:'Borsa Okulu hatası: '+(e&&e.message||'bilinmeyen')}}};
@@ -175,6 +186,10 @@ function render(container,api,helpers){
   const openUrl=async u=>{const r=await call('open',{url:u});if(!r.ok)toast(r.error||'Bağlantı açılamadı.')};
   const vidBadge=u=>u?el('button',{class:'ok-vid',title:'Videoyu aç',onclick:e=>{e.stopPropagation();openUrl(u)}},ic('play'),'Video'):null;
   const symBtn=c=>el('button',{class:'ok-sym',title:go?c+' grafiğini aç':null,onclick:go?()=>go(c):null},c);
+  // Demo'da uygula: Borsa Pro Demo sekmesinde emir formu bu sembolle acilir (gercek para degil)
+  const demoBtn=(sym,o,label)=>demo?el('button',{class:'btn ok-demo',title:'Demo hesapta (sanal bakiye, gerçek para değil) emir formunu aç',onclick:e=>{e.stopPropagation();try{demo(sym||'',o||{})}catch{}}},label||'Demo’da uygula'):null;
+  // Alistirma metninden emir turu ipucu (stop / limit / satis)
+  const ipucu=t=>{t=fold(t);return /zarar durdur|stop/.test(t)?{side:'sell',type:'stop'}:/limit/.test(t)?{side:/\bsat/.test(t)?'sell':'buy',type:'limit'}:/\bsat(is|mak|ar)?\b/.test(t)?{side:'sell',type:'market'}:{side:'buy',type:'market'}};
   // hafif bicim: paragraf (bos satir), "- " maddeleri, **kalin**; hep textContent
   function inline(t){const out=[];const parts=String(t).split(/(\*\*[^*]+\*\*)/g);for(const p of parts){if(!p)continue;const m=/^\*\*([^*]+)\*\*$/.exec(p);out.push(m?el('b',{},m[1]):p)}return out}
   function md(t){
@@ -254,7 +269,7 @@ function render(container,api,helpers){
       R(anCard,el('h3',{},st.analiz==='sabah'?'Sabah bülteni':'Akşam analizi',el('span',{class:'sp'}),seg),analizBody(a));
     }
     if(has)drawAn();else R(anCard,el('h3',{},'Günün analizi'),emptyBox('Henüz analiz yok','Sabah bülteni 09:20, akşam analizi 18:50 civarında yayınlanır.'));
-    const right=el('div',{class:'ok-col'},dersCard(r.ders,r),sorCard(r.sorular),progCard());
+    const right=el('div',{class:'ok-col'},dersCard(r.ders,r),sorCard(r.sorular),progCard(),gorevCard());
     R(body,offBar(r),el('div',{class:'ok-grid'},el('div',{class:'ok-col'},anCard),right));
     refreshHead();
   }
@@ -268,8 +283,9 @@ function render(container,api,helpers){
       a.ozet?el('p',{class:'ok-lead'},a.ozet):null,
       mk.length?el('div',{class:'ok-mkt'},mk.map(([k,v])=>el('div',{},el('span',{},PIYASA[k]||k.toUpperCase()),el('b',{},nf(v.son,v.son>=1000?0:2)),el('i',{class:cls(v.degisim)},pct(v.degisim))))):null,
       A(g.bolumler).filter(b=>b&&(b.metin||b.baslik)).map(b=>el('div',{},b.baslik?el('div',{class:'ok-h4'},b.baslik):null,md(b.metin))),
-      oc.length?[el('div',{class:'ok-h'},'Öne çıkanlar'),el('div',{class:'ok-mov'},oc.slice(0,10).map(x=>{const y=YON[x.yon]||YON.izle;
-        return [symBtn(s(x.sembol,12)),el('span',{class:'ok-tag '+y[1]},y[0]),el('span',{class:'m2'},s(x.neden,400))]}))]:null,
+      oc.length?[el('div',{class:'ok-h'},'Öne çıkanlar'),el('div',{class:'ok-mov'+(demo?' d':'')},oc.slice(0,10).map(x=>{const y=YON[x.yon]||YON.izle,c=s(x.sembol,12);
+        return [symBtn(c),el('span',{class:'ok-tag '+y[1]},y[0]),el('span',{class:'m2'},s(x.neden,400)),
+          demoBtn(c,x.yon==='asagi'?{side:'sell',type:'stop',note:a.baslik+': '+s(x.neden,140)}:{side:'buy',type:'limit',note:a.baslik+': '+s(x.neden,140)})]}))]:null,
       A(g.yarin_izle).length?[el('div',{class:'ok-h'},a.slug&&/sabah/.test(a.slug)?'Bugün izlenecekler':'Yarın izlenecekler'),el('ul',{class:'ok-ul'},A(g.yarin_izle).slice(0,8).map(t=>el('li',{},s(t,400))))]:null,
       g.ders_notu&&g.ders_notu.metin?el('div',{class:'ok-note'},el('b',{},'Bugünün ders notu'),g.ders_notu.baslik?el('strong',{},g.ders_notu.baslik):null,md(g.ders_notu.metin)):null,
       A(g.terimler).length?[el('div',{class:'ok-h'},'Geçen terimler'),el('div',{class:'ok-termrow'},A(g.terimler).slice(0,10).map(t=>el('span',{title:s(t.aciklama,400)},el('b',{},s(t.terim,60)),s(t.aciklama,140))))]:null,
@@ -302,6 +318,26 @@ function render(container,api,helpers){
       el('div',{class:'ok-stat'},el('span',{},'Doğru oranı'),el('b',{},P.quiz.toplam?'%'+P.quiz.oran:'—'),el('small',{},P.quiz.toplam+' cevap')),
       el('div',{class:'ok-stat'},el('span',{},'Soru serisi'),el('b',{},String(P.quiz.seri)),el('small',{},'en iyi '+P.quiz.enIyi)),
       el('div',{class:'ok-stat'},el('span',{},'Gün serisi'),el('b',{},String(P.gun.seri)),el('small',{},'gün'))));
+    return box;
+  }
+
+  // Pratik gorevleri: demo hesaptaki islemlerle dogrulanir (ana surec gecmisi okur); tamamlananlar ilerlemede kalir
+  function gorevCard(){
+    const box=el('div',{class:'card'},el('h3',{},'Pratik görevleri'),el('div',{class:'mu',style:'font-size:11.5px'},'Demo hesabın kontrol ediliyor…'));
+    const draw=r=>{
+      if(!r.ok){R(box,el('h3',{},'Pratik görevleri'),el('div',{class:'mu',style:'font-size:12px'},r.error||'Görevler alınamadı.'));return}
+      const pc=r.toplam?Math.round(r.tamam/r.toplam*100):0;
+      R(box,el('h3',{},'Pratik görevleri',el('span',{class:'sp'}),el('a',{onclick:()=>call('gorevler').then(draw)},'Kontrol et')),
+        el('div',{class:'ok-gvh'},el('b',{class:'mono'},r.tamam+'/'+r.toplam),el('div',{class:'prog'},el('i',{style:'width:'+pc+'%'})),el('span',{class:'mu mono',style:'font-size:11px'},'%'+pc)),
+        el('div',{},A(r.items).map(g=>el('div',{class:'ok-gv'+(g.done?' done':''),title:g.ipucu||null},
+          el('div',{class:'ok-num'},g.done?ic('check'):''),
+          el('div',{style:'min-width:0'},el('div',{class:'t'},g.baslik),el('small',{},g.done?'Tamamlandı'+(fin(g.at)?' · '+saat(g.at):''):g.aciklama)),
+          !g.done?demoBtn(g.demo&&g.demo.symbol||'',{...(g.demo||{}),note:'Görev: '+g.baslik+(g.ipucu?' — '+g.ipucu:'')},'Demo’da dene'):null))),
+        r.demo===false?el('div',{class:'warn'},'Demo hesabı kullanılamıyor; görevler şu an doğrulanamadı.'):null,
+        el('div',{class:'disc'},'Görevler Demo sekmesindeki sanal işlemlerinle doğrulanır · gerçek para değil, yatırım tavsiyesi değildir.'));
+      if(A(r.yeni).length){const t=A(r.items).filter(g=>r.yeni.includes(g.id)).map(g=>g.baslik);toast(t.length>2?t.length+' pratik görevi tamamlandı':'Görev tamamlandı: '+t.join(', '));refreshHead()}
+    };
+    call('gorevler').then(draw);
     return box;
   }
 
@@ -356,7 +392,8 @@ function render(container,api,helpers){
       toast('Ders tamamlandı. Harika gidiyorsun!');drawList();refreshHead();
       doneBtn.disabled=true;doneBtn.className='btn';R(doneBtn,ic('check'),' Tamamlandı');
     }},ok?[ic('check'),' Tamamlandı']:'Okudum, tamamla');
-    const ex=g.ornek&&(g.ornek.aciklama||g.ornek.sembol)?el('div',{class:'ok-box ex'},el('b',{},'BIST’ten örnek'),g.ornek.sembol?el('div',{style:'margin-bottom:4px'},symBtn(s(g.ornek.sembol,12))):null,md(g.ornek.aciklama)):null;
+    const exSym=g.ornek&&g.ornek.sembol?s(g.ornek.sembol,12):null;
+    const ex=g.ornek&&(g.ornek.aciklama||g.ornek.sembol)?el('div',{class:'ok-box ex'},el('b',{},'BIST’ten örnek'),exSym?el('div',{class:'row',style:'margin-bottom:4px'},symBtn(exSym),demoBtn(exSym,{side:'buy',type:'limit',note:'Ders: '+s(d.baslik,120)})):null,md(g.ornek.aciklama)):null;
     return el('div',{class:'card ok-reader'},
       el('div',{class:'ok-meta'},fin(d.sira)?el('span',{class:'mono'},'Ders '+d.sira):null,lvl(d.seviye),konuChip(d.konu),fin(g.sure_dk)?el('span',{},g.sure_dk+' dk okuma'):null,ok?el('span',{class:'ok-lvl lv-baslangic'},'Okundu'):null),
       el('h1',{class:'ok-title',style:'font-size:21px;margin-top:8px'},d.baslik),
@@ -369,7 +406,8 @@ function render(container,api,helpers){
       A(g.terimler).length?[el('div',{class:'ok-h'},'Terimler'),el('div',{class:'kv',style:'grid-template-columns:max-content 1fr;gap:5px 14px'},A(g.terimler).map(t=>[el('b',{style:'text-align:left;font:600 12px var(--font)'},s(t.terim,60)),el('span',{},s(t.aciklama,400))]))]:null,
       A(g.alistirmalar).length?[el('div',{class:'ok-h'},'Alıştırmalar'),A(g.alistirmalar).map((a,i)=>{const ans=el('div',{class:'ok-ans',style:'display:none'},md(a.cevap));
         const b=el('button',{class:'btn',style:'height:24px;font-size:11px',onclick:()=>{const o=ans.style.display==='none';ans.style.display=o?'':'none';b.textContent=o?'Gizle':'Cevabı göster'}},'Cevabı göster');
-        return el('div',{class:'ok-alt'},el('div',{class:'row'},el('div',{},el('b',{class:'mono',style:'margin-right:6px;color:var(--acc)'},(i+1)+'.'),s(a.soru,600)),b),ans)})]:null,
+        return el('div',{class:'ok-alt'},el('div',{class:'row'},el('div',{},el('b',{class:'mono',style:'margin-right:6px;color:var(--acc)'},(i+1)+'.'),s(a.soru,600)),
+          el('div',{class:'row',style:'flex:none'},demoBtn(exSym,{...ipucu(a.soru),note:'Alıştırma: '+s(a.soru,160)}),b)),ans)})]:null,
       kaynak(d.kaynaklar),
       el('div',{class:'ok-nav'},
         el('button',{class:'btn',disabled:!prev,onclick:()=>{st.ders=prev;drawList();drawReader()}},'← Önceki'),

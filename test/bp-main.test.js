@@ -1059,7 +1059,7 @@ test('bp:demo: al/sat, ayrilan adet/bakiye, iptal, ayarlar ve hesabi sifirlama',
   r=await order({side:'sell',type:'stop',price:95,qty:8});assert.equal(r.summary.accounts.BIST.pos[0].free,2);
   r=await order({side:'sell',qty:3});assert.equal(r.ok,false);assert.match(r.error,/Satılabilir/);
   r=await h.demo({op:'quote',symbol:'THYAO',market:'BIST'});assert.equal(r.quote.symbol,'THYAO.IS');assert.ok(r.maxBuy>0);
-  r=await h.demo({op:'settings',commissionPct:0.1,slippageBp:5,anyTime:true});assert.deepEqual(r.summary.set,{commission:0.001,slippage:5,anyTime:true});
+  r=await h.demo({op:'settings',commissionPct:0.1,slippageBp:5,anyTime:true});assert.deepEqual(r.summary.set,{commission:0.001,slippage:5,anyTime:true,usFrac:false});
   r=await h.demo({op:'reset',market:'BIST',start:50000});assert.equal(r.summary.accounts.BIST.cash,50000);assert.equal(r.summary.orders.length,0);assert.equal(r.summary.trades.length,0);
   assert.equal(r.summary.accounts.US.cash,10000);assert.ok(fs.existsSync(path.join(h.dir,'bp-demo.json')));
 });

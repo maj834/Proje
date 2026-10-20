@@ -12,7 +12,10 @@
 //   progress() -> {okunan:[slug], quiz:{toplam,dogru,seri,enIyi,konular:{konu:{n,dogru}}}, gun:{seri,son}, son:{slug,t}|null}
 //   markRead(slug) -> {ok, okunan}; sozluk({q?}) -> {ok, items:[{slug,terim,tanim,ornek,konu}]}
 //   ask(soru, {baglam?, gecmis?}) -> {ok, cevap} : enjekte ai({system:OGRETMEN_PROMPT, user}) (uygulamanin Groq/Claude anahtari) ile
-//   call(op, args) : arayuz koprusu (bp-okul.js api.okul(op,args)); op: list|get|today|quiz|answer|progress|markRead|sozluk|ask|open
+//   gorevler({history}) -> {ok, items:[{id,baslik,aciklama,ipucu,demo,done,at}], tamam, toplam, yeni:[id], demo:bool}
+//       pratik gorevleri (demo hesapta limit emri, stop-loss, karla kapanis, kripto...). history: bp-demo history() kisa gecmisi;
+//       Borsa Pro ana sureci verir (pencereden gelen veri degil). Tamamlanan gorev ilerlemeye yazilir, hesap sifirlansa da kalir.
+//   call(op, args) : arayuz koprusu (bp-okul.js api.okul(op,args)); op: list|get|today|quiz|answer|progress|markRead|sozluk|ask|open|gorevler
 // REST: GET {url}/rest/v1/okul_icerik?select=..&tur=eq.ders&order=sira.asc  basliklar apikey + Authorization: Bearer <anon>.
 // Onbellek: bellek (ttl) + disk (dir/okul-onbellek.json): ag yoksa son basarili yanit stale:true ile doner (cevrimdisi calisir).
 // Ilerleme: dir/okul-ilerleme.json (yerel; atomik yazim). Hata metinleri Turkce. Yatirim tavsiyesi degildir.
@@ -62,6 +65,26 @@ const OGRETMEN_PROMPT=[
 '- Belirli bir hisseden söz ettiğinde cevabın sonuna ayrı bir satır olarak "Yatırım tavsiyesi değildir." ekle.'
 ].join('\n');
 
+// Pratik gorevleri: demo hesabin kisa gecmisiyle dogrulanir (gercek para degil). demo: Okul'daki "Demo'da dene" icin emir formu onerisi.
+// h: {events:[{at,m,ev:'order'|'cancel',side,type}], trades:[{at,m,side,type,pnl}], positions:{BIST:n,US:n,CRYPTO:n}}
+const GOREVLER=[
+  {id:'ilk-islem',baslik:'İlk demo işlemini yap',aciklama:'Herhangi bir demo hesabında bir alış ya da satış gerçekleştir.',ipucu:'Piyasa emri en hızlı yoldur; seans kapalıysa limit emir verip bekleyebilirsin.',
+    demo:{market:'BIST',side:'buy',type:'market'},test:h=>h.trades.length>0},
+  {id:'limit-emri',baslik:'Bir limit emri ver',aciklama:'Fiyatı kendin belirlediğin bir limit alış ya da satış emri gir.',ipucu:'Limit alış güncel fiyatın biraz altına verilir; fiyat o seviyeye inerse dolar.',
+    demo:{market:'BIST',side:'buy',type:'limit'},test:h=>h.events.some(e=>e.ev==='order'&&e.type==='limit')||h.trades.some(t=>t.type==='limit')},
+  {id:'stop-loss',baslik:'Stop-loss (zarar durdur) emri kur',aciklama:'Elindeki bir pozisyon için güncel fiyatın altında zarar durdur satış emri ver.',ipucu:'Önce bir pozisyon aç; sonra Sat → Stop seç ve fiyatı son fiyatın altına yaz.',
+    demo:{market:'BIST',side:'sell',type:'stop'},test:h=>h.events.some(e=>e.ev==='order'&&e.type==='stop')||h.trades.some(t=>t.type==='stop')},
+  {id:'iptal',baslik:'Bekleyen bir emri iptal et',aciklama:'Fikrin değiştiğinde bekleyen emri iptal etmeyi dene.',ipucu:'Demo sekmesindeki Bekleyen emirler tablosunda İptal düğmesi.',
+    demo:{market:'BIST',side:'buy',type:'limit'},test:h=>h.events.some(e=>e.ev==='cancel')},
+  {id:'karla-kapat',baslik:'Bir pozisyonu kârla kapat',aciklama:'Komisyon dahil net kârla sonuçlanan bir satış yap.',ipucu:'Hedefini önceden belirle; limit satış emriyle kârı otomatik al.',
+    demo:{market:'BIST',side:'sell',type:'limit'},test:h=>h.trades.some(t=>t.side==='sell'&&fin(t.pnl)&&t.pnl>0)},
+  {id:'cesitlendir',baslik:'Üç farklı pozisyon taşı',aciklama:'Aynı hesapta aynı anda en az üç farklı sembolde pozisyonun olsun.',ipucu:'Tek hisseye bağlı kalmamak riski dağıtır (çeşitlendirme).',
+    demo:{market:'BIST',side:'buy',type:'market'},test:h=>Object.values(h.positions).some(n=>n>=3)},
+  {id:'abd-ilk',baslik:'ABD hesabında ilk işlemini yap',aciklama:'Dolar bazlı ABD demo hesabında bir hisse ya da ETF al (ör. SPY).',ipucu:'ABD seansı Türkiye saatiyle genelde 16:30–23:00 arasıdır; kapalıyken limit emir ver.',
+    demo:{market:'US',symbol:'SPY',side:'buy',type:'limit'},test:h=>h.trades.some(t=>t.m==='US')},
+  {id:'kripto-ilk',baslik:'Kripto hesabında ilk işlemini yap',aciklama:'7/24 açık kripto demo hesabında küçük bir miktar al (ör. 0,001 BTC).',ipucu:'Kripto çok oynaktır; küçük miktarla başla ve stop-loss kullan.',
+    demo:{market:'CRYPTO',symbol:'BTC-USD',side:'buy',type:'market'},test:h=>h.trades.some(t=>t.m==='CRYPTO')}
+];
 const fin=v=>typeof v==='number'&&Number.isFinite(v);
 const str=(v,max=4000)=>typeof v==='string'?v.trim().slice(0,max):'';
 const arr=v=>Array.isArray(v)?v:[];
@@ -89,7 +112,7 @@ function publicSoru(r){const g=r.govde;
   return {slug:r.slug,soru:str(g.soru,1000),secenekler:g.secenekler.map(s=>str(String(s),400)),zorluk:fin(g.zorluk)?g.zorluk:null,
     konu:r.konu||null,seviye:r.seviye||null,ders_slug:SLUG_RE.test(g.ders_slug||'')?g.ders_slug:null,tarih:r.tarih||null}}
 
-function emptyProgress(){return {v:1,okunan:[],quiz:{toplam:0,dogru:0,seri:0,enIyi:0,konular:{}},cevaplar:{},gun:{seri:0,son:null},son:null}}
+function emptyProgress(){return {v:1,okunan:[],quiz:{toplam:0,dogru:0,seri:0,enIyi:0,konular:{}},cevaplar:{},gun:{seri:0,son:null},son:null,gorevler:{}}}
 function normProgress(p){
   const e=emptyProgress();if(!p||typeof p!=='object')return e;
   const q=p.quiz&&typeof p.quiz==='object'?p.quiz:{};
@@ -99,7 +122,17 @@ function normProgress(p){
     quiz:{toplam:n(q.toplam),dogru:Math.min(n(q.dogru),n(q.toplam)),seri:n(q.seri),enIyi:Math.max(n(q.enIyi),n(q.seri)),konular},
     cevaplar:p.cevaplar&&typeof p.cevaplar==='object'?p.cevaplar:{},
     gun:{seri:n(p.gun&&p.gun.seri),son:p.gun&&DATE_RE.test(p.gun.son||'')?p.gun.son:null},
-    son:p.son&&SLUG_RE.test(p.son.slug||'')?{slug:p.son.slug,t:fin(p.son.t)?p.son.t:0}:null};
+    son:p.son&&SLUG_RE.test(p.son.slug||'')?{slug:p.son.slug,t:fin(p.son.t)?p.son.t:0}:null,
+    gorevler:Object.fromEntries(Object.entries(p.gorevler&&typeof p.gorevler==='object'?p.gorevler:{}).filter(([k,v])=>GOREVLER.some(g=>g.id===k)&&fin(v)))};
+}
+// Demo kisa gecmisini dogrula (eksik/bozuk alanlar bos sayilir)
+function normHistory(h){
+  if(!h||typeof h!=='object')return null;
+  const M=['BIST','US','CRYPTO'];
+  const events=arr(h.events).filter(e=>e&&M.includes(e.m)&&['order','cancel'].includes(e.ev)&&['buy','sell'].includes(e.side)&&['market','limit','stop'].includes(e.type)).slice(-500);
+  const trades=arr(h.trades).filter(t=>t&&M.includes(t.m)&&['buy','sell'].includes(t.side)&&['market','limit','stop'].includes(t.type)).map(t=>({m:t.m,side:t.side,type:t.type,pnl:fin(t.pnl)?t.pnl:null})).slice(-1000);
+  const positions={};for(const k of M){const n=h.positions&&h.positions[k];positions[k]=Number.isSafeInteger(n)&&n>=0?n:0}
+  return {events,trades,positions};
 }
 
 function createOkul({fetch=globalThis.fetch,now=()=>Date.now(),dir=null,url='',anon='',ai=null,open=null,rand=Math.random,ttl=600000,timeout=12000}={}){
@@ -279,7 +312,15 @@ function createOkul({fetch=globalThis.fetch,now=()=>Date.now(),dir=null,url='',a
     const p=await loadProg();
     // gun serisi: son etkinlik dun ya da bugun degilse kirilmistir
     const t=now(),gs=p.gun.son===isoDay(t)||p.gun.son===isoDay(t-86400000)?p.gun.seri:0;
-    return {ok:true,okunan:[...p.okunan],quiz:statOf(p),gun:{seri:gs,son:p.gun.son},son:p.son?{...p.son}:null};
+    return {ok:true,okunan:[...p.okunan],quiz:statOf(p),gun:{seri:gs,son:p.gun.son},son:p.son?{...p.son}:null,gorevler:{...p.gorevler}};
+  }
+  // Pratik gorevleri: gecmisle yeni tamamlananlar ilerlemeye yazilir; history yoksa (demo kapali) yalniz kayitli durum
+  async function gorevler({history}={}){
+    const p=await loadProg(),h=normHistory(history),yeni=[];
+    if(h)for(const g of GOREVLER)if(!p.gorevler[g.id]){let ok=false;try{ok=!!g.test(h)}catch{}if(ok){p.gorevler[g.id]=now();yeni.push(g.id)}}
+    if(yeni.length){bump(p);await saveProg()}
+    const items=GOREVLER.map(g=>({id:g.id,baslik:g.baslik,aciklama:g.aciklama,ipucu:g.ipucu,demo:{...g.demo},done:!!p.gorevler[g.id],at:p.gorevler[g.id]||null}));
+    return {ok:true,items,tamam:items.filter(x=>x.done).length,toplam:items.length,yeni,demo:!!h};
   }
   async function markRead(slug){
     if(!SLUG_RE.test(String(slug||'')))return {ok:false,error:'Geçersiz içerik kimliği.'};
@@ -347,11 +388,12 @@ function createOkul({fetch=globalThis.fetch,now=()=>Date.now(),dir=null,url='',a
         case 'sozluk':return await sozluk(a);
         case 'ask':return await ask(a.soru,a);
         case 'open':return await doOpen(a.url);
+        case 'gorevler':return await gorevler(a);
         default:return {ok:false,error:'Bilinmeyen işlem.'};
       }
     }catch(e){return {ok:false,error:'Borsa Okulu hatası: '+(e&&e.message?String(e.message).slice(0,200):'bilinmeyen')}}
   }
-  return {list,get,today,quiz,answer,progress,markRead,sozluk,ask,call,flush:()=>saveQ};
+  return {list,get,today,quiz,answer,progress,markRead,sozluk,ask,gorevler,call,flush:()=>saveQ};
 }
 
-module.exports={createOkul,OGRETMEN_PROMPT,TURLER,SEVIYELER,KONULAR,_util:{isoDay,fold,isHttps,pickList,pickFull,publicSoru,soruOk,normProgress}};
+module.exports={createOkul,OGRETMEN_PROMPT,TURLER,SEVIYELER,KONULAR,GOREVLER,_util:{isoDay,fold,isHttps,pickList,pickFull,publicSoru,soruOk,normProgress,normHistory}};

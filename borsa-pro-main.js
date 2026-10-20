@@ -36,6 +36,17 @@ const upTr=s=>s.trim().toLocaleUpperCase('tr-TR').replace(/[ŞÇĞÖÜİ]/g,c=>T
 // BIST duz kodu: "thyao" / "THYAO.IS" / "şişe" -> "THYAO" / "SISE"; gecersizse null
 function code(s){if(typeof s!=='string'||s.length>24)return null;s=upTr(s).replace(/\.IS$/,'');
   return /^[A-Z0-9]{2,8}$/.test(s)&&/[A-Z]/.test(s)?s:null}
+// Izleme listesi girdisi: BIST kodu ("THYAO"), ABD hissesi ("AAPL.US") ya da kripto Yahoo cifti ("BTC-USD").
+// mkt: eklerken secili piyasa ('US' -> ".US" eklenir; 'CRYPTO' -> bp-symbols tablosu). Gecersizse null.
+let SYMS=null;try{SYMS=require('./bp-symbols')}catch(e){}
+function wcode(s,mkt){if(typeof s!=='string'||s.length>24)return null;const u=upTr(s);if(!u)return null;
+  if(/^[A-Z0-9]{2,15}-USD$/.test(u))return u;
+  if(mkt==='CRYPTO'){const c=SYMS?SYMS.cryptoSymbol(u):null;return c&&/^[A-Z0-9]{2,15}-USD$/.test(c)?c:null}
+  const us=/\.US$/.test(u)?u.slice(0,-3):mkt==='US'&&!/\.IS$/.test(u)?u:null;
+  if(us!=null)return /^[A-Z][A-Z0-9-]{0,7}$/.test(us)?us+'.US':null;
+  return code(u)}
+// Izleme girdisi -> {y: veri saglayici sembolu, mkt}: kripto ve ABD 'US' piyasasiyla sorulur
+const wsplit=w=>/-USD$/.test(w)?{y:w,mkt:'US'}:/\.US$/.test(w)?{y:w.slice(0,-3),mkt:'US'}:{y:w,mkt:'BIST'};
 // market.yahooSymbol yoksa ayni kural
 function ysymFallback(s,mkt){s=upTr(String(s||''));if(!s||!/^[A-Z0-9.=^-]{1,20}$/.test(s))return null;return /[.=^-]/.test(s)?s:mkt==='BIST'?s+'.IS':s}
 const disp=y=>String(y).replace(/\.IS$/,'');
@@ -70,7 +81,7 @@ function checkPos(p){p=obj(p);
 const cleanPos=p=>p&&typeof p==='object'&&typeof p.id==='string'&&ID.test(p.id)?checkPos(p).pos||null:null;
 // cfg().borsaPro -> dogrulanmis ayar (bozuk/eksik alanlar varsayilana doner)
 function clean(c){c=obj(c);
-  const watch=Array.isArray(c.watch)?[...new Set(c.watch.map(code).filter(Boolean))].slice(0,MAX_WATCH):DEF_WATCH.slice();
+  const watch=Array.isArray(c.watch)?[...new Set(c.watch.map(x=>wcode(x)).filter(Boolean))].slice(0,MAX_WATCH):DEF_WATCH.slice();
   const ids=new Set(),alarms=[],positions=[];
   for(const a of Array.isArray(c.alarms)?c.alarms:[]){const x=cleanAlarm(a);if(x&&!ids.has(x.id)&&alarms.length<MAX_ALARMS){ids.add(x.id);alarms.push(x)}}
   for(const p of Array.isArray(c.positions)?c.positions:[]){const x=cleanPos(p);if(x&&!ids.has(x.id)&&positions.length<MAX_POS){ids.add(x.id);positions.push(x)}}
@@ -261,7 +272,7 @@ function registerBorsaPro({ipcMain,app,BrowserWindow,path,screen,Notification,sh
       const D0=daily||null,H0=Array.isArray(hist)&&hist.length?hist:null,H=H0&&D0&&D0.length?[...H0.filter(r=>r.t<D0[0].t),...D0]:H0;
       const bn2=b0=>b0&&b0.calendar||[];
       qa=quant.analyze({rows,daily:D0||rows,hist:H,pro:pro.ok?pro:null,bench:bn||null,breadth:sc&&sc.breadth||null,now:now(),
-        liquidityTL:stats&&fin(stats.avgVolTL20)?stats.avgVolTL20:null,events:bn2(bot&&typeof bot==='object'?bot:null).map(e=>({day:e.day,kind:e.kind,title:e.title})),
+        liquidityTL:bist&&stats&&fin(stats.avgVolTL20)?stats.avgVolTL20:null,events:bn2(bot&&typeof bot==='object'?bot:null).map(e=>({day:e.day,kind:e.kind,title:e.title})),
         radar:rd&&rd.consensus?rd:null});
     }catch(e){qa=null;console.error('borsa-pro: olasilik:',msg(e))}
     // Her zaman dilimi icin teknik ozet (hareketli ortalama + osilator oylari); olasilik hatasindan bagimsiz
@@ -290,6 +301,15 @@ function registerBorsaPro({ipcMain,app,BrowserWindow,path,screen,Notification,sh
     const mkt=a&&!Array.isArray(a)&&MKTS.includes(a.market)?a.market:'BIST';
     const list=(Array.isArray(a)?a:a&&Array.isArray(a.symbols)?a.symbols:[]).filter(s=>typeof s==='string'&&s.trim()&&s.length<=20).slice(0,MAX_WATCH);
     if(!list.length)return [];
+    // Karisik izleme listesi (ABD ".US", kripto "-USD"): piyasa gruplari ayri sorulur, sira ve girdi adi korunur
+    if(mkt==='BIST'&&list.some(x=>/-USD$|\.US$/i.test(x.trim()))){
+      const W=list.map(x=>{const w=wcode(x)||upTr(x);return {w,...wsplit(w)}}),out=new Array(W.length);
+      for(const m of MKTS){const idx=W.map((x,i)=>x.mkt===m?i:-1).filter(i=>i>=0);if(!idx.length)continue;
+        const r=m==='BIST'?await quotesOf(idx.map(i=>W[i].y),'BIST'):await data.quotes(idx.map(i=>W[i].y),{market:m});
+        if(!Array.isArray(r))return r;idx.forEach((i,k)=>{out[i]=r[k]?{...r[k],symbol:W[i].w,market:W[i].w.endsWith('-USD')?'CRYPTO':m}:null})}
+      return out}
+    return quotesOf(list,mkt)}
+  async function quotesOf(list,mkt){
     const r=await data.quotes(list,{market:mkt});if(!Array.isArray(r))return [];
     if(mkt==='BIST')for(let i=0;i<r.length;i++){const q=r[i];if(!q)continue;const L=liveQuote(q.symbol);
       if(L){const prev=fin(q.prev)&&q.prev>0?q.prev:null;r[i]={...q,price:L.price,time:L.time,chg:prev?r4(L.price-prev):q.chg,chgPct:prev?r2((L.price-prev)/prev*100):q.chgPct,stale:false,live:true}}
@@ -297,10 +317,10 @@ function registerBorsaPro({ipcMain,app,BrowserWindow,path,screen,Notification,sh
     return r}
 
   function watch(o){o=obj(o);let w=conf().watch;const done=x=>({ok:true,watch:x});
-    if(o.op==='add'){const s=code(o.symbol);if(!s)return err(CODE_ERR,{watch:w});if(w.includes(s))return done(w);
+    if(o.op==='add'){const s=wcode(o.symbol,o.market==='CRYPTO'||o.market==='US'?o.market:null);if(!s)return err(CODE_ERR,{watch:w});if(w.includes(s))return done(w);
       if(w.length>=MAX_WATCH)return err('İzleme listesi en fazla '+MAX_WATCH+' hisse olabilir.',{watch:w});w=[...w,s]}
-    else if(o.op==='remove'){const s=code(o.symbol);if(!s)return err(CODE_ERR,{watch:w});w=w.filter(x=>x!==s)}
-    else if(o.op==='set'){if(!Array.isArray(o.list))return err('Liste geçersiz.',{watch:w});w=[...new Set(o.list.map(code).filter(Boolean))].slice(0,MAX_WATCH)}
+    else if(o.op==='remove'){const s=wcode(o.symbol);if(!s)return err(CODE_ERR,{watch:w});w=w.filter(x=>x!==s)}
+    else if(o.op==='set'){if(!Array.isArray(o.list))return err('Liste geçersiz.',{watch:w});w=[...new Set(o.list.map(x=>wcode(x)).filter(Boolean))].slice(0,MAX_WATCH)}
     else return done(w);
     put({watch:w});return done(w)}
 
@@ -559,11 +579,15 @@ function registerBorsaPro({ipcMain,app,BrowserWindow,path,screen,Notification,sh
   function prefs(o){const cur=conf().prefs;if(!o||typeof o!=='object'||Array.isArray(o))return cur;
     const inc=cleanPrefs(o),p=cleanPrefs({...cur,...inc,...(inc.show?{show:{...(cur.show||{}),...inc.show}}:{})});put({prefs:p});return p}
   // Borsa Okulu (okul-client): icerik Supabase'den (herkese acik okuma), ilerleme yerelde; "ogretmene sor" uygulamanin yapay zekasiyla
-  const OKUL_OPS=['list','get','today','quiz','answer','progress','markRead','sozluk','ask','open'];
-  async function okulOp(o){o=obj(o);const op=o.op,a=o.args;
+  // gorevler: pratik gorevleri demo hesabin kisa gecmisiyle (ana surecte, pencereden gelen veriye guvenmeden) dogrulanir
+  const OKUL_OPS=['list','get','today','quiz','answer','progress','markRead','sozluk','ask','open','gorevler'];
+  async function okulOp(o){o=obj(o);const op=o.op;let a=o.args;
     if(!OKUL_OPS.includes(op))return err('Geçersiz işlem.');
     if(op==='open')return openUrl(a);
     if(!okul)return err('Borsa Okulu bu sürümde yok.');
+    if(op==='gorevler'){let history=null;try{history=demoCtl.history()}catch(e){}a={history};
+      if(typeof okul.call!=='function'&&typeof okul.gorevler!=='function')return err('Pratik görevleri bu sürümde yok.');
+      if(typeof okul.call!=='function')try{return await okul.gorevler(a)}catch(e){return err('Borsa Okulu: '+msg(e))}}
     if(op!=='ask'&&typeof okul.call==='function')try{const r=await okul.call(op,a);return r==null?{ok:true}:r}catch(e){return err('Borsa Okulu: '+msg(e))}
     const A=obj(a),slug=typeof a==='string'?a:A.slug;
     try{let r;
@@ -630,5 +654,5 @@ function registerBorsaPro({ipcMain,app,BrowserWindow,path,screen,Notification,sh
   if(app&&typeof app.on==='function')app.on('will-quit',()=>{demoCtl.disable();cancelScan();if(timer!=null){T.clearTimeout(timer);timer=null}});
   return {open,close,enable,disable,status,analyzeSymbol,isWin,onDepth,plan:planRun};
 }
-module.exports={registerBorsaPro,clean,cleanAlarm,cleanPos,checkPos,cleanPrefs,code,summarize,nextChangeMs,alarmText,num,
+module.exports={registerBorsaPro,clean,cleanAlarm,cleanPos,checkPos,cleanPrefs,code,wcode,summarize,nextChangeMs,alarmText,num,
   TFS,KINDS,UNIVERSES,MAX_WATCH,MAX_ALARMS,DEF_WATCH};
