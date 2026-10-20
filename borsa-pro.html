@@ -162,6 +162,7 @@ table.t tbody tr{cursor:pointer}table.t tbody tr:hover{background:var(--sunk)}ta
 .big{font:600 22px var(--mono)}.rbar{position:relative;height:30px;margin:14px 4px 4px}
 .rbar .ln{position:absolute;left:0;right:0;top:14px;height:2px;background:var(--line-2)}.rbar .b68{position:absolute;top:8px;height:14px;border-radius:3px;background:var(--acc-soft);border:1px solid var(--acc)}
 .rbar .mk{position:absolute;top:2px;width:2px;height:26px;transform:translateX(-1px)}.rbar .mk span{position:absolute;top:28px;left:50%;transform:translateX(-50%);font:500 10px var(--mono);white-space:nowrap;color:var(--fg-2)}
+.rbar .mk span.t{top:-15px}.rbar.two{margin-top:26px}
 .stack{display:flex;height:12px;border-radius:6px;overflow:hidden;margin:10px 0 6px;background:var(--sunk)}.stack i{display:block;height:100%}
 .leg{display:flex;gap:12px;flex-wrap:wrap;font-size:11px;color:var(--fg-2)}.leg b{font:600 12px var(--mono);color:var(--fg)}
 .lab3{font:600 11px var(--font);padding:2px 8px;border-radius:9px;white-space:nowrap}
@@ -664,8 +665,10 @@ function renderAnalyst(){
   let tgtC;
   if(T){const lo=T.low90,hi=T.high90,span=hi-lo||1,X=v=>Math.max(0,Math.min(100,(v-lo)/span*100));
     tgtC=el('div',{class:'card'},el('h3',{},'Hedef · 1 ay (≈20 mum)'),el('div',{class:'row'},el('span',{class:'big'},fp(T.base)),el('span',{class:'chg '+sgnc(T.upside),style:'font:600 13px var(--mono);padding:2px 7px;border-radius:4px'},pct(T.upside,1))),
-      el('div',{class:'rbar'},el('div',{class:'ln'}),el('div',{class:'b68',style:'left:'+X(T.low)+'%;width:'+(X(T.high)-X(T.low))+'%'}),
-        el('div',{class:'mk',style:'left:'+X(px)+'%;background:var(--fg)'},el('span',{},'şimdi')),el('div',{class:'mk',style:'left:'+X(T.base)+'%;background:var(--acc)'},el('span',{},'baz'))),
+      // "simdi" ve "baz" isaretleri yakinsa (cubugun %18'inden az) etiketler ust uste binmesin: baz cubugun ustune yazilir
+      (()=>{const near=Math.abs(X(px)-X(T.base))<18;
+        return el('div',{class:'rbar'+(near?' two':'')},el('div',{class:'ln'}),el('div',{class:'b68',style:'left:'+X(T.low)+'%;width:'+(X(T.high)-X(T.low))+'%'}),
+          el('div',{class:'mk',style:'left:'+X(px)+'%;background:var(--fg)'},el('span',{},'şimdi')),el('div',{class:'mk',style:'left:'+X(T.base)+'%;background:var(--acc)'},el('span',{class:near?'t':''},'baz')))})(),
       el('div',{class:'kv',style:'margin-top:18px'},el('span',{},'%68 olasılık'),el('b',{},fp(T.low)+' – '+fp(T.high)),el('span',{},'%90 olasılık'),el('b',{},fp(T.low90)+' – '+fp(T.high90)),
         Q.ranges?[el('span',{},'1 hafta %68'),el('b',{},(h=>h?fp(h.p16)+' – '+fp(h.p84):'—')(Q.ranges.horizons.find(h=>h.h===5)))]:null,
         Q.ranges?[el('span',{},'Oynaklık (yıllık)'),el('b',{},'%'+nf(Q.ranges.volNow,0)+' · uzun dönem %'+nf(Q.ranges.volLong,0))]:null))}
