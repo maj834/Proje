@@ -156,6 +156,22 @@ function addCost(c){
 
 const bpData=require('./bp-data').createData({market,engine});
 const FEED_KEYS={news:'newsKey',fx:'fxKey',gecko:'geckoKey'};
+// Borsa Okulu: icerik kullanicinin Supabase projesinde (herkese acik okuma; publishable anahtar istemcide durmak icin tasarlanmistir).
+// "Ogretmene sor": once ucretsiz Groq (Neo'nun anahtari), yoksa Claude.
+const OKUL_URL='https://olengqbrkvmilsoelhxy.supabase.co',OKUL_KEY='sb_publishable_NohTNy9mknVRU3tGUc4iUg_DJwL0t6q';
+async function okulAI({system,user}){
+  const g=dec(cfg().groqKey);
+  if(g)for(const m of ['openai/gpt-oss-120b','llama-3.3-70b-versatile'])try{
+    const r=await fetch('https://api.groq.com/openai/v1/chat/completions',{method:'POST',headers:{'content-type':'application/json',authorization:'Bearer '+g},
+      body:JSON.stringify({model:m,messages:[{role:'system',content:system},{role:'user',content:user}],max_tokens:1800,temperature:0.4}),signal:AbortSignal.timeout(40000)});
+    if(!r.ok)continue;const j=await r.json(),t=j&&j.choices&&j.choices[0]&&j.choices[0].message&&j.choices[0].message.content;if(t)return {ok:true,text:t,provider:'groq',model:m}}catch(e){}
+  const k=getKey();
+  if(k)try{const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'content-type':'application/json','x-api-key':k,'anthropic-version':'2023-06-01'},
+      body:JSON.stringify({model:model(),max_tokens:1800,system,messages:[{role:'user',content:user}]}),signal:AbortSignal.timeout(60000)});
+    if(r.ok){const j=await r.json(),t=(j.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('');if(t)return {ok:true,text:t,provider:'claude',model:model()}}}catch(e){}
+  return {ok:false,error:g||k?'Yapay zekâ şu an yanıt vermedi; biraz sonra tekrar dene.':'Öğretmene sormak için Groq (ücretsiz) ya da Claude anahtarını Ayarlar\'dan ekle.'}}
+const okulClient=(()=>{try{return require('./okul-client').createOkul({fetch:(...a)=>fetch(...a),now:()=>Date.now(),dir:app.getPath('userData'),url:OKUL_URL,anon:OKUL_KEY,ai:okulAI})}
+  catch(e){console.error('okul:',e.message);return null}})();
 const extApis=(()=>{try{return require('./ext-apis').createExtApis({fetch:(...a)=>fetch(...a),now:()=>Date.now(),dir:app.getPath('userData'),
   keys:{news:()=>dec(cfg().newsKey),fx:()=>dec(cfg().fxKey),gecko:()=>dec(cfg().geckoKey)}})}catch(e){console.error('ext-apis:',e.message);return null}})();
 // Borsa Pro: buyuk analiz penceresi (etkilesimli grafik, tarayici, strateji laboratuvari, portfoy, alarmlar, yapay zeka yorumu).
@@ -168,7 +184,7 @@ const borsaPro=require('./borsa-pro-main').registerBorsaPro({ipcMain,app,Browser
   // Kullanicinin Hisse Radar deposu (GitHub, herkese acik): cok modelli yapay zeka konsensusu; anahtar uygulamaya gelmez
   radar:(()=>{try{return require('./hisse-radar').createRadar()}catch(e){return null}})(),planner:(()=>{try{return require('./bp-planner')}catch(e){return null}})(),
   // Ek veri kaynaklari (kullanicinin ucretsiz anahtarlari, safeStorage ile sifreli): NewsAPI, ExchangeRate-API, CoinGecko
-  apis:extApis,secrets:{set:(p,k)=>{const f=FEED_KEYS[p];if(f)save({[f]:k?enc(k):undefined})}},
+  okul:okulClient,apis:extApis,secrets:{set:(p,k)=>{const f=FEED_KEYS[p];if(f)save({[f]:k?enc(k):undefined})}},
   analyst:require('./bp-analyst').createAnalyst({keys:{groq:()=>dec(cfg().groqKey),claude:()=>getKey(),grok:()=>grokKey()},claudeModel:()=>model(),addCost:c=>addCost(c)}),
   ext:{botNews:s=>botNews(s),extSignals:s=>extSignals(s),depth:()=>lastDepth,riskPct:()=>+cfg().riskPct>0?+cfg().riskPct:1,
     // Telegram derinlik botu (Borsa Pro): getir, canli takip, durum, bot terminali, kurulum (popup Derinlik sekmesi)

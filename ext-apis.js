@@ -85,11 +85,14 @@ function newsQuery(symbol,companyName){
   const code=String(symbol==null?'':symbol).toUpperCase().replace(/\.IS$/,'').replace(/[^A-Z0-9]/g,'').slice(0,12);
   const raw=String(companyName==null?'':companyName).slice(0,200);
   const alts=[...raw.matchAll(/\(([^)]*)\)/g)].map(m=>m[1]),main=raw.replace(/\([^)]*\)?/g,' ');
-  const phr=s=>String(s).replace(/["()[\]{}:+^~*\\|!<>=&?,;]/g,' ').replace(/\b(AND|OR|NOT)\b/g,' ').replace(/\s+/g,' ').trim().replace(/^[-.'\s]+|[-'\s]+$/g,'');
+  const phr=s=>String(s).replace(/["()[\]{}:+^~*\\|!<>=&?,;]/g,' ').replace(/\b(AND|OR|NOT)\b/g,' ').replace(/\s+/g,' ').trim().replace(/^[-.'\s]+|[-.'\s]+$/g,'');
   const wk=w=>fold(w).toLowerCase().replace(/[^a-z0-9]/g,'');
   const letters=s=>s.replace(/[^\p{L}\p{N}]/gu,'').length;
-  const terms=[],seen=new Set(code?[code.toLowerCase()]:[]);
-  const add=(n,ctx)=>{const k=fold(n).toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();if(!k||seen.has(k)||seen.has(k.replace(/ /g,'')))return;seen.add(k);
+  const terms=[],seen=new Set();
+  // Ad = kodun kendisi (buyuk harf, "MAVI"): bilinmeyen ad yedegi, baglamsiz aranmaz. Baglamli kisa ad kodla ayniysa kod terimi zaten var.
+  // "Aygaz"/"Çimsa"/"İş GYO" gercek addir, kalir.
+  const isCode=(n,ci)=>{const c=n.replace(/\s+/g,'');return !!code&&(ci?c.toUpperCase():c)===code};
+  const add=(n,ctx)=>{const k=fold(n).toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();if(!k||seen.has(k)||isCode(n,ctx))return;seen.add(k);
     const vs=[...new Set([n,fold(n)])].map(v=>'"'+v+'"');
     terms.push(ctx?'('+(vs.length>1?'('+vs.join(' OR ')+')':vs[0])+' AND '+NEWS_CTX+')':vs.join(' OR '))};
   const named=s=>{let n=phr(s);if(letters(n)<3)return;let ws=n.split(' ');
@@ -99,14 +102,17 @@ function newsQuery(symbol,companyName){
       if(rest.length>=2||L>=5){n=r;ws=rest}else{add(n,false);if(L>=4)add(r,true);return}}
     add(n,ws.length===1&&(letters(n)<5||AMBIG.has(wk(n))))};
   named(main);for(const a of NEWS_ALIAS[code]||[])named(a);for(const a of alts)named(a);
-  const ct=code?'('+code+' AND '+NEWS_CTX+')':null;
+  const ct=code.length>=3?'('+code+' AND '+NEWS_CTX+')':null;
   while(terms.length&&[...terms,ct].filter(Boolean).join(' OR ').length>500)terms.pop();
   return [...terms,ct].filter(Boolean).join(' OR ').slice(0,500)}
 
 // ---- hata metinleri (saf) -------------------------------------------------------------------------------------------
 // code: ic hata kodu; o: {status, detail, timeoutMs, left, wait, base, text}
-function message(p,code,o={}){
-  const N=NAMES[p]||'Servis',st=o.status,d=o.detail?String(o.detail).replace(/\s+/g,' ').trim().slice(0,160):'';
+// Arayuz 200 karakterde keser: uzun metin kelime sinirinda '…' ile kisalir.
+function fit(s,max=MSG_MAX){s=String(s);if(s.length<=max)return s;const t=s.slice(0,max-1),sp=t.lastIndexOf(' ');return (sp>max*0.6?t.slice(0,sp):t).replace(/[\s,;:.(-]+$/,'')+'…'}
+function message(p,code,o={}){return fit(message0(p,code,o))}
+function message0(p,code,o={}){
+  const N=NAMES[p]||'Servis',st=o.status,d=o.detail?String(o.detail).replace(/\s+/g,' ').trim().slice(0,100):'';
   const sec=Math.max(1,Math.round((o.timeoutMs||TIMEOUT_MS)/1000)),wait=o.wait>0?Math.ceil(o.wait):0;
   switch(code){
     case 'input':return o.text||N+' isteği geçersiz.';
@@ -121,7 +127,7 @@ function message(p,code,o={}){
   if(p==='news')switch(code){
     case 'key':return 'NewsAPI anahtarı geçersiz ya da devre dışı. Ayarlar\'dan kontrol et (ücretsiz Developer anahtarı newsapi.org hesabında).';
     case 'plan':return 'NewsAPI bu isteği ücretsiz planda kabul etmedi'+(st?' (HTTP '+st+')':'')+'. '+NEWS_NOTE;
-    case 'limit':return 'NewsAPI istek sınırı doldu (ücretsiz Developer planı: günde 100 istek); yarın tekrar dene. '+NEWS_NOTE;
+    case 'limit':return 'NewsAPI istek sınırı doldu (ücretsiz Developer planı: günde '+LIMITS.news.plan+' istek); yarın tekrar dene.';
     case 'budget':return 'NewsAPI günlük istek bütçesi doldu (uygulama günde '+LIMITS.news.cap+' istek atar; ücretsiz plan '+LIMITS.news.plan+'). Yarın (UTC 00:00) sıfırlanır.';
     case 'bad':return 'NewsAPI isteği geçersiz buldu'+(d?': '+d:'.');
   }
@@ -140,6 +146,7 @@ function message(p,code,o={}){
     case 'month':return 'CoinGecko aylık istek kotası dolmak üzere (Demo plan: ayda '+th(LIMITS.gecko.cap)+', '+th(o.left||0)+' kaldı); yeni istek atılmadı.';
     case 'bad':return 'CoinGecko isteği geçersiz buldu'+(d?': '+d:'.');
   }
+  if(st===426)return N+' bu isteği mevcut planda kabul etmedi (HTTP 426).';
   return N+' isteği başarısız'+(st?' (HTTP '+st+')':'')+(d?': '+d:'.');
 }
 // Metinden anahtarlari ve anahtar tasiyabilecek URL parcalarini maskele
@@ -170,7 +177,9 @@ function createExtApis({fetch:F=(...a)=>globalThis.fetch(...a),now=()=>Date.now(
   const exhaust=(p,k)=>{if(!k)return;const c=ctr(p,k);c.n=Math.max(c.n,p==='fx'&&capOf(c)||LIMITS[p].cap);save()};
   const markOk=p=>{info[p].lastOk=now();info[p].lastError=null;info[p].lastErrorAt=null};
   const xe=(code,o={})=>Object.assign(new Error(code),{xcode:code},o);
-  const errText=(p,e)=>scrub(message(p,e&&e.xcode||'parse',{...(e||{}),timeoutMs}),allKeys());
+  // Sunucu ayrintisi kisaltilmadan once maskelenir: kesilen anahtarin yarisi metinde kalmasin.
+  const errText=(p,e)=>{const ks=allKeys(),o={...(e||{}),timeoutMs};if(o.detail!=null)o.detail=scrub(o.detail,ks);
+    return scrub(message(p,e&&e.xcode||'parse',o),ks)};
   const fail=(p,e)=>{const m=errText(p,e);if(!(e&&e.xcode==='input')){info[p].lastError=m;info[p].lastErrorAt=now()}return m};
   // Ayni anahtar icin es zamanli cagrilar tek istege iner
   const once=(k,fn)=>{if(inflight.has(k))return inflight.get(k);const pr=(async()=>{try{return await fn()}finally{inflight.delete(k)}})();inflight.set(k,pr);return pr};
@@ -269,7 +278,7 @@ function createExtApis({fetch:F=(...a)=>globalThis.fetch(...a),now=()=>Date.now(
     const P='fx';base=String(base==null?'USD':base).trim().toUpperCase();
     const empty=x=>({ok:false,base,rates:{},crosses:{},time:null,next:null,left:leftOf(P,keyOf(P)),...x});
     if(!/^[A-Z]{3}$/.test(base))return empty({error:fail(P,xe('input',{text:'Para birimi kodu geçersiz (ör. USD).'}))});
-    const c0=fxStore()[base],c=c0&&c0.v&&c0.v.rates&&fin(c0.exp)?c0:null;
+    const c0=fxStore()[base],c=c0&&c0.v&&c0.v.rates&&typeof c0.v.rates==='object'&&!Array.isArray(c0.v.rates)&&fin(c0.exp)?c0:null;
     if(!fresh&&c&&now()<c.exp)return {ok:true,...fxView(c.v),left:leftOf(P,keyOf(P)),cached:true,error:null};
     return once('fx|'+base+(fresh?'|f':''),async()=>{
       const key=keyOf(P);
@@ -390,7 +399,7 @@ function createExtApis({fetch:F=(...a)=>globalThis.fetch(...a),now=()=>Date.now(
           msg='ExchangeRate-API anahtarı çalışıyor. Bu ay kalan istek: '+th(leftOf(p,key))+' / '+th(capOf(c)||LIMITS.fx.cap)+'.';
         }else if(r.status===404&&!(r.j&&r.j['error-type'])){
           // quota ucu yoksa kur istegiyle dene (sonuc onbellege de girer)
-          const f=await fx('USD',{fresh:true});if(!f.ok)return {ok:false,msg:f.error};
+          const f=await fx('USD',{fresh:true});if(!f.ok||f.error)return {ok:false,msg:f.error||message(p,'parse')};
           msg='ExchangeRate-API anahtarı çalışıyor'+(f.crosses['USD/TRY']?' (1 USD = '+String(f.crosses['USD/TRY']).replace('.',',')+' TL)':'')+'. Bu ay kalan istek: '+th(f.left)+'.';
         }else throw fxFail(r,'USD');
       }else{

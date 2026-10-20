@@ -179,6 +179,7 @@ table.t tbody tr{cursor:pointer}table.t tbody tr:hover{background:var(--sunk)}ta
 <script src="node_modules/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
 <script src="engine.js"></script>
 <script src="bp-chart.js"></script>
+<script src="bp-okul.js"></script>
 </head><body><div class="app">
 <header class="top">
   <div class="brand"><i><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12.5 6 8l3 2.5L14 4"/><path d="M10.5 4H14v3.5"/></svg></i><span>Borsa Pro</span></div>
@@ -186,7 +187,7 @@ table.t tbody tr{cursor:pointer}table.t tbody tr:hover{background:var(--sunk)}ta
     <input id="q" placeholder="Hisse ara: kod ya da ad" spellcheck="false" autocomplete="off"><kbd>/</kbd><div class="dd" id="dd"></div></div>
   <nav class="tabs" id="tabs">
     <button data-v="grafik" class="on">Grafik</button><button data-v="analist">Analist</button><button data-v="tarama">Tarayıcı</button><button data-v="lab">Strateji Lab</button>
-    <button data-v="plan">Plan</button><button data-v="portfoy">Portföy</button><button data-v="alarm">Alarmlar<small id="acount"></small></button><button data-v="piyasa">Piyasa</button></nav>
+    <button data-v="plan">Plan</button><button data-v="portfoy">Portföy</button><button data-v="alarm">Alarmlar<small id="acount"></small></button><button data-v="piyasa">Piyasa</button><button data-v="okul">Okul</button></nav>
   <div class="sp"></div>
   <span class="badge" id="mst"><i></i><span>—</span></span>
 </header>
@@ -209,6 +210,7 @@ table.t tbody tr{cursor:pointer}table.t tbody tr:hover{background:var(--sunk)}ta
     <section class="view pg" id="v-tarama"></section>
     <section class="view pg" id="v-lab"></section>
     <section class="view pg" id="v-plan"></section>
+    <section class="view pg" id="v-okul"></section>
     <section class="view pg" id="v-portfoy"></section>
     <section class="view pg" id="v-alarm"></section>
     <section class="view pg" id="v-piyasa"></section>
@@ -295,7 +297,7 @@ $('tabs').onclick=e=>{const b=e.target.closest('button');if(b)tab(b.dataset.v)};
 function tab(v){S.tab=v;for(const b of $('tabs').children)b.classList.toggle('on',b.dataset.v===v);
   for(const s of document.querySelectorAll('.view'))s.classList.toggle('on',s.id==='v-'+v);
   if(v==='grafik'&&ch)requestAnimationFrame(()=>ch.resize());
-  ({analist:renderAnalyst,plan:renderPlan,tarama:renderScan,lab:renderLab,portfoy:loadPort,alarm:renderAlarms,piyasa:loadOverview})[v]?.();
+  ({analist:renderAnalyst,plan:renderPlan,tarama:renderScan,lab:renderLab,portfoy:loadPort,alarm:renderAlarms,piyasa:loadOverview,okul:renderOkul})[v]?.();
   bp.prefs({tab:v}).catch(()=>{})}
 
 // --- izleme listesi -------------------------------------------------------------------------
@@ -614,6 +616,13 @@ async function runPlan(){if(S.planBusy)return;S.planBusy='Hazırlanıyor…';ren
   const r=await bp.plan({...PF}).catch(e=>({ok:false,error:String(e.message||e)}));S.planBusy=null;S.plan=r||{ok:false,error:'Yanıt yok'};renderPlan()}
 async function applyPlan(alarms){const R=S.plan;if(!R||!R.picks)return;const x=await call(bp.planApply,{picks:R.picks,alarms});
   if(x&&x.ok){S.st.portfolio={...(S.st.portfolio||{}),positions:x.positions};if(x.alarms)S.st.alarms=x.alarms;countAlarms();drawChart();toast(x.added+' pozisyon eklendi'+(alarms?', alarmlar kuruldu':''))}}
+
+// --- Borsa Okulu (bp-okul.js): dersler, gunluk analiz, sorular, ogretmene sor --------------------------
+// Modul yoksa (eski paket) sekme gizlenir
+if(!window.BPOkul){const b=document.querySelector('nav [data-v="okul"]');if(b)b.remove()}
+function renderOkul(){const v=$('v-okul');
+  if(!window.BPOkul||typeof BPOkul.render!=='function'){v.replaceChildren(el('div',{class:'empty'},el('b',{},'Borsa Okulu yüklenemedi'),'Uygulamayı güncelleyip yeniden aç.'));return}
+  try{BPOkul.render(v,{okul:(op,args)=>bp.okul({op,args})},{el,toast,go})}catch(e){v.replaceChildren(el('div',{class:'err'},'Borsa Okulu açılamadı: '+(e&&e.message||e)))}}
 
 // --- analist ---------------------------------------------------------------------------------------
 const NC=['dn','dn','','up','up'];

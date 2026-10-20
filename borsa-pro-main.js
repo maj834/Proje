@@ -118,7 +118,7 @@ function withTimeout(p,ms,m){return new Promise((ok,no)=>{const t=setTimeout(()=
   Promise.resolve(p).then(v=>{clearTimeout(t);ok(v)},e=>{clearTimeout(t);no(e)})})}
 
 function registerBorsaPro({ipcMain,app,BrowserWindow,path,screen,Notification,shell,nativeTheme,cfg,save,isOn=()=>true,market,engine,calendar,power,
-  data,lab,analyst,ext={},say=()=>{},now=()=>Date.now(),timers,meta=null,quant=null,history=null,fund=null,radar=null,planner=null,apis=null,secrets=null}){
+  data,lab,analyst,ext={},say=()=>{},now=()=>Date.now(),timers,meta=null,quant=null,history=null,fund=null,radar=null,planner=null,apis=null,secrets=null,okul=null}){
   const T=timers||{setTimeout:(f,ms)=>setTimeout(f,ms),clearTimeout:h=>clearTimeout(h)};
   ext=obj(ext);
   let win=null,enabled=false,timer=null,ticking=false,lastTick=0,statusKey=null,scanning=null,scanMem,loadSeq=0,ov=null,ovWait=null,bench=null,benchWait=null;
@@ -545,6 +545,22 @@ function registerBorsaPro({ipcMain,app,BrowserWindow,path,screen,Notification,sh
   // Yalniz bilinen ve gecerli anahtarlar birlesir; gecersiz deger kayitli olani silmez
   function prefs(o){const cur=conf().prefs;if(!o||typeof o!=='object'||Array.isArray(o))return cur;
     const inc=cleanPrefs(o),p=cleanPrefs({...cur,...inc,...(inc.show?{show:{...(cur.show||{}),...inc.show}}:{})});put({prefs:p});return p}
+  // Borsa Okulu (okul-client): icerik Supabase'den (herkese acik okuma), ilerleme yerelde; "ogretmene sor" uygulamanin yapay zekasiyla
+  const OKUL_OPS=['list','get','today','quiz','answer','progress','markRead','ask','open'];
+  async function okulOp(o){o=obj(o);const op=o.op,a=o.args;
+    if(!OKUL_OPS.includes(op))return err('Geçersiz işlem.');
+    if(op==='open')return openUrl(a);
+    if(!okul)return err('Borsa Okulu bu sürümde yok.');
+    const A=obj(a),slug=typeof a==='string'?a:A.slug;
+    try{let r;
+      if(op==='list')r=await okul.list(A);else if(op==='get')r=await okul.get(slug);else if(op==='today')r=await okul.today();
+      else if(op==='quiz')r=await okul.quiz(A);else if(op==='answer')r=await okul.answer(slug,A.secim);else if(op==='progress')r=await okul.progress();
+      else if(op==='markRead')r=await okul.markRead(slug);
+      else{const soru=typeof a==='string'?a:A.soru;if(typeof soru!=='string'||!soru.trim())return err('Soru boş.');
+        let baglam=A.baglam;if(A.symbol){const c=ctx.get('BIST:'+code(String(A.symbol)));if(c)baglam={...obj(baglam),hisse:{symbol:c.symbol,name:c.name,fiyat:c.quote&&c.quote.price,karar:c.pro&&c.pro.verdict&&{label:c.pro.verdict.label,score:c.pro.verdict.score},not:c.quant&&c.quant.rating&&c.quant.rating.label}}}
+        r=await okul.ask(soru.slice(0,1500),{baglam})}
+      return r==null?{ok:true}:r}
+    catch(e){return err('Borsa Okulu: '+msg(e))}}
   function openUrl(o){const u=typeof o==='string'?o:obj(o).url;if(typeof u!=='string'||u.length>2048)return err('Geçersiz bağlantı.');
     let p;try{p=new URL(u)}catch(e){return err('Geçersiz bağlantı.')}
     if(p.protocol!=='https:'||p.username||p.password)return err('Yalnızca https bağlantıları açılabilir.');
@@ -560,7 +576,7 @@ function registerBorsaPro({ipcMain,app,BrowserWindow,path,screen,Notification,sh
   const H={'bp:state':state,'bp:load':load,'bp:quotes':quotes,'bp:watch':watch,'bp:scan':scan,
     'bp:scanCancel':()=>{const was=!!scanning;cancelScan();return {ok:true,cancelled:was}},
     'bp:overview':overview,'bp:feeds':feeds,'bp:search':search,'bp:lab':labRun,'bp:ai':ai,'bp:report':aiReport,'bp:ask':ask,'bp:depth':depthOp,'bp:plan':planRun,'bp:planApply':planApply,'bp:alarm':alarm,'bp:portfolio':portfolio,
-    'bp:capital':capital,'bp:prefs':prefs,'bp:open':openUrl};
+    'bp:capital':capital,'bp:prefs':prefs,'bp:open':openUrl,'bp:okul':okulOp};
   for(const [ch,f] of Object.entries(H))ipcMain.handle(ch,async(e,a)=>{
     if(!isWin(e))return err('İzin yok');if(!isOn())return err('Borsa özelliği kapalı.');
     try{const r=await f(a);return isOn()?r:err('Borsa özelliği kapalı.')}
