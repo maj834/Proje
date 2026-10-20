@@ -10,7 +10,7 @@ const [page,out,w='1360',h='860',pre='',theme='koyu']=process.argv.slice(me+1).f
 if(!page||!out){console.error('kullanim: shot.js <sayfa.html> <cikti.png> [w] [h] [preload] [koyu|acik]');process.exit(2)}
 app.whenReady().then(async()=>{
   nativeTheme.themeSource=theme==='acik'?'light':'dark';
-  const win=new BrowserWindow({width:+w,height:+h,show:false,webPreferences:{sandbox:!pre,offscreen:false,preload:pre?path.resolve(pre):undefined}});
+  const win=new BrowserWindow({width:+w,height:+h,show:false,webPreferences:{sandbox:!pre,offscreen:false,backgroundThrottling:false,preload:pre?path.resolve(pre):undefined}});
   win.webContents.on('console-message',(e,level,msg,line,src)=>console.log('[sayfa]',msg,src?('('+path.basename(src)+':'+line+')'):''));
   win.webContents.on('render-process-gone',(e,d)=>{console.log('[sayfa] COKTU',d.reason);process.exit(1)});
   await win.loadFile(path.resolve(page));

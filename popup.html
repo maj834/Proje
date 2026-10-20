@@ -264,6 +264,8 @@ let C={},shown=null;
 
 function tab(p){document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('on',b.dataset.p===p));document.querySelectorAll('.pane').forEach(s=>s.classList.toggle('on',s.id===p));if(p==='hs'){history();karne()}fit()}
 document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>tab(b.dataset.p));
+// Borsa Pro'dan "Telegram'ı bağla": Derinlik sekmesi (kurulum orada)
+api.on('openTab',p=>{if(['an','dp','hs','st'].includes(p))tab(p)});
 
 // Pencere yuksekligini icerige uydur.
 let lastH=0;

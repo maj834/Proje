@@ -30,6 +30,10 @@ const TOOLS=[
     strict:true,input_schema:obj({percent:{type:'integer',description:'0-100'},mute:{type:'boolean'}},['percent','mute'])},
   {name:'stock_info',description:'BIST hissesinin son fiyatı, günlük değişimi, teknik analiz kararı (AL/SAT/BEKLE, skor, güven, gerekçeler, işlem planı, destek/direnç; günlük+haftalık), son derinlik/baskı özeti ve haber botunun önemli haberleri. Sembol BIST kodu (THYAO, ASELS...). Kararı söylerken yatırım tavsiyesi olmadığını kısaca belirt.',
     strict:true,input_schema:obj({symbol:{type:'string'}},['symbol'])},
+  {name:'plan_budget',description:'Kullanıcının parasıyla (TL) BIST için örnek alım planı: son taramadaki (yoksa izleme listesindeki) en iyi AL kurulumlarından hangi hisse, kaç lot, giriş, stop-loss, hedef, stop olursa zarar ve haftalık/aylık beklenen kâr-zarar aralığı. "10 bin liram var ne yapayım" gibi isteklerde kullan. Risk belirtilmezse dengeli, vade belirtilmezse 1 hafta. Sonuçtaki sayıları değiştirme; garanti olmadığını ve yatırım tavsiyesi olmadığını kısaca söyle.',
+    strict:true,input_schema:obj({capital:{type:'number',description:'TL, en az 500'},risk:{type:'string',enum:['temkinli','dengeli','atak']},horizon:{type:'string',enum:['1h','1a'],description:'1h = 1 hafta, 1a = 1 ay'}},['capital','risk','horizon'])},
+  {name:'market_rates',description:'Güncel döviz kurları (dolar, euro, sterlin... TL karşılığı), altın, Brent, BIST 100 ve kripto paralar (Bitcoin, Ethereum, Solana...) fiyat ve günlük değişimi. "Dolar kaç", "bitcoin ne olmuş" gibi sorularda kullan.',
+    strict:true,input_schema:obj({},[])},
   {name:'show_stock',description:'Borsa panelini verilen hisseyle açar ve derinlik/AKD/işlem verisini getirir (ekranda gösterir).',
     strict:true,input_schema:obj({symbol:{type:'string'}},['symbol'])},
   {name:'set_timer',description:'Belirtilen dakika sonra bildirim ve sesli hatırlatma kurar.',
@@ -68,11 +72,11 @@ const APP_RE=/^[\p{L}\p{N} .\-&+']{1,80}$/u;
 const validApp=n=>typeof n==='string'&&APP_RE.test(n)&&n.trim()!==''&&!/\.app\s*$/i.test(n);
 const TAINT_MSG='Güvenlik: dış içerik okunduktan sonra bağlantı/uygulama açılmaz; kullanıcıdan doğrudan iste.';
 // Bu araclarin sonucu disaridan gelen (guvenilmez) metin icerir
-const UNTRUSTED=new Set(['stock_info','clipboard_search']);
+const UNTRUSTED=new Set(['stock_info','plan_budget','clipboard_search']);
 // Tur baglami: kullanicinin bu turdaki sozu, dis icerik okundu mu (tainted), hiz testi sayisi
 const turnCtx=(user,tainted=false)=>({user:String(user||''),tainted,speed:0});
 
-// actions: {feature(id), status(), appVolume(app,pct), macVolume(pct,mute), stock(sym), showStock(sym), timer(min,label), openApp(name), openUrl(url), speed(), clipboard(q)}
+// actions: {feature(id), status(), appVolume(app,pct), macVolume(pct,mute), stock(sym), planBudget(capital,risk,horizon), rates(), showStock(sym), timer(min,label), openApp(name), openUrl(url), speed(), clipboard(q)}
 // ctx (turCtx): verilirse dis icerik sonrasi open_url/open_app kisitlanir, hiz testi tur basina bir kez
 async function runTool(actions,name,inp,ctx=null){
   const bad=check(name,inp);if(bad)return {error:bad};
@@ -104,7 +108,8 @@ async function runTool(actions,name,inp,ctx=null){
   const call={open_feature:()=>actions.feature(inp.feature),system_status:()=>actions.status(),
     set_app_volume:()=>actions.appVolume(String(inp.app).slice(0,80),Math.max(0,Math.min(200,Math.round(+inp.percent)))),
     set_mac_volume:()=>actions.macVolume(Math.max(0,Math.min(100,Math.round(+inp.percent))),inp.mute===true||inp.mute==='true'),
-    stock_info:()=>actions.stock(String(inp.symbol).slice(0,12)),show_stock:()=>actions.showStock(String(inp.symbol).slice(0,12)),
+    stock_info:()=>actions.stock(String(inp.symbol).slice(0,12)),
+    market_rates:()=>actions.rates(),plan_budget:()=>actions.planBudget(Math.max(0,Math.min(1e9,+inp.capital||0)),['temkinli','dengeli','atak'].includes(inp.risk)?inp.risk:'dengeli',inp.horizon==='1a'?'1a':'1h'),show_stock:()=>actions.showStock(String(inp.symbol).slice(0,12)),
     set_timer:()=>actions.timer(Math.max(0.1,Math.min(1440,+inp.minutes)),String(inp.label||'').slice(0,120)),
     open_app:()=>actions.openApp(inp.name.trim()),
     open_url:()=>actions.openUrl(url),

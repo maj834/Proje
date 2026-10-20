@@ -25,7 +25,7 @@ const hizUi=require('./hiz-main').registerHiz({ipcMain,app,BrowserWindow,path,cf
 global.hizUi=hizUi;
 // Neo: "Hey Neo" sesli asistan. Araclari uygulamanin kendi ozellikleri. Beyin: ucretsiz Groq (varsayilan) ya da Claude API anahtari.
 const neoUi=require('./neo-main').registerNeo({ipcMain,app,BrowserWindow,path,screen,globalShortcut,Notification,cfg:()=>cfg(),save:o=>save(o),
-  shell,keys:{get:p=>p==='claude'?getKey():dec(cfg().groqKey),set:(p,k)=>p==='claude'?setKey(k):save({groqKey:enc(k)})},isOn:()=>modOn('neo'),actions:{
+  shell,keys:{get:p=>p==='claude'?getKey():p==='eleven'?dec(cfg().elevenKey):dec(cfg().groqKey),set:(p,k)=>p==='claude'?setKey(k):p==='eleven'?save({elevenKey:k?enc(k):null}):save({groqKey:enc(k)})},isOn:()=>modOn('neo'),actions:{
   feature:id=>{if(id==='merkez'){hubUi.open();return {ok:true}}if(!modOn(id))return {error:'Bu özellik Merkez\'de kapalı.'};const f=OPEN[id];if(!f)return {error:'Bu özellik henüz yok.'};f();return {ok:true}},
   status:()=>{const v=sysUi.view(),s=v.last;if(!s)return {error:modOn('sistem')?'Ölçüm henüz gelmedi.':'Sistem Durumu özelliği kapalı.'};
     return {cpu_temp_c:s.cpu.temp,cpu_hottest_c:s.cpu.tempMax,cpu_percent:s.cpu.usage,gpu_percent:s.gpu.usage,ram_used_gb:s.mem.used&&+(s.mem.used/1e9).toFixed(1),
@@ -44,6 +44,24 @@ const neoUi=require('./neo-main').registerNeo({ipcMain,app,BrowserWindow,path,sc
     // Teknik analiz karari (Borsa Pro motoru: gunluk + haftalik): AL/SAT/BEKLE, gerekceler, islem plani, destek/direnc
     if(modOn('borsa'))try{const an=await withTimeout(borsaPro.analyzeSymbol(code),15000,'zaman aşımı');if(an)out.analysis={...an,note:'Teknik analiz; yatırım tavsiyesi değildir'}}catch(e){out.analysis_error=e.message}
     return out},
+  // Sermaye plani (Borsa Pro planlayicisi): sesli yanit icin sadelestirilmis sonuc
+  planBudget:async(capital,risk,horizon)=>{if(!modOn('borsa'))return {error:'Borsa özelliği kapalı.'};if(!borsaPro.plan)return {error:'Sermaye planlayıcı bu sürümde yok.'};
+    const r=await withTimeout(borsaPro.plan({capital,risk,horizon,maxPos:3}),90000,'zaman aşımı');if(!r||!r.ok)return {error:(r&&r.error)||'Plan hesaplanamadı.'};
+    const w=horizon==='1a'?'month':'week',T=r.totals||{},R=x=>typeof x==='number'&&isFinite(x)?Math.round(x):null,rg=x=>x?{kotu:R(x.lo),orta:R(x.mid),iyi:R(x.hi)}:null;
+    return {sermaye:r.capital,risk_yuzde_pozisyon_basina:r.riskPct,vade:horizon==='1a'?'1 ay':'1 hafta',kaynak:r.source==='tarama'?'son tarama AL listesi':'izleme listesi',
+      hisseler:(r.picks||[]).map(k=>({kod:k.symbol,ad:k.name,lot:k.lots,giris:k.ref??k.entry,stop:k.stop,hedef1:k.t1,hedef2:k.t2,tutar_tl:R(k.positionTL),stop_olursa_zarar_tl:R(k.maxLossTL),
+        hedef_stoptan_once_yuzde:k.p1??null,beklenen_aralik_tl:rg(k.expected&&k.expected[w])})),
+      toplam:{yatirilan_tl:R(T.invested),nakit_tl:R(T.cash),tum_stoplar_zarar_tl:R(T.maxLoss),beklenen_aralik_tl:rg(w==='month'?T.expMonth:T.expWeek)},
+      secilmeyenler:(r.rejected||[]).slice(0,5).map(x=>x.symbol+': '+x.why),not:'Geçmiş istatistiğe dayalı örnek plan; kâr garanti değildir, yatırım tavsiyesi değildir. Ayrıntı Borsa Pro > Plan sekmesinde.'}},
+  // Doviz/kripto: anahtar varsa ExchangeRate-API + CoinGecko, her durumda Yahoo piyasa ozeti (endeks, altin, Brent, Bitcoin)
+  rates:async()=>{const out={};const R=(x,d=2)=>typeof x==='number'&&isFinite(x)?+x.toFixed(d):null;
+    const [ov,fx,cr]=await Promise.all([withTimeout(bpData.overview(),12000,'zaman aşımı').catch(()=>null),
+      extApis&&typeof extApis.fx==='function'?withTimeout(extApis.fx('USD'),12000,'zaman aşımı').catch(()=>null):null,
+      extApis&&typeof extApis.crypto==='function'?withTimeout(extApis.crypto({}),12000,'zaman aşımı').catch(()=>null):null]);
+    if(Array.isArray(ov))out.piyasa=ov.filter(x=>x&&x.price!=null).map(x=>({ad:x.name,fiyat:R(x.price,x.price>=1000?0:2),gunluk_degisim_yuzde:R(x.chgPct)}));
+    if(fx&&fx.ok&&fx.rates&&fx.rates.TRY){const T=fx.rates.TRY,k={};for(const c of ['USD','EUR','GBP','CHF','JPY','CNY','AED'])if(c==='USD'||fx.rates[c]>0)k[c+'/TRY']=R(c==='USD'?T:T/fx.rates[c],c==='JPY'?4:3);out.doviz=k}
+    if(cr&&cr.ok&&Array.isArray(cr.coins))out.kripto=cr.coins.slice(0,6).map(c=>({ad:c.name,usd:R(c.price&&c.price.usd),tl:R(c.price&&c.price.try,0),degisim_24s_yuzde:R(c.chg24h)}));
+    if(!out.piyasa&&!out.doviz&&!out.kripto)return {error:'Piyasa verisi alınamadı.'};out.not='Yahoo verisi ~15 dk gecikmeli olabilir';return out},
   showStock:sym=>{const code=bistCode(sym);if(!code)return {error:'Hisse kodu anlaşılmadı.'};if(!modOn('borsa'))return {error:'Borsa özelliği kapalı.'};showPop();fetchDepth({symbol:code});return {ok:true,symbol:code}},
   timer:(min,label)=>{setTimeout(()=>{if(!modOn('neo'))return;new Notification({title:'Neo hatırlatma',body:label||'Süre doldu'}).show();neoUi.say('Hatırlatma: '+(label||'süre doldu'))},min*60000);
     return {ok:true,at:new Date(Date.now()+min*60000).toLocaleTimeString('tr-TR',{timeZone:'Europe/Istanbul',hour:'2-digit',minute:'2-digit'})}},
@@ -136,15 +154,30 @@ function addCost(c){
   save({usage:{month:m.month,cost:m.cost+c,count:m.count+1,total:(u.total||0)+c}});
 }
 
+const bpData=require('./bp-data').createData({market,engine});
+const FEED_KEYS={news:'newsKey',fx:'fxKey',gecko:'geckoKey'};
+const extApis=(()=>{try{return require('./ext-apis').createExtApis({fetch:(...a)=>fetch(...a),now:()=>Date.now(),dir:app.getPath('userData'),
+  keys:{news:()=>dec(cfg().newsKey),fx:()=>dec(cfg().fxKey),gecko:()=>dec(cfg().geckoKey)}})}catch(e){console.error('ext-apis:',e.message);return null}})();
 // Borsa Pro: buyuk analiz penceresi (etkilesimli grafik, tarayici, strateji laboratuvari, portfoy, alarmlar, yapay zeka yorumu).
 // Borsa ozelligine baglidir: Merkez'de kapatilinca penceresi ve alarm izleyicisi durur. Yapay zeka yorumu once ucretsiz Groq
 // (Neo'nun anahtari), yoksa Claude ya da Grok anahtariyla; gorsel gonderilmez, yalniz hesaplanmis analiz ozeti.
 const borsaPro=require('./borsa-pro-main').registerBorsaPro({ipcMain,app,BrowserWindow,path,screen,Notification,shell,nativeTheme,
   cfg:()=>cfg(),save:o=>save(o),isOn:()=>modOn('borsa'),market,engine,calendar,power:require('./power'),
-  data:require('./bp-data').createData({market,engine}),meta:require('./bp-data'),lab:require('./bp-strategy'),
+  data:bpData,meta:require('./bp-data'),lab:require('./bp-strategy'),
   quant:require('./bp-quant'),history:require('./bp-history').createHistory(),fund:(()=>{try{return require('./bp-fund')}catch(e){return null}})(),
+  // Kullanicinin Hisse Radar deposu (GitHub, herkese acik): cok modelli yapay zeka konsensusu; anahtar uygulamaya gelmez
+  radar:(()=>{try{return require('./hisse-radar').createRadar()}catch(e){return null}})(),planner:(()=>{try{return require('./bp-planner')}catch(e){return null}})(),
+  // Ek veri kaynaklari (kullanicinin ucretsiz anahtarlari, safeStorage ile sifreli): NewsAPI, ExchangeRate-API, CoinGecko
+  apis:extApis,secrets:{set:(p,k)=>{const f=FEED_KEYS[p];if(f)save({[f]:k?enc(k):undefined})}},
   analyst:require('./bp-analyst').createAnalyst({keys:{groq:()=>dec(cfg().groqKey),claude:()=>getKey(),grok:()=>grokKey()},claudeModel:()=>model(),addCost:c=>addCost(c)}),
-  ext:{botNews:s=>botNews(s),extSignals:s=>extSignals(s),depth:()=>lastDepth,riskPct:()=>+cfg().riskPct>0?+cfg().riskPct:1},
+  ext:{botNews:s=>botNews(s),extSignals:s=>extSignals(s),depth:()=>lastDepth,riskPct:()=>+cfg().riskPct>0?+cfg().riskPct:1,
+    // Telegram derinlik botu (Borsa Pro): getir, canli takip, durum, bot terminali, kurulum (popup Derinlik sekmesi)
+    fetchDepth:s=>fetchDepth({symbol:s,source:'telegram'}),
+    depthAuto:(sec,s)=>{if(s)save({depthSymbol:bistCode(s)});setDepthAuto([0,20,30,45,60,120].includes(sec)?sec:0);send('state',state());return depthInfo()},
+    depthInfo:()=>depthInfo(),
+    openTerminal:async()=>{if(!tgUser||!tgCfg().bot)return {ok:false,error:'Önce Telegram\'a bağlan ve bot adını yaz.'};const why=canSend(false);if(why)return {ok:false,error:why};
+      sent.push(Date.now());try{const r=await tg.menuApp(tgCfg().bot);openTerminal(r.url);return {ok:true}}catch(e){return {ok:false,error:ai.errorText(e)}}},
+    setupTg:()=>{showPop();send('openTab','st');return {ok:true}}},
   say:t=>{try{if(modOn('neo'))neoUi.say(t)}catch(e){}}});
 // Acilis testi (CI): Borsa Pro sayfasi paketli uygulamada grafik kutuphanesini, analiz motorunu ve grafik bilesenini yukleyebiliyor mu
 // Adimlar stdout'a yazilir (CI gunlugunde takilma yeri gorunsun).
@@ -762,11 +795,14 @@ async function scorecard(days=30){
       rules:[...rules.entries()].filter(([,v])=>v.length>=3).map(([k,v])=>({rule:k,...stat(v)})).sort((a,b)=>b.n-a.n).slice(0,8)};
   }catch(e){return {ok:false,msg:e.message}}
 }
+// Borsa Pro'ya Telegram derinlik durumu (gizli bilgi yok: oturum/anahtar gonderilmez)
+const depthInfo=()=>({connected:!!tgUser,bot:tgCfg().bot||null,auto:cfg().depthAuto||0,symbol:cfg().depthSymbol||null,source:cfg().depthSource||'telegram',safe:safeInfo()});
 const currentSymbol=()=>cfg().symbol||(lastAi&&lastAi.symbol)||(lastDepth&&lastDepth.symbol)||cfg().depthSymbol||'';
 
 let depthNext=null;   // suren istek varken gelen elle/Neo istegi: bitince calisir (sessizce dusmesin)
 async function fetchDepth(opts={}){
-  if(depthBusy){if(!opts.auto)depthNext=opts;return}depthBusy=true;
+  // Donus degeri Borsa Pro icin: {ok:true} | {ok:false,error,wait?,busy?,needTg?}. Popup ayrica olaylarla bilgilendirilir.
+  if(depthBusy){if(!opts.auto)depthNext=opts;return {ok:false,busy:true,error:'Derinlik isteği sürüyor; birazdan güncellenecek.'}}depthBusy=true;
   const symbol=bistCode(opts.symbol||(opts.auto&&cfg().depthSymbol)||currentSymbol());
   const source=opts.source||cfg().depthSource||'telegram';
   try{
@@ -778,7 +814,7 @@ async function fetchDepth(opts={}){
       if(!tgUser)throw new Error('Telegram bağlı değil. Ayarlar › Telegram derinlik botu bölümünden bağlan.');
       if(!tgCfg().bot)throw new Error('Botun kullanıcı adını Ayarlar\'a yaz (ör. @b0pt_bot).');
       const why=canSend(!!opts.auto);
-      if(why){send('depthWait',{msg:why,safe:safeInfo()});return}
+      if(why){send('depthWait',{msg:why,safe:safeInfo()});return {ok:false,wait:true,error:why}}
       const raw=lastRaw[symbol];kind=opts.auto&&raw&&Date.now()-raw.at<600000?pickKind(symbol):'depth';
       if(kind!=='depth'){
         await fetchExtra(kind,symbol,raw.last||(raw.bids[0]&&raw.bids[0].price)||null,true,true);
@@ -786,7 +822,7 @@ async function fetchDepth(opts={}){
       }else{
       sent.push(Date.now());
       try{messages=await tg.query(tgCfg().bot,(tgCfg().cmd||'{KOD}').replace(/\{KOD\}/g,symbol))}
-      catch(err){const w=tg.floodSeconds(err);if(w){floodUntil=Date.now()+(w+15)*1000;send('depthWait',{msg:'Telegram '+w+' sn beklememizi istedi; otomatik duraklatıldı.',safe:safeInfo()});return}throw err}
+      catch(err){const w=tg.floodSeconds(err);if(w){floodUntil=Date.now()+(w+15)*1000;send('depthWait',{msg:'Telegram '+w+' sn beklememizi istedi; otomatik duraklatıldı.',safe:safeInfo()});return {ok:false,wait:true,error:'Telegram '+w+' sn beklememizi istedi.'}}throw err}
       d=depthLib.parseText(messages.map(m=>m.text).join('\n'),{symbol});
       // Bot tabloyu resim olarak gonderdiyse (BOPT): once yerel OCR (ucretsiz), olmazsa Grok/Claude.
       const photo=messages.find(m=>m.photo);
@@ -828,7 +864,9 @@ async function fetchDepth(opts={}){
     recordDepth(lastDepth);recordSignal(lastDepth.signal,lastResult||{});
     send('depth',{...lastDepth,messages:messages.map(m=>({...m,photo:thumb(m.photo)})),usage:state().usage});
     pushDepthOverlay();if(!opts.auto||!newsCache[bistCode(symbol)]||Date.now()-newsCache[bistCode(symbol)].at>600000)pushNews(symbol);
-  }catch(e){send('depthErr',{msg:ai.errorText(e)})}
+    try{borsaPro.onDepth(symbol)}catch(e){}
+    return {ok:true,symbol};
+  }catch(e){const msg=ai.errorText(e);send('depthErr',{msg});return {ok:false,error:msg,needTg:/Telegram bağlı değil|bot/i.test(msg)}}
   finally{depthBusy=false;if(depthNext){const n=depthNext;depthNext=null;if(modOn('borsa'))fetchDepth(n)}}
 }
 // Derinligi grafigin uzerine: fiyat olcegi varsa seviyelere, yoksa kose kartina.

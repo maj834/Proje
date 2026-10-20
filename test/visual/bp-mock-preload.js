@@ -1,5 +1,5 @@
 // Gorsel kontrol icin window.bp taklidi: gercek analiz modulleri (engine, bp-data, bp-strategy) + sentetik piyasa verisi.
-// shot.js bu preload'u sandbox:false ile yukler. Sekme: BP_TAB ortam degiskeni (grafik|tarama|lab|portfoy|alarm|piyasa).
+// shot.js bu preload'u sandbox:false ile yukler. Sekme: BP_TAB ortam degiskeni (grafik|tarama|lab|portfoy|alarm|piyasa|analist|plan).
 const {contextBridge,ipcRenderer}=require('electron');
 const path=require('path'),R=p=>require(path.join(__dirname,'..','..',p));
 const engine=R('engine.js'),D=R('bp-data.js'),lab=R('bp-strategy.js'),{summarize}=R('borsa-pro-main.js'),demo=require('./bp-demo-data.js');
@@ -28,7 +28,7 @@ const px=s=>{const r=series(s,'1g');return {price:r[r.length-1].c,prev:r[r.lengt
 const port=()=>({positions,summary:summarize(positions,px,new Date().toISOString().slice(0,10))});
 let evt=()=>{};
 async function scanNow(u){const syms=u==='WATCH'?watch:D.U[u];const r=await data.scan(syms,{bench,onProgress:p=>evt({type:'scan',...p})});
-  const rows=r.rows.map(x=>({...x,presets:D.PRESETS.filter(p=>data.matches(x,p.id)).map(p=>p.id)}));lastScan={...r,rows,universe:u,breadth:data.breadth(rows)};return lastScan}
+  const rows=r.rows.map(x=>({...x,presets:D.PRESETS.filter(p=>data.matches(x,p.id)).map(p=>p.id)}));lastScan={...r,rows,universe:u,breadth:data.breadth(rows),sectors:D.sectorStats(rows)};return lastScan}
 async function load({symbol='THYAO',tf='1g'}={}){
   const sym=String(symbol).toUpperCase(),fr={};for(const k of [tf,'1g','1h'])fr[k]=series(sym,k);
   const rows=fr[tf],pro=engine.proAnalyze(fr,{primary:tf,news:[{score:2},{score:1}],depth:{pressure:24,flow:1e6,live:1}});
@@ -58,6 +58,34 @@ contextBridge.exposeInMainWorld('bp',{
     gorunum:'olumlu',boga:'Direnç bölgesi üzerinde günlük kapanış gelirse Hedef 1 ve ardından Hedef 2 seviyeleri gündeme gelir.',ayi:'Destek bölgesinin altında kapanış, stop seviyesine doğru geri çekilme riskini artırır.',
     tetikler:['Direnç bölgesi üstünde kapanış (AL teyidi)','Destek altında kapanış (plan geçersiz)'],riskler:['RSI aşırı alıma yakın','Risk/ödül 1,5 altında'],izle:['Hacim / 20 gün ortalaması','Haftalık EMA20'],sonuc:'Koşullu olumlu görünüm; girişi geri çekilmede düşünmek daha dengeli. Yatırım tavsiyesi değildir.'},cost:0}),
   report:async o=>({ok:true,provider:'groq',model:'openai/gpt-oss-120b',data:{not:'Al',notGerekce:'Teknik karar ve geçmiş benzer durumlar olumlu; piyasa rejimi temkin gerektiriyor.',hedef:{baz:375,dusuk:330,yuksek:400,vade:'1 ay'},ozet:'Trend güçlü, momentum yüksek.',teknik:'EMA dizilimi yükselişte.',temel:'Değerleme makul.',olasiliklar:'Hedef 1 stoptan önce %58.',senaryolar:[{ad:'Boğa',olasilik:45,kosul:'Direnç üstü kapanış',hedef:400},{ad:'Baz',olasilik:35,kosul:'Yatay seyir',hedef:360},{ad:'Ayı',olasilik:20,kosul:'Destek altı kapanış',hedef:325}],katalizorler:['Bilanço 28 Ekim'],riskler:['RSI yüksek'],izle:['Hacim'],sonuc:'Koşullu olumlu. Yatırım tavsiyesi değildir.'}}),
+  depth:async o=>{const tg={connected:!process.env.BP_NOTG,bot:'@bot',auto:0,symbol:null,safe:{hour:12,hourCap:100,day:48,dayCap:700,market:true}};
+    if(o.op==='fetch'||o.op==='state'){const L=await load({symbol:o.symbol||'THYAO'}),p=L.quote.price,lv=(k,s)=>Array.from({length:10},(_,i)=>({price:+(p+s*(i+(s>0?1:0))*0.05).toFixed(2),qty:Math.round(20000+((i*7919)%13)*9000+(i===3&&s<0?220000:0))}));
+      const d={...L.depth,at:Date.now()-20e3,last:p,bids:lv('b',-1),asks:lv('a',1),walls:[{side:'bid',price:+(p-0.15).toFixed(2),qty:247000,ratio:0.3}],
+        tape:{enough:true,score:42,dir:1,why:['Son 5 dk aktif alış %68'],w5:{buy:68000,sell:32000,delta:0.36,vwap:+(p-0.03).toFixed(2)},top:{name:'Bank of America',net:42000},cvd:[1,3,2,5,7,6,9,12,11,14]},
+        trades:Array.from({length:12},(_,i)=>({time:'17:5'+(9-i%10)+':1'+i%10,price:+(p+((i%3)-1)*0.05).toFixed(2),qty:500+i*137,side:i%3?'buy':'sell',buyer:i%2?'BIYKR':'GRM',seller:i%2?'ISY':'YKR'}))};
+      return o.op==='state'?{ok:true,tg,depth:null}:{ok:true,tg,depth:d}}
+    return {ok:true,tg}},
+  plan:async o=>{const cap=+o.capital||10000;for(let i=1;i<=3;i++){evt({type:'plan',done:i-1,total:3,symbol:['THYAO','ASELS','BIMAS'][i-1]});await Promise.resolve()}
+    const mk=(symbol,name,sector,ref,lots)=>{const stop=+(ref*0.95).toFixed(2),t1=+(ref*1.07).toFixed(2),t2=+(ref*1.12).toFixed(2),pos=+(ref*lots).toFixed(2),ml=+((ref-stop)*lots+pos*0.002).toFixed(2);
+      return {symbol,name,sector,lots,entry:[+(ref*0.99).toFixed(2),ref],ref,stop,t1,t2,positionTL:pos,maxLossTL:ml,maxLossPct:+(ml/cap*100).toFixed(2),p1:58,evTL:+(pos*0.012).toFixed(2),
+        expected:{week:{lo:-pos*0.04,mid:pos*0.008,hi:pos*0.05},month:{lo:-pos*0.08,mid:pos*0.02,hi:pos*0.11}},reasons:['Günlük AL +38, haftalık trend yükselişte','Geçmişte benzer kurulumlarda hedef 1 stoptan önce %58 (n=214)','R/Ö 1:1,8'],warnings:symbol==='ASELS'?['Bilanço 6 gün içinde: oynaklık artabilir.']:[]}};
+    const P=[mk('THYAO','Türk Hava Yolları','Ulaştırma',312.5,10),mk('ASELS','Aselsan','Savunma',148.2,22)];
+    const sum=k=>P.reduce((s,x)=>s+x[k],0),inv=sum('positionTL'),ml=sum('maxLossTL');
+    return {ok:true,capital:cap,riskPct:o.risk==='temkinli'?0.5:o.risk==='atak'?2:1,horizon:o.horizon||'1h',picks:P,
+      totals:{invested:inv,cash:cap-inv,maxLoss:ml,maxLossPct:ml/cap*100,positions:P.length,expWeek:{lo:-inv*0.035,mid:inv*0.008,hi:inv*0.045},expMonth:{lo:-inv*0.07,mid:inv*0.02,hi:inv*0.1}},
+      rejected:[{symbol:'BIMAS',why:'Sermaye bu hisse için yetersiz (1 lot riski aşıyor).'},{symbol:'GARAN',why:'Aynı sektörden (Bankacılık) zaten bir hisse seçildi.'},{symbol:'EREGL',why:'Karar BEKLE: plan yok.'}],
+      notes:['Toplamlar yaklaşık: hisseler birlikte hareket edebilir.','Kaynak: son tarama (BIST30) AL listesi.'],source:'scan',at:Date.now()}},
+  planApply:async o=>{const add=(o.picks||[]).map((k,i)=>({id:'pp'+i+Date.now().toString(16).slice(-5),symbol:k.symbol,qty:k.lots,cost:k.ref,date:new Date().toISOString().slice(0,10),note:'Sermaye planı',stop:k.stop,target:k.t1}));
+    positions=[...positions,...add];return {ok:true,added:add.length,positions,alarms:o.alarms?alarms:undefined}},
+  feeds:async o=>{const st={news:{configured:!process.env.BP_NOKEYS,left:84},fx:{configured:!process.env.BP_NOKEYS,left:1460},gecko:{configured:!process.env.BP_NOKEYS,left:null}};
+    if(o.op==='news')return process.env.BP_NOKEYS?{ok:false,error:'NewsAPI anahtarı kayıtlı değil: Piyasa sekmesindeki Veri kaynakları bölümünden ekle.',needKey:true}:{ok:true,symbol:o.symbol,left:83,items:[{title:'THY, Avrupa hatlarında kapasiteyi yüzde 12 artırıyor',source:'Anadolu Ajansı',url:'https://www.aa.com.tr/x',time:Date.now()-3*3600e3},{title:'Havacılık hisseleri petrol fiyatlarındaki düşüşle yükseldi',source:'Bloomberg HT',url:'https://www.bloomberght.com/x',time:Date.now()-26*3600e3}]};
+    if(o.op!=='market')return {ok:true,status:st};
+    const sp=(p0,n=168)=>Array.from({length:n},(_,i)=>p0*(1+Math.sin(i/9)*0.02+i/n*0.03));
+    return {ok:true,status:st,at:Date.now(),fx:process.env.BP_NOKEYS?null:{ok:true,base:'USD',time:Math.floor(Date.now()/1000)-3600,rates:{TRY:41.92,EUR:0.861,GBP:0.746,CHF:0.797,JPY:151.2,CNY:7.12,SAR:3.75,AED:3.6725}},
+      crypto:process.env.BP_NOKEYS?null:{ok:true,coins:[{id:'bitcoin',symbol:'btc',name:'Bitcoin',price:{usd:108250,try:4537000},chg24h:1.84,spark7d:sp(104000)},{id:'ethereum',symbol:'eth',name:'Ethereum',price:{usd:3912,try:163990},chg24h:-0.72,spark7d:sp(3950)},
+        {id:'solana',symbol:'sol',name:'Solana',price:{usd:187.4,try:7856},chg24h:3.1,spark7d:sp(180)},{id:'ripple',symbol:'xrp',name:'XRP',price:{usd:2.41,try:101.03},chg24h:-1.4,spark7d:sp(2.5)}]},
+      radar:{updatedAt:Date.now()-40*60e3,modeller:[{id:'groq',ad:'Groq · Llama',durum:'ok',isabet:{'1h':{n:212,oran:57}}},{id:'cohere',ad:'Cohere · Command',durum:'ok',isabet:{'1h':{n:198,oran:54}}},{id:'cerebras',ad:'Cerebras',durum:'kota',isabet:null},{id:'hizli',ad:'Hızlı şerit',durum:'ok',isabet:null}],
+        ozet:{yukselis:['THYAO','ASELS','TUPRS','BIMAS'],dusus:['PETKM','SASA']},gundem:[{baslik:'TCMB faiz kararı perşembe açıklanacak',kaynak:'AA',zaman:new Date(Date.now()-5*3600e3).toISOString()}],hatalar:[]}}},
   ask:async o=>({ok:true,answer:'Stop seviyesi giriş bölgesinin altındaki yapı desteğine göre belirlendi. Yatırım tavsiyesi değildir.'}),
   alarm:async o=>{if(o.op==='add')alarms=[...alarms,{id:Math.random().toString(16).slice(2,10),...o.alarm,created:Date.now(),fired:null,last:null}];if(o.op==='remove')alarms=alarms.filter(a=>a.id!==o.id);return {ok:true,alarms}},
   portfolio:async o=>{if(o.op==='remove')positions=positions.filter(p=>p.id!==o.id);return {ok:true,...port()}},

@@ -8,7 +8,7 @@ const engine = require('../engine');
 const realMarket = require('../market');
 const BP = require('../borsa-pro-main.js');
 
-const CHANNELS = ['bp:ai', 'bp:alarm', 'bp:ask', 'bp:capital', 'bp:lab', 'bp:load', 'bp:open', 'bp:overview', 'bp:portfolio', 'bp:prefs',
+const CHANNELS = ['bp:ai', 'bp:alarm', 'bp:ask', 'bp:capital', 'bp:depth', 'bp:feeds', 'bp:lab', 'bp:load', 'bp:open', 'bp:overview', 'bp:plan', 'bp:planApply', 'bp:portfolio', 'bp:prefs',
   'bp:quotes', 'bp:report', 'bp:scan', 'bp:scanCancel', 'bp:search', 'bp:state', 'bp:watch'];
 const T0 = Date.UTC(2026, 9, 19, 8, 0);                 // Pazartesi 11:00 Istanbul
 const flush = async (n = 5) => { for (let i = 0; i < n; i++) await new Promise(r => setImmediate(r)); };
@@ -152,7 +152,7 @@ function harness(t, o = {}) {
     cfg: () => store.c, save: x => { store.c = { ...store.c, ...x }; store.saves++; }, isOn: () => h.on,
     market, engine: o.engine || engine, calendar, power, data, lab, analyst, ext, say: s => said.push(s), now: () => clock.t, timers,
     meta: o.meta === undefined ? { U, PRESETS, TAGS: { 'kirilim-yukari': { name: 'Yukarı kırılım', dir: 1 } } } : o.meta,
-    quant: o.quant || null, history: o.history || null, fund: o.fund || null };
+    quant: o.quant || null, history: o.history || null, fund: o.fund || null, radar: o.radar || null, planner: o.planner || null, apis: o.apis || null, secrets: o.secrets || null };
   h.deps = deps; h.Notif = Notif;
   h.ui = BP.registerBorsaPro(deps);
   h.call = (ch, arg) => handlers[ch]({ sender: h.win && h.win.webContents }, arg);
@@ -225,7 +225,7 @@ test('alarmText: Turkce ekler ve fiyat bicimi', () => {
 // --- pencere ve IPC --------------------------------------------------------------------------
 test('pencere: secenekler, guvenlik, tekrar acma, sembol olayi, isWin, kapali ozellik', (t) => {
   const h = harness(t);
-  assert.deepEqual(Object.keys(h.ui).sort(), ['analyzeSymbol', 'close', 'disable', 'enable', 'isWin', 'open', 'status']);
+  assert.deepEqual(Object.keys(h.ui).sort(), ['analyzeSymbol', 'close', 'disable', 'enable', 'isWin', 'onDepth', 'open', 'plan', 'status']);
   h.ui.open();
   const w = h.win, o = w.opts;
   assert.deepEqual([o.width, o.height, o.minWidth, o.minHeight, o.title, o.show, o.backgroundColor], [1360, 860, 1024, 640, 'Borsa Pro', false, '#101316']);
@@ -331,9 +331,10 @@ test('bp:load: derinlik yalniz ayni hisse ve 5 dk icinde; ABD hissesinde bot/der
     flow: { net: 12000, change: 300 }, signal: { dir: 1, why: ['a', 'b'] }, bids: [{ price: 150, qty: 10, orders: 2 }], asks: [{ price: 150.1, qty: 5 }],
     buyers: [{ name: 'BIYKR', net: 5000, cost: 149.5, extra: 'gizli' }], sellers: [{ name: 'X'.repeat(80), net: -100 }], walls: [{ side: 'bid', price: 150, qty: 99, ratio: 0.4 }] };
   const r = await h.call('bp:load', { symbol: 'THYAO' });
-  assert.deepEqual(r.depth, { at: T0 - 60000, source: 'bot', last: 150.2, change: null, pressure: 42, parts: [{ k: 'x', v: 1 }], trend: 'Alış baskısı artıyor',
-    flow: { net: 12000, change: 300 }, signal: { dir: 1, why: ['a', 'b'] }, bids: [{ price: 150, qty: 10 }], asks: [{ price: 150.1, qty: 5 }],
-    buyers: [{ name: 'BIYKR', net: 5000, cost: 149.5 }], sellers: [{ name: 'X'.repeat(40), net: -100, cost: null }], walls: [{ side: 'bid', price: 150, qty: 99 }] });
+  assert.deepEqual(r.depth, { at: T0 - 60000, source: 'bot', last: 150.2, change: null, ceiling: null, floor: null, buyRatio: null, pressure: 42, parts: [{ k: 'x', v: 1 }],
+    trend: 'Alış baskısı artıyor', trendDir: 0, history: [], flow: { net: 12000, change: 300, top: null }, signal: { dir: 1, why: ['a', 'b'] }, live: null, tape: null,
+    bids: [{ price: 150, qty: 10 }], asks: [{ price: 150.1, qty: 5 }], buyers: [{ name: 'BIYKR', net: 5000, cost: 149.5 }], sellers: [{ name: 'X'.repeat(40), net: -100, cost: null }],
+    trades: [], walls: [{ side: 'bid', price: 150, qty: 99, ratio: 0.4 }] });
   h.depthBox.d = { ...h.depthBox.d, at: T0 - 6 * 60000 };
   assert.equal((await h.call('bp:load', { symbol: 'THYAO' })).depth, null, 'bayat derinlik');
   h.depthBox.d = { ...h.depthBox.d, at: T0, symbol: 'GARAN' };
@@ -509,7 +510,7 @@ test('bp:ai: baglam son yuklemeden (yeniden veri cekmez), lab ozeti, pozisyon, s
   assert.equal(h.market.calls.multi.length, nm, 'son yukleme kullanilir');
   const { ctx, o } = h.analyst.calls.brief[0];
   assert.deepEqual(o, { provider: 'groq' });
-  assert.deepEqual(Object.keys(ctx).sort(), ['akd', 'depth', 'fund', 'lab', 'name', 'news', 'position', 'pro', 'quant', 'quote', 'stats', 'symbol', 'tf']);
+  assert.deepEqual(Object.keys(ctx).sort(), ['akd', 'depth', 'fund', 'lab', 'name', 'news', 'position', 'pro', 'quant', 'quote', 'radar', 'stats', 'symbol', 'tf']);
   assert.equal(ctx.pro.ok, true); assert.equal(ctx.name, 'Türk Hava Yolları'); assert.deepEqual(ctx.akd, { days: 5, top: [] });
   assert.deepEqual(ctx.lab, { best: 'ema', results: [{ id: 'ema', name: 'EMA', stats: { trades: 6, totalRet: 12 } }] });
   assert.deepEqual(ctx.news.map(n => n.title), ['Bot özeti', 'Yahoo haberi']); assert.equal(ctx.news[0].score, 3);
@@ -848,7 +849,7 @@ test('preload: yalniz bp: kanallari, ana surecle ayni kanal kumesi; on yalniz bp
   delete require.cache[pPath]; require(pPath);
   assert.equal(exposed.k, 'bp');
   const api = exposed.v;
-  assert.deepEqual(Object.keys(api).sort(), ['ai', 'alarm', 'ask', 'capital', 'lab', 'load', 'on', 'open', 'overview', 'portfolio', 'prefs', 'quotes', 'report', 'scan', 'scanCancel', 'search', 'state', 'watch']);
+  assert.deepEqual(Object.keys(api).sort(), ['ai', 'alarm', 'ask', 'capital', 'depth', 'feeds', 'lab', 'load', 'on', 'open', 'overview', 'plan', 'planApply', 'portfolio', 'prefs', 'quotes', 'report', 'scan', 'scanCancel', 'search', 'state', 'watch']);
   for (const k of Object.keys(api)) if (k !== 'on') assert.equal(await api[k]({ a: 1 }), 'ok');
   const chans = [...new Set(invokes.map(x => x[0]))].sort();
   assert.deepEqual(chans, CHANNELS, 'ana surecin kaydettigi kanallarla birebir');
@@ -931,4 +932,116 @@ test('bp:report: analist modulu report destekliyorsa onbellekli, desteklemiyorsa
   const h2 = harness(t);
   h2.ui.open();
   assert.deepEqual(await h2.call('bp:report', { symbol: 'THYAO' }), { ok: false, error: 'Yapay zekâ raporu bu sürümde yok.' });
+});
+
+// --- Telegram derinligi (Borsa Pro) --------------------------------------------------------------
+test('bp:depth: getir / canli takip / durum / terminal / kurulum; hata ve Telegram yokken anlasilir sonuc; yeni derinlik olayi', async (t) => {
+  const h = harness(t);
+  const calls = []; let info = { connected: true, bot: '@bot', auto: 0, symbol: null, source: 'telegram', safe: { hour: 1, day: 2 } };
+  Object.assign(h.deps.ext, {
+    fetchDepth: async s => { calls.push(['fetch', s]); if (s === 'GARAN') return { ok: false, error: 'Çok sık istek: biraz bekle', wait: true };
+      h.depthBox.d = { symbol: s, at: T0, last: 151, pressure: { score: 30 }, bids: [{ price: 151, qty: 5 }], asks: [], buyers: [], sellers: [],
+        tape: { enough: true, score: 40, dir: 1, why: ['Son 5 dk aktif alış %70'], w5: { buy: 7, sell: 3, delta: 0.4, vwap: 150.9 }, cvd: [{ m: 1, v: 3 }, { m: 2, v: 5 }] },
+        trades: [{ time: '10:01:02', price: 151, qty: 100, side: 'buy', buyer: 'BIYKR', seller: 'GRM' }] }; return { ok: true, symbol: s }; },
+    depthAuto: (sec, s) => { calls.push(['auto', sec, s]); info = { ...info, auto: sec, symbol: s }; return info; },
+    depthInfo: () => info, openTerminal: async () => { calls.push(['term']); return { ok: true }; }, setupTg: () => { calls.push(['setup']); } });
+  h.ui.open();
+  const r = await h.call('bp:depth', { op: 'fetch', symbol: 'thyao' });
+  assert.equal(r.ok, true); assert.deepEqual(calls[0], ['fetch', 'THYAO']); assert.equal(r.depth.pressure, 30); assert.equal(r.tg.bot, '@bot');
+  assert.equal(r.depth.tape.w5.delta, 0.4); assert.deepEqual(r.depth.tape.cvd, [3, 5]); assert.equal(r.depth.trades[0].side, 'buy');
+  const w = await h.call('bp:depth', { op: 'fetch', symbol: 'GARAN' });
+  assert.equal(w.ok, false); assert.equal(w.wait, true); assert.match(w.error, /sık istek/);
+  assert.deepEqual(await h.call('bp:depth', { op: 'fetch', symbol: 'x!' }), { ok: false, error: 'Geçerli bir hisse kodu yaz (ör. THYAO).' });
+  const a = await h.call('bp:depth', { op: 'auto', sec: 30, symbol: 'THYAO' });
+  assert.equal(a.ok, true); assert.deepEqual(calls.at(-1), ['auto', 30, 'THYAO']); assert.equal(a.tg.auto, 30);
+  await h.call('bp:depth', { op: 'auto', sec: 999, symbol: 'THYAO' }); assert.deepEqual(calls.at(-1), ['auto', 0, 'THYAO'], 'gecersiz aralik kapatir');
+  assert.equal((await h.call('bp:depth', { op: 'terminal' })).ok, true); await h.call('bp:depth', { op: 'setup' });
+  assert.deepEqual(calls.slice(-2), [['term'], ['setup']]);
+  const st = await h.call('bp:depth', { symbol: 'THYAO' });
+  assert.equal(st.ok, true); assert.equal(st.depth.last, 151);
+  // Telegram bagli degil
+  info = { ...info, connected: false };
+  h.deps.ext.fetchDepth = async () => ({ ok: false, error: 'Telegram bağlı değil. Ayarlar › Telegram derinlik botu bölümünden bağlan.', needTg: true });
+  const n = await h.call('bp:depth', { op: 'fetch', symbol: 'THYAO' });
+  assert.equal(n.ok, false); assert.equal(n.needTg, true);
+  // yeni derinlik olayi pencereye gider
+  h.ui.onDepth('THYAO');
+  const ev = h.evts('depth').at(-1); assert.equal(ev.symbol, 'THYAO'); assert.equal(ev.depth.last, 151);
+});
+
+// --- sermaye planlayici ve Hisse Radar ------------------------------------------------------------
+test('bp:plan: adaylar son taramanin AL hisselerinden, tam analizle planlayiciya; ilerleme olayi; dogrulama; portfoye ve alarma ekleme', async (t) => {
+  const Q = require('../bp-quant.js'); let got = null;
+  const planner = { plan: o => { got = o; return { ok: true, picks: o.candidates.slice(0, 2).map(c => ({ symbol: c.symbol, lots: 10, ref: c.price, entry: c.price, stop: +(c.price * 0.95).toFixed(2), t1: +(c.price * 1.08).toFixed(2) })),
+    totals: { invested: 1000 }, rejected: [{ symbol: 'X', why: 'likidite' }], notes: [] }; } };
+  const radar = { forSymbol: async s => ({ symbol: s, consensus: { karar: 'AL', skor: 0.4, guven: 60 }, models: [] }) };
+  const h = harness(t, { planner, radar, quant: Q, meta: { U, PRESETS, TAGS: {}, sectorOf: s => s === 'AAAA' ? 'Bankacılık' : 'Diğer' } });
+  h.ui.open();
+  // tarama yokken izleme listesinden
+  const r0 = await h.call('bp:plan', { capital: 10000, risk: 'dengeli', horizon: '1h', maxPos: 2 });
+  assert.equal(r0.ok, true, r0.error); assert.equal(r0.source, 'izleme'); assert.equal(got.capital, 10000); assert.equal(got.risk, 'dengeli'); assert.equal(got.maxPos, 2);
+  assert.ok(got.candidates.length >= 2); const c0 = got.candidates[0];
+  assert.ok(c0.plan && c0.verdict && 'odds' in c0 && c0.ranges && 'h5' in c0.ranges); assert.equal(c0.radar.karar, 'AL');
+  assert.ok(h.evts('plan').length >= 2, 'ilerleme olayi'); assert.deepEqual(r0.rejected[0], { symbol: 'X', why: 'likidite' });
+  // gecersiz girdiler
+  assert.match((await h.call('bp:plan', { capital: 100 })).error, /en az 500/);
+  assert.match((await h.call('bp:plan', { capital: 'abc' })).error, /en az 500/);
+  // portfoye ekle + alarmlar
+  const ap = await h.call('bp:planApply', { picks: r0.picks, alarms: true });
+  assert.equal(ap.ok, true); assert.equal(ap.added, 2); assert.equal(h.conf().positions.length, 2); assert.equal(h.conf().positions[0].note, 'Sermaye planı');
+  assert.equal(h.conf().alarms.length, 4, 'her secim icin stop ve hedef alarmi');
+  // planlayici yoksa
+  const h2 = harness(t); h2.ui.open();
+  assert.deepEqual(await h2.call('bp:plan', { capital: 10000 }), { ok: false, error: 'Sermaye planlayıcı bu sürümde yok.' });
+});
+
+test('bp:load: Hisse Radar konsensusu sonuca, yapay zeka baglamina ve olasilik motoruna gider; radar hatasi analizi bozmaz', async (t) => {
+  const Q = require('../bp-quant.js'); const seen = [];
+  const quant = { ...Q, analyze: a => { seen.push(a); return Q.analyze(a); } };
+  const radar = { forSymbol: async s => s === 'GARAN' ? Promise.reject(new Error('ag yok')) : { symbol: s, consensus: { karar: 'SAT', skor: -0.5, guven: 70 }, models: [{ id: 'groq', karar: 'SAT' }] } };
+  const h = harness(t, { quant, radar }); h.ui.open();
+  const r = await h.call('bp:load', { symbol: 'THYAO' });
+  assert.equal(r.radar.consensus.karar, 'SAT'); assert.equal(seen.at(-1).radar.karar, 'SAT');
+  await h.call('bp:ai', { symbol: 'THYAO' }); assert.equal(h.analyst.calls.brief.at(-1).ctx.radar.consensus.karar, 'SAT');
+  const g = await h.call('bp:load', { symbol: 'GARAN' });
+  assert.equal(g.ok, true); assert.equal(g.radar, null);
+  const us = await h.call('bp:load', { symbol: 'AAPL', market: 'US' }); assert.equal(us.radar, null, 'ABD hissesinde radar yok');
+});
+
+test('bp:feeds: durum, anahtar kaydi + dogrulama, piyasa (doviz/kripto/radar), hisse haberi; anahtar pencereye gitmez', async (t) => {
+  const keys = {}, tests = [], newsQ = [];
+  const apis = {
+    status: () => ({ news: { configured: !!keys.news, left: 88, lastError: null, lastOk: null }, fx: { configured: !!keys.fx, left: 1400 }, gecko: { configured: !!keys.gecko } }),
+    test: async p => { tests.push(p); return p === 'fx' ? { ok: false, msg: 'Anahtar geçersiz.' } : { ok: true, msg: 'Çalışıyor.' }; },
+    fx: async b => ({ ok: true, base: b, rates: { TRY: 41.9, EUR: 0.86 }, time: 1 }),
+    crypto: async () => ({ ok: true, coins: [{ id: 'bitcoin', symbol: 'btc', name: 'Bitcoin', price: { usd: 100000, try: 4.19e6 }, chg24h: 1.2 }] }),
+    newsFor: async (sym, name) => { newsQ.push([sym, name]); return { ok: true, items: [{ title: 'Başlık', source: 'AA', url: 'https://aa.com.tr/x', time: 1 }], left: 87 }; } };
+  const secrets = { set: (p, k) => { if (k) keys[p] = k; else delete keys[p]; } };
+  const radar = { forSymbol: async () => null, market: async () => ({ updatedAt: 1, modeller: [{ id: 'groq', ad: 'Groq', durum: 'ok' }], ozet: { yukselis: ['THYAO'], dusus: [] } }), status: () => ({ ok: true }) };
+  const h = harness(t, { apis, secrets, radar }); h.ui.open();
+  let r = await h.call('bp:feeds', { op: 'status' });
+  assert.equal(r.ok, true); assert.deepEqual(Object.keys(r.status).sort(), ['fx', 'gecko', 'news']); assert.equal(r.status.news.configured, false);
+  // gecersiz bicim reddedilir, kaydedilmez
+  r = await h.call('bp:feeds', { op: 'key', provider: 'news', key: 'kisa' }); assert.equal(r.ok, false); assert.equal(keys.news, undefined);
+  r = await h.call('bp:feeds', { op: 'key', provider: 'evil', key: 'a'.repeat(32) }); assert.equal(r.ok, false);
+  // kayit + otomatik test
+  r = await h.call('bp:feeds', { op: 'key', provider: 'news', key: ' ' + 'a1'.repeat(16) + ' ' });
+  assert.equal(r.ok, true); assert.equal(keys.news, 'a1'.repeat(16)); assert.deepEqual(r.test, { ok: true, msg: 'Çalışıyor.' }); assert.equal(r.status.news.configured, true);
+  assert.ok(!JSON.stringify(r).includes('a1a1a1a1'), 'anahtar yanitta yok');
+  r = await h.call('bp:feeds', { op: 'key', provider: 'fx', key: 'b'.repeat(24) }); assert.equal(r.test.ok, false); assert.equal(r.test.msg, 'Anahtar geçersiz.');
+  // piyasa: anahtari olmayan kaynak istenmez
+  r = await h.call('bp:feeds', { op: 'market' });
+  assert.equal(r.ok, true); assert.equal(r.fx.rates.TRY, 41.9); assert.equal(r.crypto, null, 'gecko anahtari yok'); assert.deepEqual(r.radar.ozet.yukselis, ['THYAO']);
+  // haber: hisse adi ile
+  r = await h.call('bp:feeds', { op: 'news', symbol: 'thyao' });
+  assert.equal(r.ok, true, JSON.stringify(r)); assert.equal(r.items.length, 1); assert.equal(newsQ[0][0], 'THYAO'); assert.equal(r.left, 87);
+  assert.equal((await h.call('bp:feeds', { op: 'news', symbol: '!!' })).ok, false);
+  // anahtar silme
+  r = await h.call('bp:feeds', { op: 'key', provider: 'news', key: '' }); assert.equal(r.ok, true); assert.equal(keys.news, undefined);
+  r = await h.call('bp:feeds', { op: 'news', symbol: 'THYAO' }); assert.equal(r.ok, false); assert.equal(r.needKey, true);
+  assert.equal((await h.call('bp:feeds', { op: 'nope' })).ok, false);
+  // modul yoksa zarif
+  const h2 = harness(t); h2.ui.open();
+  r = await h2.call('bp:feeds', { op: 'market' }); assert.equal(r.ok, true); assert.equal(r.fx, null); assert.equal(r.crypto, null);
+  assert.equal((await h2.call('bp:feeds', { op: 'key', provider: 'news', key: 'a'.repeat(32) })).ok, false);
 });

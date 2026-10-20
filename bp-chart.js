@@ -156,7 +156,7 @@ function create(el,opts={}){
   if(!LW)throw new Error('Grafik kütüphanesi yüklenemedi.');
   let theme=opts.theme==='light'?'light':'dark',C=PAL[theme],show={...DEF_SHOW,...(opts.show||{})};
   let D={rows:[],tf:'1g',pro:null,signals:[],trades:null,alarms:[],positions:[],symbol:''},R=[],I={},key='';
-  const S={},PL=[];let markerApi=null,bands=null,prof=null,wm=null,paneWm=[],hoverFn=null,clickFn=null;
+  const S={},PL=[],WMS=[];let markerApi=null,bands=null,prof=null,wm=null,paneWm=[],hoverFn=null,clickFn=null;
   if(getComputedStyle(el).position==='static')el.style.position='relative';
   const legend=document.createElement('div');legend.className='bpc-legend';
   legend.style.cssText='position:absolute;left:10px;top:8px;z-index:3;pointer-events:none;font:500 11.5px/1.5 "Plex Mono",ui-monospace,Menlo,monospace;white-space:nowrap;max-width:calc(100% - 90px);overflow:hidden';
@@ -175,6 +175,8 @@ function create(el,opts={}){
   const clearAll=()=>{
     if(markerApi){try{markerApi.detach()}catch(e){}markerApi=null}
     for(const k of Object.keys(S)){try{chart.removeSeries(S[k])}catch(e){}delete S[k]}
+    // Yazi filigranlari panelde kalir (seri silinince gitmez): yeniden cizimde eski panele/yanlis panele tasinmasin
+    for(const w of WMS.splice(0))try{w.detach()}catch(e){}
     PL.length=0;bands=null;prof=null;wm=null;paneWm=[]};
   const line=(color,width,pane,extra)=>chart.addSeries(LW.LineSeries,{color,lineWidth:width,priceLineVisible:false,lastValueVisible:false,crosshairMarkerVisible:false,priceFormat:pf,...(extra||{})},pane);
 
@@ -188,7 +190,7 @@ function create(el,opts={}){
       priceLineColor:C.muted,priceLineStyle:2},0);
     c.setData(R.map(r=>({time:r.time,open:r.o,high:r.h,low:r.l,close:r.c})));
     if(D.symbol&&LW.createTextWatermark)try{wm=LW.createTextWatermark(chart.panes()[0],{horzAlign:'center',vertAlign:'center',
-      lines:[{text:D.symbol,color:C.wm,fontSize:72,fontStyle:'600'}]})}catch(e){}
+      lines:[{text:D.symbol,color:C.wm,fontSize:72,fontStyle:'600'}]});WMS.push(wm)}catch(e){}
     if(show.volume&&R.some(r=>fin(r.v)&&r.v>0)){S.vol=chart.addSeries(LW.HistogramSeries,{priceScaleId:'vol',priceFormat:{type:'volume'},priceLineVisible:false,lastValueVisible:false},0);
       chart.priceScale('vol',0).applyOptions({scaleMargins:{top:0.82,bottom:0},visible:false});
       S.vol.setData(R.map(r=>({time:r.time,value:fin(r.v)?r.v:0,color:r.c>=r.o?C.upV:C.dnV})))}
@@ -198,7 +200,8 @@ function create(el,opts={}){
     if(show.ema&&show.ema200!==false){const d=series(R,I.ema200);if(d.length){S.e200=line(C.ema200,2,0);S.e200.setData(d)}}
     const vw=show.vwap==='auto'?isIntraday(D.tf)&&D.tf!=='1s':!!show.vwap;
     if(vw&&R.some(r=>fin(r.v)&&r.v>0)){S.vwap=line(C.vwap,1,0,{lineStyle:1});S.vwap.setData(series(R,I.vwap))}
-    if(show.trendlines!==false)trendSegs(D.pro,R).forEach((t,k)=>{const s=S['tl'+k]=line(t.type==='destek'?C.up:C.dn,2,0,{lineStyle:t.broken?2:0});s.setData(t.pts)});
+    if(show.trendlines!==false)trendSegs(D.pro,R).forEach((t,k)=>{const s=S['tl'+k]=line(t.type==='destek'?C.up:C.dn,2,0,{lineStyle:t.broken?2:0,lastValueVisible:true,
+      title:(t.type==='destek'?'Trend desteği':'Trend direnci')+(t.broken?' (kırıldı)':'')});s.setData(t.pts)});
     // Alt paneller
     let pane=1;
     if(show.rsi){const s=S.rsi=line(C.rsi,1,pane,{lastValueVisible:true,priceFormat:{type:'custom',minMove:0.1,formatter:v=>fmtNum(v,1)}});s.setData(series(R,I.rsi));
@@ -212,7 +215,7 @@ function create(el,opts={}){
       S.macd=line(C.macd,1,pane,{priceFormat:mf});S.sig=line(C.sig,1,pane,{priceFormat:mf});S.macd.setData(series(R,I.macd));S.sig.setData(series(R,I.sig));
       paneWm.push([pane,'MACD 12 26 9']);pane++}
     const panes=chart.panes();if(panes[0])panes[0].setStretchFactor(pane>2?3.2:pane>1?3.6:1);for(let k=1;k<panes.length;k++)panes[k].setStretchFactor(1);
-    if(LW.createTextWatermark)for(const [p,t] of paneWm)try{LW.createTextWatermark(panes[p],{horzAlign:'left',vertAlign:'top',lines:[{text:t,color:C.muted,fontSize:10.5}]})}catch(e){}
+    if(LW.createTextWatermark)for(const [p,t] of paneWm)try{WMS.push(LW.createTextWatermark(panes[p],{horzAlign:'left',vertAlign:'top',lines:[{text:t,color:C.muted,fontSize:10.5}]}))}catch(e){}
     // Seviye bantlari, plan cizgileri, alarmlar, maliyet
     if(show.levels||show.plan){bands=new Bands();c.attachPrimitive(bands);bands.right=show.profile?0.13:0;bands.set(bandItems())}
     if(show.profile&&E){prof=new Profile();c.attachPrimitive(prof);prof.set(profileBins(R,E),C)}
