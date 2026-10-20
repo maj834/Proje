@@ -8,7 +8,7 @@ const engine = require('../engine');
 const realMarket = require('../market');
 const BP = require('../borsa-pro-main.js');
 
-const CHANNELS = ['bp:ai', 'bp:alarm', 'bp:ask', 'bp:capital', 'bp:demo', 'bp:depth', 'bp:feeds', 'bp:lab', 'bp:load', 'bp:okul', 'bp:open', 'bp:overview', 'bp:plan', 'bp:planApply', 'bp:portfolio', 'bp:prefs',
+const CHANNELS = ['bp:ai', 'bp:alarm', 'bp:ask', 'bp:capital', 'bp:demo', 'bp:depth', 'bp:feeds', 'bp:lab', 'bp:load', 'bp:mcp', 'bp:okul', 'bp:open', 'bp:overview', 'bp:plan', 'bp:planApply', 'bp:portfolio', 'bp:prefs',
   'bp:quotes', 'bp:report', 'bp:scan', 'bp:scanCancel', 'bp:search', 'bp:state', 'bp:watch'];
 const T0 = Date.UTC(2026, 9, 19, 8, 0);                 // Pazartesi 11:00 Istanbul
 const flush = async (n = 5) => { for (let i = 0; i < n; i++) await new Promise(r => setImmediate(r)); };
@@ -152,7 +152,7 @@ function harness(t, o = {}) {
     cfg: () => store.c, save: x => { store.c = { ...store.c, ...x }; store.saves++; }, isOn: () => h.on,
     demo: o.demo === undefined ? require('../bp-demo') : o.demo, market, engine: o.engine || engine, calendar, power, data, lab, analyst, ext, say: s => said.push(s), now: () => clock.t, timers,
     meta: o.meta === undefined ? { U, PRESETS, TAGS: { 'kirilim-yukari': { name: 'Yukarı kırılım', dir: 1 } } } : o.meta,
-    quant: o.quant || null, history: o.history || null, fund: o.fund || null, radar: o.radar || null, planner: o.planner || null, apis: o.apis || null, secrets: o.secrets || null };
+    quant: o.quant || null, history: o.history || null, fund: o.fund || null, radar: o.radar || null, planner: o.planner || null, apis: o.apis || null, secrets: o.secrets || null, mcp: o.mcp || null };
   h.deps = deps; h.Notif = Notif;
   h.ui = BP.registerBorsaPro(deps);
   h.call = (ch, arg) => handlers[ch]({ sender: h.win && h.win.webContents }, arg);
@@ -849,7 +849,7 @@ test('preload: yalniz bp: kanallari, ana surecle ayni kanal kumesi; on yalniz bp
   delete require.cache[pPath]; require(pPath);
   assert.equal(exposed.k, 'bp');
   const api = exposed.v;
-  assert.deepEqual(Object.keys(api).sort(), ['ai', 'alarm', 'ask', 'capital', 'demo', 'depth', 'feeds', 'lab', 'load', 'okul', 'on', 'open', 'overview', 'plan', 'planApply', 'portfolio', 'prefs', 'quotes', 'report', 'scan', 'scanCancel', 'search', 'state', 'watch']);
+  assert.deepEqual(Object.keys(api).sort(), ['ai', 'alarm', 'ask', 'capital', 'demo', 'depth', 'feeds', 'lab', 'load', 'mcp', 'okul', 'on', 'open', 'overview', 'plan', 'planApply', 'portfolio', 'prefs', 'quotes', 'report', 'scan', 'scanCancel', 'search', 'state', 'watch']);
   for (const k of Object.keys(api)) if (k !== 'on') assert.equal(await api[k]({ a: 1 }), 'ok');
   const chans = [...new Set(invokes.map(x => x[0]))].sort();
   assert.deepEqual(chans, CHANNELS, 'ana surecin kaydettigi kanallarla birebir');
@@ -1107,4 +1107,33 @@ test('bp:feeds us: Finnhub profil/haber/bilanco, sembol denetimi, anahtar yoksa 
   assert.equal(r.ok, true); assert.equal(r.symbol, 'AAPL'); assert.equal(r.profile.profile.name, 'Apple Inc'); assert.equal(r.news.length, 10);
   assert.equal(r.earnings, null); assert.match(r.error, /ücretsiz planda/);
   assert.deepEqual(seen, [['p', 'AAPL'], ['n', 'AAPL']]);
+});
+
+test('bp:mcp: izinli islemler, sembol denetimi, adres kaydi, KAP yalniz BIST', async (t) => {
+  const seen = []; let url = 'https://borsa-mcp-a07f.onrender.com';
+  const mcp = {
+    status: () => ({ url, awake: true, waking: false, lastOk: null, lastError: null }),
+    setUrl: u => { if (!/^https:\/\//.test(u)) return false; url = u.replace(/\/+$/, ''); return true; },
+    wake: async () => true,
+    kapNews: async (s, o) => { seen.push(['kap', s, o]); return { ok: true, text: '## KAP' }; },
+    financials: async (s, o) => { seen.push(['fin', s, o]); return { ok: true, text: '| a |' }; },
+    ratios: async (s, o) => { seen.push(['ratios', s, o]); return { ok: false, error: 'Borsa MCP sunucusu uyanamadı.' }; },
+    corporateActions: async (s, o) => { seen.push(['act', s, o]); return { ok: true, text: 'temettü', stale: true, error: 'eski' }; },
+    econCalendar: async o => { seen.push(['cal', o]); return { ok: true, text: 'takvim' }; },
+    bondYields: async () => ({ ok: true, text: 'tahvil' }) };
+  const h = harness(t, { mcp }); h.ui.open();
+  let r = await h.call('bp:mcp', { op: 'kap', symbol: 'thyao' }); assert.equal(r.ok, true); assert.equal(r.text, '## KAP');
+  assert.equal((await h.call('bp:mcp', { op: 'kap', symbol: 'AAPL', market: 'US' })).ok, false);
+  for (const bad of ['<x>', '', 'BTC-USD']) assert.equal((await h.call('bp:mcp', { op: 'fin', symbol: bad })).ok, false, bad);
+  r = await h.call('bp:mcp', { op: 'fin', symbol: 'AAPL.US', market: 'US', type: 'balance', period: 'annual' }); assert.equal(r.ok, true);
+  r = await h.call('bp:mcp', { op: 'ratios', symbol: 'GARAN' }); assert.equal(r.ok, false); assert.match(r.error, /uyanamadı/);
+  r = await h.call('bp:mcp', { op: 'actions', symbol: 'GARAN' }); assert.equal(r.stale, true);
+  r = await h.call('bp:mcp', { op: 'calendar', country: 'XX', period: 'yarin' }); assert.equal(r.text, 'takvim');
+  assert.equal((await h.call('bp:mcp', { op: 'bonds' })).text, 'tahvil');
+  assert.equal((await h.call('bp:mcp', { op: 'rm' })).ok, false);
+  assert.deepEqual(seen, [['kap', 'THYAO', { limit: 10 }], ['fin', 'AAPL', { market: 'US', period: 'annual', type: 'balance' }],
+    ['ratios', 'GARAN', { market: 'BIST', set: 'valuation' }], ['act', 'GARAN', { market: 'BIST' }], ['cal', { country: 'TR', period: 'this_week' }]]);
+  assert.equal((await h.call('bp:mcp', { op: 'url', url: 'ftp://x' })).ok, false);
+  r = await h.call('bp:mcp', { op: 'url', url: 'https://yeni.onrender.com/' }); assert.equal(r.ok, true); assert.equal(r.status.url, 'https://yeni.onrender.com');
+  assert.equal((await h.call('bp:mcp', { op: 'test' })).ok, true);
 });

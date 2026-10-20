@@ -64,7 +64,7 @@ button,input,select{font:inherit;color:inherit}
 .tb{display:flex;align-items:center;gap:6px;padding:0 14px 8px;flex-wrap:wrap}
 .chip{display:inline-flex;align-items:center;gap:5px;height:24px;padding:0 9px;border:1px solid var(--line-2);border-radius:12px;background:none;color:var(--fg-2);cursor:pointer;font:500 11px var(--font);white-space:nowrap}
 .chip i{width:8px;height:8px;border-radius:2px}
-.chip.on{color:var(--fg);border-color:var(--fg-3);background:var(--sunk)}.chip:hover{color:var(--fg)}
+.chip.on{color:var(--fg);border-color:var(--fg-3);background:var(--sunk)}table.t.md-t td,table.t.md-t th{text-align:left;white-space:normal;font-family:var(--font);min-width:56px}table.t.md-t td{font-size:12px;vertical-align:top}.lnk{color:var(--fg);text-decoration:underline;text-underline-offset:2px;cursor:pointer}.chip:hover{color:var(--fg)}
 .chip.sm{height:20px;padding:0 7px;font-size:10.5px;cursor:default}
 .cbox{position:relative;margin:0 10px 10px 14px;border:1px solid var(--line);border-radius:var(--r2);background:var(--surface);min-height:0;overflow:hidden}
 #chart{position:absolute;inset:0}
@@ -480,6 +480,7 @@ function renderAnalysis(){
   out.push(aiCard(r));
   const nw=newsCard(r);if(nw)out.push(el('div',{id:'nwc'},nw));
   if(isUsStock(r)){out.push(el('div',{id:'usc'},usCard(r)));if(!S.us||S.us.symbol!==r.symbol)loadUs(r.symbol)}
+  if(window.bp&&bp.mcp&&(r.market==='BIST'||isUsStock(r)))out.push(el('div',{id:'mcc'},mcpCard(r)));
   if(!P&&r.market==='BIST')out.push(el('div',{id:'dpc'},depthCard2(r)));
   if(P&&P.backtest&&P.backtest.count){const B=P.backtest;out.push(CARD(['Sistem geçmişi',el('span',{class:'sp'}),el('a',{onclick:()=>tab('lab')},'Strateji Lab →')],
     el('div',{class:'kv'},el('span',{},'İşlem (10 mum ufuk)'),el('b',{},String(B.count)),el('span',{},'Doğru çıkma'),el('b',{class:B.winRate>=55?'up':B.winRate<45?'dn':''},'%'+B.winRate),
@@ -581,6 +582,52 @@ function redrawUs(){const c=$('usc');if(c&&S.data&&isUsStock(S.data))c.replaceCh
 async function loadUs(sym){S.us={symbol:sym,busy:true};redrawUs();
   const r=await bp.feeds({op:'us',symbol:sym}).catch(e=>({ok:false,error:String(e&&e.message||e)}));
   if(!S.us||S.us.symbol!==sym)return;S.us=r&&r.ok?{...r,symbol:sym}:{symbol:sym,ok:false,error:(r&&r.error)||'Finnhub verisi alınamadı.',needKey:!!(r&&r.needKey)};redrawUs()}
+// --- Borsa MCP (kullanicinin Render sunucusu): sunucu metni (markdown) guvenli DOM'a cevrilir; innerHTML yok ---
+function mdInline(t){const out=[],re=/\*\*([^*]+)\*\*|\[([^\]]{1,200})\]\((https:\/\/[^\s)]{3,500})\)/g;let i=0,m;
+  while((m=re.exec(t))){if(m.index>i)out.push(t.slice(i,m.index));const u=m[3];
+    out.push(m[1]!=null?el('b',{},m[1]):el('a',{class:'lnk',onclick:()=>bp.open({url:u})},m[2]));i=re.lastIndex}
+  if(i<t.length)out.push(t.slice(i));return out}
+function mdView(text){const L=String(text||'').split(/\r?\n/),out=[];let k=0;
+  const cells=l=>l.trim().replace(/^\||\|$/g,'').split('|').map(x=>x.trim());
+  while(k<L.length){const l=L[k];
+    if(/^\s*\|/.test(l)){const rows=[];while(k<L.length&&/^\s*\|/.test(L[k])){if(!/^\s*\|?[\s:|-]+\|?\s*$/.test(L[k]))rows.push(cells(L[k]));k++}
+      if(rows.length)out.push(el('div',{style:'margin:6px 0;overflow:auto'},el('table',{class:'t md-t'},el('thead',{},el('tr',{},...rows[0].map(c=>el('th',{},...mdInline(c))))),
+        el('tbody',{},...rows.slice(1,60).map(r=>el('tr',{},...r.map(c=>el('td',{},...mdInline(c)))))))));continue}
+    const h=/^\s*(#{1,6})\s+(.*)$/.exec(l),li=/^\s*[-*•]\s+(.*)$/.exec(l);
+    if(h)out.push(el('div',{style:'font-weight:600;margin:10px 0 4px;color:var(--fg)'},...mdInline(h[2])));
+    else if(li)out.push(el('div',{style:'padding-left:12px;margin:2px 0'},'• ',...mdInline(li[1])));
+    else if(l.trim()&&!/^\s*(-{3,}|_{3,}|\*{3,})\s*$/.test(l))out.push(el('div',{style:'margin:3px 0'},...mdInline(l)));
+    k++}
+  return el('div',{style:'font-size:12px;line-height:1.5;max-height:420px;overflow:auto'},...out)}
+const MCPOPS=[['kap','KAP bildirimleri',1],['fin','Gelir tablosu'],['ratios','Oranlar'],['actions','Temettü / bedelsiz']];
+function mcpBody(V,idle){if(!V)return el('div',{class:'mu',style:'font-size:12px'},idle);
+  if(V.busy)return el('div',{class:'mu',style:'font-size:12px'},el('span',{class:'spin',style:'display:inline-block;width:12px;height:12px;vertical-align:-2px;margin-right:6px'}),'Alınıyor… Sunucu uyuyorsa ilk istek ~1 dk sürer.');
+  if(!V.ok)return el('div',{class:'err'},V.error||'Borsa MCP yanıt vermedi.');
+  return el('div',{},V.stale?el('div',{class:'mu',style:'font-size:11px;margin-bottom:4px'},'Eski veri gösteriliyor: '+(V.error||'')):null,V.text?mdView(V.text):el('div',{class:'mu'},'Veri yok.'))}
+function mcpCard(r){const V=S.mcpv&&S.mcpv.symbol===r.symbol?S.mcpv:null,us=isUsStock(r);
+  return CARD('Şirket verisi · Borsa MCP',
+    el('div',{class:'row',style:'flex-wrap:wrap;gap:4px;margin-bottom:8px'},...MCPOPS.filter(x=>!(us&&x[2])).map(([op,t])=>
+      el('button',{class:'chip'+(V&&V.op===op?' on':''),disabled:!!(V&&V.busy),onclick:()=>mcpLoad(r,op)},t))),
+    mcpBody(V,'Bir başlık seç. Veriler senin Render sunucundan gelir; fiyatlar 15 dk gecikmelidir.'))}
+async function mcpLoad(r,op){const sym=r.symbol,market=isUsStock(r)?'US':'BIST';S.mcpv={symbol:sym,op,busy:true};
+  const rd=()=>{const c=$('mcc');if(c&&S.data&&S.data.symbol===sym)c.replaceChildren(mcpCard(S.data))};rd();
+  const x=await bp.mcp({op,symbol:sym,market}).catch(e=>({ok:false,error:String(e&&e.message||e)}));
+  if(!S.mcpv||S.mcpv.symbol!==sym||S.mcpv.op!==op)return;S.mcpv={symbol:sym,op,...x,busy:false};rd()}
+function mcpMarketView(){const V=S.mcpm||null,st=S.mcpst||{};
+  const btn=(k,t,a)=>el('button',{class:'chip'+(V&&V.k===k?' on':''),disabled:!!(V&&V.busy),onclick:()=>mcpMarket(k,a)},t);
+  const inp=el('input',{class:'inp',placeholder:'https://borsa-mcp-xxxx.onrender.com',value:st.url||'',style:'flex:1;min-width:200px;max-width:440px'});
+  return el('div',{class:'card',style:'margin-top:20px'},el('h3',{},'Ekonomik takvim ve tahvil · Borsa MCP'),
+    el('div',{class:'row',style:'flex-wrap:wrap;gap:4px;margin-bottom:8px'},btn('trw','Türkiye · bu hafta',{op:'calendar',country:'TR'}),btn('trn','Türkiye · gelecek hafta',{op:'calendar',country:'TR',period:'next_week'}),
+      btn('usw','ABD · bu hafta',{op:'calendar',country:'US'}),btn('bond','Tahvil faizleri',{op:'bonds'})),
+    mcpBody(V,'Bir başlık seç.'),
+    el('details',{style:'margin-top:10px'},el('summary',{class:'mu',style:'cursor:pointer;font-size:12px'},'Sunucu adresi'+(st.lastError?' · son hata: '+st.lastError:'')),
+      el('div',{class:'row',style:'margin-top:6px'},inp,el('button',{class:'btn pri',onclick:async()=>{const x=await call(bp.mcp,{op:'url',url:inp.value});if(x&&x.ok){S.mcpst=x.status;toast('Adres kaydedildi')}}},'Kaydet'),
+        el('button',{class:'btn',onclick:async()=>{toast('Sunucu deneniyor… (uyuyorsa ~1 dk)');const x=await bp.mcp({op:'test'}).catch(()=>null);if(x){S.mcpst=x.status||S.mcpst;toast((x.ok?'✓ ':'')+(x.msg||x.error||''))}}},'Bağlantıyı dene'))))}
+function redrawMcpm(){const c=$('mcm');if(c)c.replaceChildren(mcpMarketView())}
+async function mcpMarket(k,a){S.mcpm={k,busy:true};redrawMcpm();
+  if(!S.mcpst)bp.mcp({op:'status'}).then(x=>{if(x&&x.ok)S.mcpst=x.status}).catch(()=>{});
+  const x=await bp.mcp(a).catch(e=>({ok:false,error:String(e&&e.message||e)}));if(!S.mcpm||S.mcpm.k!==k)return;
+  S.mcpm={k,...x,busy:false};if(x&&x.status)S.mcpst=x.status;redrawMcpm()}
 function redrawNews(){const c=$('nwc');if(c&&S.data){const n=newsCard(S.data);c.replaceChildren(...(n?[n]:[]))}}
 async function moreNews(sym){S.newsx={symbol:sym,busy:true,items:S.newsx&&S.newsx.symbol===sym?S.newsx.items:null};redrawNews();
   const r=await bp.feeds({op:'news',symbol:sym}).catch(e=>({ok:false,error:String(e.message||e)}));
@@ -1270,6 +1317,7 @@ async function loadOverview(){
     rows.length?[el('div',{class:'ph',style:'margin-top:20px'},el('h2',{style:'font-size:14px'},'Son taramadan'),el('span',{class:'mu'},(sc.universe==='WATCH'?'İzleme listesi':sc.universe)+' · '+dt(sc.at))),
       el('div',{class:'split'},mv(top.slice(0,6),'En çok yükselenler'),mv(top.slice(-6).reverse(),'En çok düşenler'))]
       :el('div',{class:'empty'},'Yükselen/düşen listesi için Tarayıcı\'da bir tarama yap.'),
+    window.bp&&bp.mcp?el('div',{id:'mcm'},mcpMarketView()):null,
     el('div',{id:'feeds'},S.feeds?feedsView(S.feeds):el('div',{class:'mu',style:'margin-top:16px'},'Döviz, kripto ve Hisse Radar alınıyor…')));
   const F=await bp.feeds({op:'market'}).catch(()=>null);if(F&&F.ok){S.feeds=F;const c=$('feeds');if(c)c.replaceChildren(feedsView(F))}}
 

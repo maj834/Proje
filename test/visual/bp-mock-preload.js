@@ -134,6 +134,13 @@ contextBridge.exposeInMainWorld('bp',{
       notes:['Toplamlar yaklaşık: hisseler birlikte hareket edebilir.','Kaynak: son tarama (BIST30) AL listesi.'],source:'scan',at:Date.now()}},
   planApply:async o=>{const add=(o.picks||[]).map((k,i)=>({id:'pp'+i+Date.now().toString(16).slice(-5),symbol:k.symbol,qty:k.lots,cost:k.ref,date:new Date().toISOString().slice(0,10),note:'Sermaye planı',stop:k.stop,target:k.t1}));
     positions=[...positions,...add];return {ok:true,added:add.length,positions,alarms:o.alarms?alarms:undefined}},
+  mcp:async o=>{const status={url:'https://borsa-mcp-a07f.onrender.com',awake:true,waking:false,lastOk:Date.now(),lastError:null};
+    const T={kap:'## '+o.symbol+' · KAP bildirimleri\n\n| Tarih | Başlık |\n|---|---|\n| 20.10.2026 | [Özel Durum Açıklaması (Genel)](https://www.kap.org.tr/tr/Bildirim/1) |\n| 17.10.2026 | [Pay Alım Satım Bildirimi](https://www.kap.org.tr/tr/Bildirim/2) |\n| 09.10.2026 | **Finansal Rapor** 2026/6 |',
+      fin:'## Gelir tablosu (çeyreklik, milyon TL)\n\n| Kalem | 2026/6 | 2026/3 | 2025/12 |\n|---|---|---|---|\n| Satış gelirleri | 182.410 | 160.233 | 171.902 |\n| Brüt kâr | 38.120 | 31.877 | 35.004 |\n| Net dönem kârı | 21.330 | 14.875 | 19.442 |',
+      ratios:'## Değerleme\n\n- F/K: **4,8**\n- PD/DD: 1,10\n- FD/FAVÖK: 5,2',actions:'## Temettü geçmişi\n\n| Yıl | Hisse başı | Verim |\n|---|---|---|\n| 2026 | 3,85 TL | %1,2 |\n| 2025 | 2,10 TL | %0,8 |',
+      calendar:'## Türkiye · bu hafta\n\n| Gün | Saat | Olay | Önem |\n|---|---|---|---|\n| Pzt | 10:00 | Kapasite kullanım oranı | orta |\n| Per | 14:00 | **TCMB faiz kararı** | yüksek |',bonds:'## Tahvil faizleri\n\n| Vade | Faiz |\n|---|---|\n| 2 yıl | %38,4 |\n| 10 yıl | %31,2 |'};
+    if(o.op==='status'||o.op==='url')return {ok:true,status};if(o.op==='test')return {ok:true,msg:'Borsa MCP sunucusu çalışıyor.',status};
+    return T[o.op]?{ok:true,text:T[o.op],status}:{ok:false,error:'Geçersiz işlem.'}},
   feeds:async o=>{const st={news:{configured:!process.env.BP_NOKEYS,left:84},fx:{configured:!process.env.BP_NOKEYS,left:1460},gecko:{configured:!process.env.BP_NOKEYS,left:null},finnhub:{configured:!process.env.BP_NOKEYS,left:1990}};
     if(o.op==='us')return process.env.BP_NOKEYS?{ok:false,error:'Finnhub anahtarı kayıtlı değil: Piyasa sekmesindeki Veri kaynakları bölümünden ekle.',needKey:true}:{ok:true,symbol:o.symbol,
       profile:{profile:{name:'Apple Inc',exchange:'NASDAQ NMS - GLOBAL MARKET',industry:'Technology',mcap:3400000},metrics:{high52:260.1,low52:164.08,pe:31.2,pb:45.1,divYield:0.45,beta:1.21},rec:{period:'2026-10-01',strongBuy:12,buy:21,hold:7,sell:1,strongSell:1,total:42}},

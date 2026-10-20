@@ -172,6 +172,9 @@ async function okulAI({system,user}){
   return {ok:false,error:g||k?'Yapay zekâ şu an yanıt vermedi; biraz sonra tekrar dene.':'Öğretmene sormak için Groq (ücretsiz) ya da Claude anahtarını Ayarlar\'dan ekle.'}}
 const okulClient=(()=>{try{return require('./okul-client').createOkul({fetch:(...a)=>fetch(...a),now:()=>Date.now(),dir:app.getPath('userData'),url:OKUL_URL,anon:OKUL_KEY,ai:okulAI,open:u=>shell.openExternal(u)})}
   catch(e){console.error('okul:',e.message);return null}})();
+// Borsa MCP: kullanicinin Render'daki sunucusu (anahtar yok; adres Ayarlar'dan degistirilebilir)
+const borsaMcp=(()=>{try{const m=require('./borsa-mcp-client');return m.createBorsaMcp({fetch:(...a)=>fetch(...a),now:()=>Date.now(),url:cfg().mcpUrl||m.DEF_URL})}
+  catch(e){console.error('borsa-mcp:',e.message);return null}})();
 const extApis=(()=>{try{return require('./ext-apis').createExtApis({fetch:(...a)=>fetch(...a),now:()=>Date.now(),dir:app.getPath('userData'),
   keys:{news:()=>dec(cfg().newsKey),fx:()=>dec(cfg().fxKey),gecko:()=>dec(cfg().geckoKey),finnhub:()=>dec(cfg().finnhubKey)}})}catch(e){console.error('ext-apis:',e.message);return null}})();
 // Borsa Pro: buyuk analiz penceresi (etkilesimli grafik, tarayici, strateji laboratuvari, portfoy, alarmlar, yapay zeka yorumu).
@@ -184,7 +187,7 @@ const borsaPro=require('./borsa-pro-main').registerBorsaPro({ipcMain,app,Browser
   // Kullanicinin Hisse Radar deposu (GitHub, herkese acik): cok modelli yapay zeka konsensusu; anahtar uygulamaya gelmez
   radar:(()=>{try{return require('./hisse-radar').createRadar()}catch(e){return null}})(),planner:(()=>{try{return require('./bp-planner')}catch(e){return null}})(),
   // Ek veri kaynaklari (kullanicinin ucretsiz anahtarlari, safeStorage ile sifreli): NewsAPI, ExchangeRate-API, CoinGecko, Finnhub (ABD)
-  okul:okulClient,apis:extApis,secrets:{set:(p,k)=>{const f=FEED_KEYS[p];if(f)save({[f]:k?enc(k):undefined})}},
+  okul:okulClient,apis:extApis,mcp:borsaMcp,secrets:{set:(p,k)=>{const f=FEED_KEYS[p];if(f)save({[f]:k?enc(k):undefined})}},
   analyst:require('./bp-analyst').createAnalyst({keys:{groq:()=>dec(cfg().groqKey),claude:()=>getKey(),grok:()=>grokKey()},claudeModel:()=>model(),addCost:c=>addCost(c)}),
   ext:{botNews:s=>botNews(s),extSignals:s=>extSignals(s),depth:()=>lastDepth,riskPct:()=>+cfg().riskPct>0?+cfg().riskPct:1,
     // Telegram derinlik botu (Borsa Pro): getir, canli takip, durum, bot terminali, kurulum (popup Derinlik sekmesi)

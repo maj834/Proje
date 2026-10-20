@@ -129,7 +129,7 @@ function withTimeout(p,ms,m){return new Promise((ok,no)=>{const t=setTimeout(()=
   Promise.resolve(p).then(v=>{clearTimeout(t);ok(v)},e=>{clearTimeout(t);no(e)})})}
 
 function registerBorsaPro({ipcMain,app,BrowserWindow,path,screen,Notification,shell,nativeTheme,cfg,save,isOn=()=>true,market,engine,calendar,power,
-  data,lab,analyst,ext={},say=()=>{},now=()=>Date.now(),timers,meta=null,quant=null,history=null,fund=null,radar=null,planner=null,apis=null,secrets=null,demo=null,okul=null}){
+  data,lab,analyst,ext={},say=()=>{},now=()=>Date.now(),timers,meta=null,quant=null,history=null,fund=null,radar=null,planner=null,apis=null,secrets=null,demo=null,okul=null,mcp=null}){
   const T=timers||{setTimeout:(f,ms)=>setTimeout(f,ms),clearTimeout:h=>clearTimeout(h)};
   ext=obj(ext);
   let win=null,enabled=false,timer=null,ticking=false,lastTick=0,statusKey=null,scanning=null,scanMem,loadSeq=0,ov=null,ovWait=null,bench=null,benchWait=null;
@@ -396,6 +396,26 @@ function registerBorsaPro({ipcMain,app,BrowserWindow,path,screen,Notification,sh
       if(!pr.ok&&!nw.ok&&!ea.ok)return err(errs[0]||'Finnhub verisi alınamadı.');
       return {ok:true,symbol:sym,profile:part(pr),news:part(nw)?(nw.items||[]).slice(0,10):[],earnings:part(ea),error:errs[0]||null,at:now()}}
     return err('Geçersiz işlem.')}
+  // Borsa MCP (kullanicinin Render sunucusu): KAP, bilanco, oranlar, temettu, ekonomik takvim, tahvil. Yalniz izinli islemler.
+  async function mcpOp(o){o=obj(o);const op=o.op;
+    if(!mcp)return err('Borsa MCP bu sürümde yok.');
+    if(op==='status')return {ok:true,status:mcp.status()};
+    if(op==='url'){if(typeof o.url!=='string'||!mcp.setUrl(o.url))return err('Adres https:// ile başlamalı (ör. https://borsa-mcp-xxxx.onrender.com).');
+      const u=mcp.status().url;try{save({mcpUrl:u})}catch(e){}return {ok:true,status:mcp.status()}}
+    if(op==='test'){const up=await soft(()=>mcp.wake(),100000);return {ok:!!up,msg:up?'Borsa MCP sunucusu çalışıyor.':'Sunucuya ulaşılamadı ya da uyanamadı.',status:mcp.status()}}
+    const wrap=r=>{r=obj(r);return r.ok?{ok:true,text:typeof r.text==='string'?r.text:'',stale:!!r.stale,cached:!!r.cached,error:typeof r.error==='string'?r.error:null,status:mcp.status()}
+      :err(typeof r.error==='string'?r.error:'Borsa MCP yanıt vermedi.',{status:mcp.status()})};
+    const run=f=>soft(f,130000).then(wrap,e=>err(msg(e)));
+    if(op==='calendar')return run(()=>mcp.econCalendar({country:o.country==='US'?'US':'TR',period:o.period==='next_week'?'next_week':o.period==='today'?'today':'this_week'}));
+    if(op==='bonds')return run(()=>mcp.bondYields());
+    const us=o.market==='US',sym=us?(typeof o.symbol==='string'?o.symbol.trim().toUpperCase().replace(/\.US$/,''):''):code(String(o.symbol||''));
+    if(!sym||(us&&!/^[A-Z][A-Z0-9.\-]{0,9}$/.test(sym))||/-USD$/.test(sym))return err(CODE_ERR);
+    const market=us?'US':'BIST';
+    if(op==='kap'){if(us)return err('KAP bildirimleri yalnız BIST hisseleri içindir.');return run(()=>mcp.kapNews(sym,{limit:10}))}
+    if(op==='fin')return run(()=>mcp.financials(sym,{market,period:o.period==='annual'?'annual':'quarterly',type:['balance','income','cashflow'].includes(o.type)?o.type:'income'}));
+    if(op==='ratios')return run(()=>mcp.ratios(sym,{market,set:o.set==='buffett'||o.set==='core_health'?o.set:'valuation'}));
+    if(op==='actions')return run(()=>mcp.corporateActions(sym,{market}));
+    return err('Geçersiz işlem.')}
   function search(q){q=typeof q==='string'?q:q&&typeof q.q==='string'?q.q:'';q=q.trim().slice(0,40);if(!q)return [];
     const r=data.search(q);return Array.isArray(r)?r.slice(0,12):[]}
 
@@ -622,7 +642,7 @@ function registerBorsaPro({ipcMain,app,BrowserWindow,path,screen,Notification,sh
   // --- IPC: hepsi 'bp:' onekli; once gonderen, sonra ozellik acik mi; hata Turkce {ok:false,error} ---------------
   const H={'bp:state':state,'bp:load':load,'bp:quotes':quotes,'bp:watch':watch,'bp:scan':scan,
     'bp:scanCancel':()=>{const was=!!scanning;cancelScan();return {ok:true,cancelled:was}},
-    'bp:overview':overview,'bp:feeds':feeds,'bp:search':search,'bp:lab':labRun,'bp:ai':ai,'bp:report':aiReport,'bp:ask':ask,'bp:depth':depthOp,'bp:plan':planRun,'bp:planApply':planApply,'bp:alarm':alarm,'bp:portfolio':portfolio,
+    'bp:overview':overview,'bp:feeds':feeds,'bp:mcp':mcpOp,'bp:search':search,'bp:lab':labRun,'bp:ai':ai,'bp:report':aiReport,'bp:ask':ask,'bp:depth':depthOp,'bp:plan':planRun,'bp:planApply':planApply,'bp:alarm':alarm,'bp:portfolio':portfolio,
     'bp:demo':demoCtl.op,'bp:capital':capital,'bp:prefs':prefs,'bp:open':openUrl,'bp:okul':okulOp};
   for(const [ch,f] of Object.entries(H))ipcMain.handle(ch,async(e,a)=>{
     if(!isWin(e))return err('İzin yok');if(!isOn())return err('Borsa özelliği kapalı.');
