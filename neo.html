@@ -31,6 +31,8 @@ input[type=text],input[type=password]{flex:1}
 .q{align-self:flex-end;background:var(--acc-soft);border-radius:12px 12px 2px 12px;padding:7px 10px;max-width:85%;-webkit-user-select:text;user-select:text}
 .a{align-self:flex-start;background:var(--surface);border:1px solid var(--line);border-radius:12px 12px 12px 2px;padding:7px 10px;max-width:85%;-webkit-user-select:text;user-select:text}
 .a small{display:block;color:var(--fg-3);font-size:10.5px;margin-top:3px}
+.card.set{flex:none;max-height:62vh;overflow-y:auto}
+.ok{color:var(--up,var(--fg-2));font-size:12px}
 .err{color:var(--dn);font-size:12px}.note{color:var(--fg-3);font-size:11.5px}
 kbd{font:500 11px var(--mono);border:1px solid var(--line-2);border-bottom-width:2px;border-radius:4px;padding:0 5px}
 </style></head><body>
@@ -53,14 +55,22 @@ if(ORB){
   document.body.innerHTML=`<div class="wrap">
   <div class="hd"><div class="ball" id="b" style="width:34px;height:34px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#9fd0ff,#4b6bff 55%,#2a1f7a)"></div>
     <div><h1>Neo</h1><div class="m" id="sub"></div></div></div>
-  <div class="card">
+  <div class="card set">
     <div class="row"><div class="f">“Hey Neo” ile uyan<div class="d" id="wd"></div></div><label><input type="checkbox" id="wake"> Açık</label></div>
     <div class="row"><div class="f">Uyandırma dili<div class="d" id="wld"></div></div><select id="wl" aria-label="Uyandırma dili"><option value="auto">Otomatik (önce İngilizce)</option><option value="en">İngilizce</option><option value="tr">Türkçe</option></select></div>
     <div class="row"><div class="f">Pildeyken de dinle<div class="d">Kapatırsan Mac şarjda değilken “Hey Neo” dinlenmez (pil tasarrufu); kısayol yine çalışır. Ekran kilitliyken mikrofon her durumda kapanır.</div></div><label><input type="checkbox" id="bw"> Açık</label></div>
     <div class="row"><div class="f">Cevaptan sonra dinlemeye devam et<div class="d">Neo cevap verince birkaç saniye “Hey Neo” demeden karşılık verebilirsin.</div></div><label><input type="checkbox" id="fu"> Açık</label></div>
     <div class="row"><div class="f">Son duyulan<div class="d">“Hey Neo” derken Mac'in ne duyduğu; algılamazsa buradan neyi yanlış anladığını gör.</div></div><b id="hd" style="font:500 12px var(--mono,monospace);max-width:190px;text-align:right;overflow-wrap:anywhere">—</b></div>
     <div class="row"><div class="f">Konuşmak için kısayol<div class="d">Uyandırma kelimesi demeden dinler; konuşurken basarsan susar.</div></div><kbd id="hk"></kbd></div>
-    <div class="row"><div class="f">Ses</div><select id="voice" aria-label="Neo'nun sesi"></select></div>
+    <div class="row"><div class="f">Ses kaynağı<div class="d" id="tsd"></div></div><select id="tsrc" aria-label="Ses kaynağı"><option value="system">Sistem</option><option value="eleven">ElevenLabs (doğal)</option></select></div>
+    <div id="elb" hidden>
+      <div class="row"><div class="f">ElevenLabs sesi</div><select id="elv" aria-label="ElevenLabs sesi" style="max-width:200px"></select><button class="btn" id="elr" title="Ses listesini yenile" aria-label="Ses listesini yenile">↻</button></div>
+      <div class="row"><div class="f">Hız / kalite<div class="d">Doğal: en akıcı Türkçe. Hızlı: daha çabuk başlar.</div></div><select id="elm" aria-label="ElevenLabs hız ve kalite"><option value="eleven_multilingual_v2">Doğal (Multilingual v2)</option><option value="eleven_flash_v2_5">Hızlı (Flash v2.5)</option></select></div>
+      <div class="row"><div class="f">Bu ay kalan karakter<div class="d" id="elqd"></div></div><b id="elq">—</b></div>
+      <div class="row"><input type="password" id="elk" placeholder="sk_… ElevenLabs API anahtarı" aria-label="ElevenLabs API anahtarı" autocomplete="off" spellcheck="false"><button class="btn" id="elks">Kaydet</button><button class="btn" id="elkd">Sil</button><button class="btn" id="elkt">Dene</button><button class="btn" id="elkl">Anahtar al</button></div>
+      <div class="note" id="eln" role="status"></div>
+    </div>
+    <div class="row"><div class="f" id="vl">Ses</div><select id="voice" aria-label="Neo'nun sesi"></select></div>
     <div class="row"><div class="f">Beyin<div class="d" id="bd"></div></div><select id="brain" aria-label="Neo'nun beyni"><option value="groq">Groq (ücretsiz)</option><option value="claude">Claude (API anahtarı)</option></select></div>
     <div class="row"><input type="password" id="key" placeholder="" aria-label="API anahtarı" autocomplete="off" spellcheck="false"><button class="btn" id="ks">Kaydet</button><button class="btn" id="kd">Sil</button><button class="btn" id="kl">Anahtar al</button></div>
     <div class="err" id="err" role="status"></div>
@@ -85,7 +95,36 @@ if(ORB){
     $('kl').style.display=g?'':'none';$('kd').style.display=S.keys[c.brain]?'':'none';
     $('err').textContent=(S.keyError?S.keyError+' ':'')+(!S.hasKey?(g?'Groq anahtarı yok: "Anahtar al" → giriş yap → Create API Key → buraya yapıştır. ':'Claude API anahtarı yok. '):'')+(S.error||'')+(S.supported?'':' Neo yalnızca Mac\'te çalışır.');
     $('wd').textContent+=S.warning?' Not: '+S.warning:'';
+    renderTts();
     const L=$('log');L.replaceChildren(...[...S.log].reverse().flatMap(x=>{const a=el('div','a',x.a);if(x.tools&&x.tools.length)a.append(el('small',null,x.tools.map(t=>TOOL[t]||t).join(' · ')));return [el('div','q',x.q),a]}));L.scrollTop=L.scrollHeight}
+  // ---- ses kaynagi (Sistem / ElevenLabs) ----
+  const th=n=>String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g,'.');
+  let elMsg=null,elOk=false,elLoading=false,elTried=false;
+  function renderTts(){const T=S.tts||{},on=T.src==='eleven';
+    $('tsrc').value=on?'eleven':'system';$('elb').hidden=!on;$('vl').textContent=on?'Sistem sesi (yedek)':'Ses';
+    $('tsd').textContent=on?(T.hasKey?'Doğal Türkçe ses. Sorun olursa (internet, kota, hata) sistem sesi konuşur.':'Anahtar gerekli; anahtar yokken sistem sesi konuşur.'):'Mac\'in kendi sesi, internetsiz.';
+    if(!on)return;
+    const vs=T.voices||[],opts=[el('option',null,'Otomatik (Türkçeye uygun ilk ses)'),...vs.map(v=>{const o=el('option',null,v.name+(v.tr?' · Türkçe':'')+(v.desc?' ('+v.desc+')':''));o.value=v.id;return o})];
+    opts[0].value='';if(T.voice&&!vs.some(v=>v.id===T.voice)){const o=el('option',null,'Seçili ses');o.value=T.voice;opts.push(o)}
+    $('elv').replaceChildren(...opts);$('elv').value=T.voice||'';$('elm').value=T.model||'eleven_multilingual_v2';
+    const q=T.quota;$('elq').textContent=T.hasKey&&q?th(q.left)+' / '+th(q.limit):'—';
+    $('elqd').textContent=!T.hasKey||!q?'':(q.resetAt?'Yenilenme: '+new Date(q.resetAt).toLocaleDateString('tr-TR',{day:'numeric',month:'long'})+'. ':'')+(q.syncedAt?'ElevenLabs ile eşitlendi.':'Uygulamanın sayacı; “Dene” ile ElevenLabs\'ten güncellenir.');
+    $('elk').placeholder=T.hasKey?'Kayıtlı · değiştirmek için yeni anahtarı yapıştır':'sk_… ElevenLabs API anahtarı';
+    $('elkd').style.display=$('elkt').style.display=T.hasKey?'':'none';$('elr').disabled=!T.hasKey||elLoading;
+    const n=$('eln');n.className=elMsg?(elOk?'ok':'err'):'note';
+    n.textContent=elMsg||(T.hasKey?(T.note||''):'Anahtar yok. Almak için: elevenlabs.io → Profil (sol alt) → API Keys → Create API Key → buraya yapıştırıp Kaydet. Ücretsiz planda ayda yaklaşık 10.000 karakter.');
+    if(T.hasKey&&!vs.length&&!elLoading&&!elTried){elTried=true;loadVoices(false)}}
+  async function loadVoices(f){elLoading=true;renderTts();const r=await neo.ttsVoices(f);elLoading=false;if(r){S=r;if(r.ttsVoicesError){elMsg=r.ttsVoicesError;elOk=false}}render()}
+  $('tsrc').onchange=async()=>{elMsg=null;elTried=false;S=await neo.tts({src:$('tsrc').value})||S;render()};
+  $('elv').onchange=async()=>{S=await neo.tts({voice:$('elv').value})||S;render()};
+  $('elm').onchange=async()=>{S=await neo.tts({model:$('elm').value})||S;render()};
+  $('elr').onclick=()=>{elMsg=null;loadVoices(true)};
+  // Bos alanla "Kaydet" bir sey yapmaz; silmek icin acik "Sil" (onayli). Anahtar alani kayittan sonra temizlenir
+  $('elks').onclick=async()=>{const k=$('elk').value.trim();if(!k){$('elk').focus();return}const r=await neo.key('eleven',k);if(!r)return;
+    if(r.keyError){elMsg=r.keyError;elOk=false;S={...r,keyError:null}}else{$('elk').value='';elTried=false;S=r;$('elkt').click();return}render()};
+  $('elkd').onclick=async()=>{if(!confirm('ElevenLabs anahtarı silinsin mi?'))return;S=await neo.key('eleven',null)||S;$('elk').value='';elMsg=null;render()};
+  $('elkt').onclick=async()=>{elMsg='Deneniyor…';elOk=true;renderTts();const r=await neo.ttsTest();if(r){S=r;elMsg=r.ttsTest?r.ttsTest.msg:null;elOk=!!(r.ttsTest&&r.ttsTest.ok)}render()};
+  $('elkl').onclick=()=>neo.link('eleven');
   neo.on(s=>{S=s;render()});neo.state().then(s=>{if(s){S=s;render()}});
   $('wake').onchange=async()=>{S=await neo.set({wake:$('wake').checked})||S;render()};
   $('wl').onchange=async()=>{S=await neo.set({wakeLang:$('wl').value})||S;render()};

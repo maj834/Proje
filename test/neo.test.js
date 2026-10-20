@@ -430,3 +430,167 @@ require('readline').createInterface({input:process.stdin}).on('line',l=>{try{fs.
   assert.equal(ui.view().state, 'idle');
   ui.disable();
 });
+
+// ---- ElevenLabs ses kaynagi: sahte yardimci + sahte fetch + sahte afplay ----
+const { createEleven } = require('../eleven.js');
+const { cleanTts } = require('../neo-main.js');
+const EL_KEY = 'sk_' + 'NEOTESTSAHTEANAHTAR0123456789abc';            // uydurma
+// listenReply: yardimci 'listen' alinca ne yollasin ('nocommand' | 'echo' | 'none'); say: sistem sesi taklidi (takipliyse takip dinlemesi)
+// wakeAfterThinkMs: 'thinking' komutundan bu kadar sonra yardimci "Hey Neo" duymus gibi davranir (Neo konusurken soz kesme)
+function elHarness(t, { listenReply = 'nocommand', fetch, key = EL_KEY, src = 'eleven', autoPlayMs = 30, wakeAfterThinkMs = 0 } = {}) {
+  const d = tmpDir(); t.after(() => rmLater(d));
+  const log = path.join(d, 'cmd.log'), bin = path.join(d, 'neo.js');
+  fs.writeFileSync(bin, `#!${process.execPath}
+const fs=require('fs'),o=x=>process.stdout.write(JSON.stringify(x)+'\\n');
+o({type:'hello',version:1,wakeOnDevice:true,voices:[]});
+require('readline').createInterface({input:process.stdin}).on('line',l=>{try{fs.appendFileSync(${JSON.stringify(log)},l+'\\n')}catch(e){}const m=JSON.parse(l);
+  if(m.cmd==='start'){o({type:'state',state:'idle'});setTimeout(()=>{o({type:'wake',text:'hey neo'});o({type:'state',state:'listening'});o({type:'command',text:'thyao kaç'})},30)}
+  if(m.cmd==='say')setTimeout(()=>{o({type:'spoken',id:m.id});if(m.followUp){o({type:'state',state:'listening',followUp:true});setTimeout(()=>o({type:'nocommand',followUp:true}),30)}else o({type:'state',state:'idle'})},30);
+  if(m.cmd==='listen'){o({type:'state',state:'listening'});const r=${JSON.stringify(listenReply)};
+    if(r==='nocommand')setTimeout(()=>{o({type:'nocommand'});o({type:'state',state:'idle'})},40);
+    if(r==='echo')setTimeout(()=>{o({type:'command',text:'THYAO, yüzde'});o({type:'state',state:'idle'})},40)}
+  if(m.cmd==='idle')o({type:'state',state:'idle'});
+  if(m.cmd==='thinking'&&${wakeAfterThinkMs})setTimeout(()=>{o({type:'wake',text:'hey neo'});o({type:'state',state:'listening'})},${wakeAfterThinkMs});
+  if(m.cmd==='quit')process.exit(0)}).on('close',()=>process.exit(0));`);
+  fs.chmodSync(bin, 0o755);
+  process.env.CEM_NEO_BIN = bin; t.after(() => { delete process.env.CEM_NEO_BIN; });
+  // sahte afplay: autoPlayMs sonra biter (null: elle)
+  const plays = [];
+  const execFile = (file, args, opts, cb) => {
+    const p = { file, args, killed: null, ended: false, on() {},
+      kill(sig) { if (p.ended) return; p.ended = true; p.killed = sig; setImmediate(() => cb(Object.assign(new Error('killed'), { signal: sig }))); },
+      finish() { if (p.ended) return; p.ended = true; cb(null); } };
+    plays.push(p); if (autoPlayMs != null) setTimeout(() => p.finish(), autoPlayMs); return p;
+  };
+  const ff = fetch || (async (url, init) => { ff.calls.push({ url, init }); return new Response(Buffer.from('ID3fake'), { status: 200, headers: { 'content-type': 'audio/mpeg' } }); });
+  ff.calls = ff.calls || [];
+  const store = { eleven: key, groq: 'gsk_x' };
+  const eleven = createEleven({ fetch: (...a) => ff(...a), now: () => Date.now(), key: () => store.eleven, dir: d, execFile, timeoutMs: 300 });
+  const asked = [], orbMsgs = [], h = {}; let ready, C = { neo: {}, neoTts: { src } };
+  const brain = { ask: async q => { asked.push(q); return { text: 'THYAO yüzde iki artıda.' }; }, reset() {} };
+  const wc = { send: (ch, m) => { if (ch === 'neo:orb') orbMsgs.push(m); }, setWindowOpenHandler() {}, on() {} };
+  function Win() { return { webContents: wc, loadFile() {}, isDestroyed: () => false, isVisible: () => true, getSize: () => [420, 150], setPosition() {}, showInactive() {}, show() {}, focus() {}, hide() {}, close() {}, on() {}, once() {}, setAlwaysOnTop() {}, setVisibleOnAllWorkspaces() {} }; }
+  const sc = {};
+  const ui = registerNeo({ ipcMain: { handle: (c, f) => { h[c] = f; } }, app: { isPackaged: false, whenReady: () => ({ then: f => { ready = f; } }), on() {} }, BrowserWindow: Win, path,
+    screen: { getCursorScreenPoint: () => ({ x: 0, y: 0 }), getDisplayNearestPoint: () => ({ workArea: { x: 0, y: 0, width: 100, height: 100 } }) },
+    globalShortcut: { register: (k, f) => { sc[k] = f; return true; }, unregister() {} }, Notification: function () { return { show() {} }; },
+    cfg: () => C, save: x => { C = { ...C, ...x }; }, keys: { get: p => store[p] || null, set: (p, k) => { store[p] = k; } }, shell: { openExternal() {} }, actions: {}, isOn: () => true, brain, eleven });
+  const cmds = () => { if (!fs.existsSync(log)) return []; const s = fs.readFileSync(log, 'utf8'); return s.slice(0, s.lastIndexOf('\n') + 1).split('\n').filter(Boolean).map(JSON.parse); };
+  const until = async (f, ms = 15000) => { const e = Date.now() + ms; while (!f()) { if (Date.now() > e) throw new Error('zaman asimi'); await new Promise(r => setTimeout(r, 15)); } };
+  return { ui, h, e: { sender: wc }, cmds, until, plays, fetch: ff, asked, orbMsgs, store, sc, ready: () => ready(), conf: () => C };
+}
+
+test('ElevenLabs: cevap mp3 olarak calinir, bitince takip dinlemesi baslar (sistem sesindeki gibi), bos takip sessizce beklemeye doner', async (t) => {
+  const H = elHarness(t);
+  H.ready();
+  await H.until(() => H.cmds().filter(c => c.cmd === 'idle').length >= 1);
+  assert.deepEqual(H.asked, ['thyao kaç']);
+  assert.equal(H.cmds().some(c => c.cmd === 'say'), false, 'sistem sesi kullanilmadi');
+  assert.equal(H.plays.length, 1); assert.equal(H.plays[0].file, '/usr/bin/afplay'); assert.match(H.plays[0].args[0], /eleven-cache.*\.mp3$/);
+  assert.equal(H.fetch.calls[0].init.headers['xi-api-key'], EL_KEY);
+  const seq = H.cmds().map(c => c.cmd);
+  assert.ok(seq.indexOf('listen') > seq.indexOf('thinking'), 'calma bitince takip dinlemesi'); assert.equal(seq.filter(c => c === 'listen').length, 1);
+  assert.equal(seq.filter(c => c === 'idle').length, 1, 'takipli cevaptan sonra idle yok; yalniz bos takipten sonra');
+  assert.ok(seq.lastIndexOf('idle') > seq.indexOf('listen'));
+  // kure: konusuyor -> takip dinlemesi (cevap kalir) -> "Seni duyamadım" yok
+  assert.ok(H.orbMsgs.some(m => m.state === 'speaking' && m.answer === 'THYAO yüzde iki artıda.'));
+  assert.ok(H.orbMsgs.some(m => m.state === 'listening' && m.followUp && m.answer === 'THYAO yüzde iki artıda.'));
+  assert.equal(H.orbMsgs.some(m => m.answer === 'Seni duyamadım.'), false);
+  assert.equal(H.ui.view().state, 'idle');
+  const v = H.ui.view(); assert.equal(v.tts.src, 'eleven'); assert.equal(v.tts.hasKey, true); assert.equal(v.keys.eleven, true); assert.equal(v.tts.quota.used, 'THYAO yüzde iki artıda.'.length);
+  assert.equal(JSON.stringify(v).includes(EL_KEY), false, 'gorunumde anahtar yok');
+  // yazili soru: takipsiz, calma bitince idle; ayni cumle onbellekten (yeni istek yok)
+  await H.h['neo:ask'](H.e, 'yazili');
+  await H.until(() => H.cmds().filter(c => c.cmd === 'idle').length >= 2);
+  assert.equal(H.fetch.calls.length, 1, 'ayni cumle onbellekten'); assert.equal(H.plays.length, 2);
+  assert.equal(H.cmds().filter(c => c.cmd === 'listen').length, 1);
+  H.ui.disable();
+});
+
+test('ElevenLabs basarisiz (HTTP hatasi / zaman asimi / anahtar yok / kapali): ayni cumle sistem sesiyle, takip dinlemesi korunur', async (t) => {
+  for (const mode of ['500', 'timeout', 'nokey', 'system']) {
+    await t.test(mode, async (t2) => {
+      const fetch = async (url, init) => { fetch.calls.push({ url, init });
+        if (mode === 'timeout') return new Promise(() => {});
+        return new Response(JSON.stringify({ detail: { status: 'oops' } }), { status: 500 }); };
+      fetch.calls = [];
+      const H = elHarness(t2, { fetch, key: mode === 'nokey' ? null : EL_KEY, src: mode === 'system' ? 'system' : 'eleven' });
+      H.ready();
+      await H.until(() => H.cmds().filter(c => c.cmd === 'idle').length >= 1);
+      const say = H.cmds().find(c => c.cmd === 'say');
+      assert.ok(say, 'sistem sesi'); assert.equal(say.text, 'THYAO yüzde iki artıda.'); assert.equal(say.followUp, true, 'takipli');
+      assert.equal(H.plays.length, 0);
+      assert.equal(H.cmds().some(c => c.cmd === 'listen'), false, 'takibi yardimci kendisi baslatir');
+      assert.ok(H.orbMsgs.some(m => m.state === 'listening' && m.followUp));
+      if (mode === '500' || mode === 'timeout') { assert.equal(fetch.calls.length, 1); assert.match(H.ui.view().tts.note, /ElevenLabs kullanılamadı/); }
+      else assert.equal(fetch.calls.length, 0);
+      if (mode === 'timeout') assert.match(H.ui.view().tts.note, /yanıt vermedi/);
+      H.ui.disable();
+    });
+  }
+});
+
+test('ElevenLabs: kisayol calmayi durdurur (takip yok, idle); "Hey Neo" sozu keser (idle gonderilmez); yanki takip komutu sayilmaz', async (t) => {
+  await t.test('durdur', async (t2) => {
+    const H = elHarness(t2, { autoPlayMs: null });
+    H.ready();
+    await H.until(() => H.plays.length === 1);
+    assert.equal(H.ui.view().state, 'speaking');
+    H.sc['Alt+Space']();
+    await H.until(() => H.cmds().some(c => c.cmd === 'idle'));
+    assert.equal(H.plays[0].killed, 'SIGTERM');
+    assert.ok(H.cmds().some(c => c.cmd === 'stopSay'));
+    await new Promise(r => setTimeout(r, 450));
+    assert.equal(H.cmds().some(c => c.cmd === 'listen'), false, 'durdurulan cevaptan sonra takip yok');
+    assert.equal(H.ui.view().state, 'idle');
+    H.ui.disable();
+  });
+  await t.test('soz kesme', async (t2) => {
+    const H = elHarness(t2, { autoPlayMs: null, wakeAfterThinkMs: 400 });
+    H.ready();
+    await H.until(() => H.plays.length === 1);
+    H.ui.say('zamanlayıcı bitti');                                     // kuyruga ikinci cumle
+    const before = H.cmds().filter(c => c.cmd === 'idle').length;
+    await H.until(() => H.plays[0].killed);                           // yardimci "Hey Neo" duydu
+    await new Promise(r => setTimeout(r, 100));
+    assert.equal(H.cmds().filter(c => c.cmd === 'idle').length, before, 'dinleme kesilmesin');
+    assert.equal(H.plays.length, 1, 'kuyruktaki cumle de calinmaz');
+    assert.equal(H.ui.view().state, 'listening');
+    H.ui.disable();
+  });
+  await t.test('yanki', async (t2) => {
+    const H = elHarness(t2, { listenReply: 'echo' });
+    H.ready();
+    await H.until(() => H.cmds().some(c => c.cmd === 'listen'));
+    await H.until(() => H.cmds().filter(c => c.cmd === 'idle').length >= 1);
+    await new Promise(r => setTimeout(r, 100));
+    assert.deepEqual(H.asked, ['thyao kaç'], 'Neo\'nun kendi sozcukleri komut sayilmadi');
+    H.ui.disable();
+  });
+});
+
+test('ElevenLabs ayarlari: neo:tts temizlenir, anahtar bicimi, Dene kalan karakteri doner, anahtar sizmaz; cleanTts', async (t) => {
+  assert.deepEqual(cleanTts({}), { src: 'system', voice: '', model: 'eleven_multilingual_v2' });
+  assert.deepEqual(cleanTts({ src: 'eleven', voice: 'bad id!', model: 'eleven_flash_v2_5' }), { src: 'eleven', voice: '', model: 'eleven_flash_v2_5' });
+  const fetch = async (url, init) => { fetch.calls.push({ url, init });
+    if (/subscription/.test(url)) return new Response(JSON.stringify({ character_count: 400, character_limit: 10000 }), { status: 200 });
+    if (/v1\/voices/.test(url)) return new Response(JSON.stringify({ voices: [{ voice_id: 'Turkish000003', name: 'Ayşe', verified_languages: [{ language: 'tr' }] }] }), { status: 200 });
+    return new Response('x', { status: 500 }); };
+  fetch.calls = [];
+  const H = elHarness(t, { fetch, key: null, src: 'system' });
+  process.env.CEM_NEO_BIN = '/yok/neo';                                 // yardimci yok: yalniz ayar penceresi
+  H.ui.open();
+  assert.equal(await H.h['neo:tts']({ sender: {} }, { src: 'eleven' }), null, 'yabanci gonderen');
+  let v = await H.h['neo:tts'](H.e, { src: 'eleven', voice: 'Turkish000003', model: 'xx', junk: 1 });
+  assert.deepEqual(H.conf().neoTts, { src: 'eleven', voice: 'Turkish000003', model: 'eleven_multilingual_v2' });
+  assert.equal(v.tts.hasKey, false);
+  assert.match((await H.h['neo:ttsTest'](H.e)).ttsTest.msg, /anahtarı yok/);
+  v = await H.h['neo:key'](H.e, 'eleven', 'kisa'); assert.match(v.keyError, /sk_/); assert.equal(H.store.eleven, null);
+  v = await H.h['neo:key'](H.e, 'eleven', '  ' + EL_KEY + ' '); assert.equal(H.store.eleven, EL_KEY); assert.equal(v.keys.eleven, true);
+  const r = await H.h['neo:ttsTest'](H.e);
+  assert.equal(r.ttsTest.ok, true); assert.match(r.ttsTest.msg, /9\.600 \/ 10\.000/); assert.equal(r.tts.quota.left, 9600);
+  const vs = await H.h['neo:ttsVoices'](H.e, true); assert.equal(vs.tts.voices[0].id, 'Turkish000003');
+  assert.equal(JSON.stringify([v, r, vs]).includes(EL_KEY), false, 'anahtar donmez');
+  v = await H.h['neo:key'](H.e, 'eleven', null); assert.equal(H.store.eleven, null); assert.equal(v.tts.hasKey, false);
+  H.ui.disable();
+});
