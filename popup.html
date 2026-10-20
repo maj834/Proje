@@ -109,6 +109,16 @@ textarea.inp{height:110px;padding:6px var(--s2);resize:vertical;font:400 11.5px/
 .news a:hover{color:var(--acc);text-decoration:none}.news .ef{display:block;font-size:11px;color:var(--fg-2);margin-top:2px}.news .sc{font:600 10.5px var(--mono);margin-right:6px}
 #bnews .c,#dbnews .c{margin-bottom:10px}
 .ib{border:0;background:none;color:var(--fg-2);padding:4px;border-radius:5px;cursor:pointer;display:flex}.ib:hover{background:var(--sunk);color:var(--fg)}.news small{display:block;font:400 10.5px var(--mono);color:var(--fg-3);margin-top:2px}
+.vb{display:flex;align-items:center;gap:var(--s2);padding:6px var(--s3);margin-bottom:var(--s2);border:1px dashed var(--acc);border-radius:var(--r2);color:var(--fg-2);font-size:11.5px}
+.vb b{font:600 10px var(--mono);letter-spacing:.08em;color:var(--acc)}
+.pg{display:grid;grid-template-columns:1fr 1fr;gap:var(--s2);margin-top:6px}.pg label{display:flex;flex-direction:column;gap:2px;font-size:10.5px;color:var(--fg-3)}
+.pg .inp{font-family:var(--mono)}
+#pp_side button.on[data-s=buy]{background:var(--up-soft);box-shadow:inset 0 -2px 0 var(--up)}#pp_side button.on[data-s=sell]{background:var(--dn-soft);box-shadow:inset 0 -2px 0 var(--dn)}
+#pp_go.buy{background:var(--up);color:#fff}#pp_go.sell{background:var(--dn);color:#fff}#pp_go{width:100%;margin-top:8px;height:32px;font-size:13px}#pgo[disabled]{opacity:.6;cursor:default}
+.pr{display:flex;align-items:center;gap:var(--s2);padding:6px 0;border-top:1px solid var(--line);font-size:12px}.pr:first-of-type{border-top:0}
+.pr .s{font:600 12px var(--mono)}.pr .d{font:400 10.5px var(--mono);color:var(--fg-3)}.pr .r{text-align:right;font:500 12px var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+.pr.click{cursor:pointer}.pr.click:hover{background:var(--sunk)}
+.xb{border:1px solid var(--line);background:none;color:var(--fg-3);border-radius:var(--r1);font:500 11px var(--font);padding:2px 6px;cursor:pointer}.xb:hover{color:var(--dn);border-color:var(--dn)}
 </style></head><body><div class="win" id="win">
 <div class="h">
   <div class="logo"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12.5 6 8l3 2.5L14 4"/><path d="M10.5 4H14v3.5"/></svg></div>
@@ -118,7 +128,7 @@ textarea.inp{height:110px;padding:6px var(--s2);resize:vertical;font:400 11.5px/
   <button class="ib" id="snd" title="Ses"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 6h2.5l3.5-3v10l-3.5-3H2.5z"/><path d="M11 5.5a3.5 3.5 0 0 1 0 5M12.8 3.7a6 6 0 0 1 0 8.6"/></svg></button>
   <button class="ib" id="shr" title="Telefonla dosya paylaş (QR)"><svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="4.5" y="1.5" width="7" height="13" rx="1.5"/><path d="M8 5v5M6 8l2 2 2-2"/></svg></button>
 </div>
-<div class="tabs"><button data-p="an" class="on">Analiz</button><button data-p="dp">Derinlik</button><button data-p="hs">Geçmiş</button><button data-p="st">Ayarlar</button></div>
+<div class="tabs"><button data-p="an" class="on">Analiz</button><button data-p="dp">Derinlik</button><button data-p="pp">Sanal</button><button data-p="hs">Geçmiş</button><button data-p="st">Ayarlar</button></div>
 <div class="body" id="body">
   <section class="pane on" id="an">
     <div class="symbar"><input class="inp f1 num" id="msym" placeholder="Hisse kodu (THYAO)" spellcheck="false" autocomplete="off">
@@ -155,6 +165,34 @@ textarea.inp{height:110px;padding:6px var(--s2);resize:vertical;font:400 11.5px/
         <textarea class="inp" id="ptxt" placeholder="Botun mesajını buraya yapıştır" spellcheck="false"></textarea>
         <div class="row" style="margin-top:6px"><span class="m f1">Telegram'a istek gönderilmez; yalnızca ayrıştırıcı denenir.</span><button class="btn pri" id="pgo">Ayrıştır</button></div>
         <div id="pout"></div></div></div>
+  </section>
+  <section class="pane" id="pp">
+    <div class="vb"><b>SANAL</b><span class="f1">Sahte bakiye ile alım satım. Gerçek emir gönderilmez, para harcanmaz.</span></div>
+    <div class="seg" id="ppm"><button data-m="BIST" class="on"><b>BIST hesabı</b><span>TL · ~15 dk gecikmeli fiyat</span></button><button data-m="US"><b>ABD hesabı</b><span>USD</span></button></div>
+    <div id="pp_acc"></div>
+    <div class="c"><div class="t">Emir</div>
+      <div class="row"><input class="inp f1" id="pp_sym" placeholder="Hisse kodu (THYAO)" spellcheck="false" autocomplete="off" style="text-transform:uppercase;font-family:var(--mono)"><button class="btn" id="pp_qb">Fiyat</button></div>
+      <div class="m" id="pp_qt" style="margin-top:4px">Hisse kodunu yazıp Fiyat'a bas.</div>
+      <div class="seg" id="pp_side" style="margin:8px 0 0"><button data-s="buy" class="on"><b>AL</b></button><button data-s="sell"><b>SAT</b></button></div>
+      <div class="pg">
+        <label>Emir türü<select id="pp_type"><option value="market">Piyasa</option><option value="limit">Limit</option><option value="stop">Zarar durdur</option></select></label>
+        <label>Adet<div class="row"><input class="inp f1" id="pp_qty" inputmode="numeric" placeholder="0" autocomplete="off"><button class="xb" id="pp_max" title="Bakiyenin yettiği en çok adet ya da satılabilir adet">Maks</button></div></label>
+        <label id="pp_pxl" style="display:none"><span id="pp_pxt">Limit fiyat</span><input class="inp" id="pp_px" inputmode="decimal" placeholder="0,00" autocomplete="off"></label>
+      </div>
+      <div class="m" id="pp_est" style="margin-top:6px"></div>
+      <button class="btn pri buy" id="pp_go">AL</button>
+      <div class="alert" id="pp_err"></div>
+    </div>
+    <div id="pp_pos"></div><div id="pp_ord"></div><div id="pp_trd"></div>
+    <div class="c"><div class="t">Sanal hesap ayarları</div>
+      <div class="pg">
+        <label>Komisyon (binde)<input class="inp" id="pp_com" inputmode="decimal" placeholder="2"></label>
+        <label>Kayma (baz puan)<input class="inp" id="pp_slp" inputmode="decimal" placeholder="0"></label>
+      </div>
+      <label class="tg"><span class="f1">Seans dışında son fiyattan işlem <span class="m">(gerçekçi değil)</span></span><span class="sw"><input type="checkbox" id="pp_any"><span></span></span></label>
+      <div class="row" style="margin-top:4px"><input class="inp f1" id="pp_start" inputmode="decimal" placeholder="Başlangıç bakiyesi"><button class="btn dn" id="pp_reset">Hesabı sıfırla</button></div>
+      <div class="m" style="margin-top:6px">Sıfırlama yalnızca seçili hesabın pozisyonlarını, emirlerini ve geçmişini siler. Limit ve zarar durdur emirleri 1 dk mumlarla, uygulama açıkken dakikada bir kontrol edilir. Yatırım tavsiyesi değildir.</div>
+    </div>
   </section>
   <section class="pane" id="hs"><div id="karne"></div><div id="hl"></div></section>
   <section class="pane" id="st">
@@ -252,7 +290,7 @@ const ago=t=>{const s=Math.round((Date.now()-t)/1000);return s<60?'az önce':s<3
 const EST={'claude-haiku-5-5':0.0012,'claude-sonnet-5-5':0.022,'claude-opus-5-5':0.045}; // ornek analiz basina $
 let C={},shown=null;
 
-function tab(p){document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('on',b.dataset.p===p));document.querySelectorAll('.pane').forEach(s=>s.classList.toggle('on',s.id===p));if(p==='hs'){history();karne()}fit()}
+function tab(p){document.querySelectorAll('.tabs button').forEach(b=>b.classList.toggle('on',b.dataset.p===p));document.querySelectorAll('.pane').forEach(s=>s.classList.toggle('on',s.id===p));if(p==='hs'){history();karne()}if(p==='pp')ppOpen();fit()}
 document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>tab(b.dataset.p));
 
 // Pencere yuksekligini icerige uydur.
@@ -638,4 +676,137 @@ api.on('result',a=>{idle();$('err').style.display='none';
   if(a.chart_found&&(!a.silent||a.engine==='claude'))C.history=[a,...(C.history||[])].slice(0,30);
   // Canli modda Claude sonucu ekrandayken yerel guncellemeler onu ezmesin.
   render(a,!a.silent);renderBotNews()});
+
+// --- Sanal islem (sahte bakiye) ---
+let PP=null,ppMkt='BIST',ppSide='buy',ppQ=null,ppMax=0,ppBusy=false,ppResetAt=0,ppInit=false;
+const ppSym=s=>String(s||'').replace(/\.IS$/,'');
+const money=(n,m)=>(n<0?'-':'')+(m==='US'?'$':'₺')+Math.abs(n).toLocaleString('tr-TR',{minimumFractionDigits:2,maximumFractionDigits:2});
+const smoney=(n,m)=>(n>0?'+':'')+money(n,m);
+const pct=n=>n==null?'—':(n>0?'+':'')+n.toLocaleString('tr-TR',{minimumFractionDigits:2,maximumFractionDigits:2})+'%';
+const pn=n=>n>0?'pos':n<0?'neg':'';
+// Sayi okuma: "1.234,56" (Turkce) ya da "1234.56". Belirsiz/bozuk girdi NaN.
+function pNum(s){s=String(s||'').trim().replace(/\s/g,'');if(!s)return NaN;
+  if(s.includes(',')){if(!/^(\d{1,3}(\.\d{3})+|\d+),\d+$/.test(s))return NaN;s=s.replace(/\./g,'').replace(',','.')}
+  else if(!/^\d+(\.\d+)?$/.test(s))return NaN;return +s}
+function pInt(s){s=String(s||'').trim().replace(/\s/g,'');if(/^\d{1,3}(\.\d{3})+$/.test(s))s=s.replace(/\./g,'');return /^\d+$/.test(s)?+s:NaN}
+function ppErr(m){$('pp_err').textContent=m||'';$('pp_err').style.display=m?'block':'none';fit()}
+async function ppCall(o){try{const r=await api.paper(o);if(r&&r.state)PP=r.state;return r||{ok:false,msg:'Yanıt yok'}}catch(e){return {ok:false,msg:e.message}}}
+async function ppOpen(){
+  if(!ppInit){ppInit=true;if(!$('pp_sym').value&&C.mkt&&C.mkt.symbol){$('pp_sym').value=C.mkt.symbol;ppMkt=C.mkt.market==='US'?'US':'BIST'}}
+  await ppLoad();if($('pp_sym').value&&!ppQ)ppQuote(true);
+}
+async function ppLoad(){if(ppBusy)return;ppBusy=true;try{const r=await ppCall({op:'state'});if(!r.ok&&r.msg)ppErr(r.msg);
+  else if(r.errors&&r.errors.length)$('pp_qt').textContent='Fiyat alınamadı: '+r.errors.slice(0,2).join(' · ');
+  if(r.fills&&r.fills.length)toast(r.fills.length+' bekleyen emir doldu');renderPaper()}finally{ppBusy=false}}
+async function ppQuote(quiet){
+  const sym=$('pp_sym').value.trim();if(!sym){ppQ=null;$('pp_qt').textContent='Hisse kodunu yazıp Fiyat\'a bas.';ppEst();return}
+  $('pp_qb').disabled=true;$('pp_qt').textContent='Fiyat alınıyor…';
+  try{const r=await ppCall({op:'quote',symbol:sym,market:ppMkt});
+    if(!r.ok){ppQ=null;$('pp_qt').textContent=r.msg;if(!quiet)ppErr(r.msg)}
+    else{ppQ=r.quote;ppMax=r.maxBuy||0;ppErr('');const q=ppQ,ch=q.prev?(q.price-q.prev)/q.prev*100:null;
+      $('pp_qt').replaceChildren(el('b',{class:'num',style:'color:var(--fg)'},ppSym(q.symbol)+' '+fmt(q.price)+' '+(q.currency||'')),' ',
+        ch!=null?el('span',{class:pn(ch)},pct(ch)):'',' · '+[q.name,q.delayed?'~15 dk gecikmeli':null,q.time?hm(q.time):null].filter(Boolean).join(' · '));
+      if(r.fills&&r.fills.length)toast(r.fills.length+' bekleyen emir doldu')}
+    renderPaper()}finally{$('pp_qb').disabled=false}
+}
+function ppForm(){
+  const t=$('pp_type').value;
+  if(ppSide==='buy'&&t==='stop'){$('pp_type').value='market';return ppForm()}
+  $('pp_type').querySelector('option[value=stop]').disabled=ppSide==='buy';
+  $('pp_pxl').style.display=t==='market'?'none':'';$('pp_pxt').textContent=t==='stop'?'Tetik fiyatı':'Limit fiyat';
+  document.querySelectorAll('#pp_side button').forEach(b=>b.classList.toggle('on',b.dataset.s===ppSide));
+  const g=$('pp_go');g.className='btn pri '+ppSide;
+  g.textContent=(ppSide==='buy'?'AL':'SAT')+(t==='limit'?' · limit emir':t==='stop'?' · zarar durdur':'');
+  ppEst();
+}
+// Onizleme: motorla ayni formul (komisyon kurusa yuvarlanir); kesin tutar emirde hesaplanir.
+function ppEst(){
+  const e=$('pp_est'),qty=pInt($('pp_qty').value),t=$('pp_type').value;if(!PP){e.textContent='';return}
+  const st=PP.set,A=PP.accounts[ppMkt],px=t==='market'?(ppQ?ppQ.price*(1+(ppSide==='buy'?1:-1)*st.slippage/1e4):NaN):pNum($('pp_px').value);
+  const lines=[];
+  if(ppSide==='sell'){const p=ppQ&&A.pos.find(x=>x.sym===ppQ.symbol);lines.push('Satılabilir: '+(p?p.free.toLocaleString('tr-TR'):0)+' adet')}
+  else lines.push('Kullanılabilir: '+money(A.available,ppMkt));
+  if(Number.isFinite(qty)&&qty>0&&Number.isFinite(px)&&px>0){const v=Math.round(px*qty*100),f=Math.round(v*st.commission);
+    lines.push((t==='market'?'≈ ':'')+'Tutar '+money(v/100,ppMkt)+' · komisyon '+money(f/100,ppMkt)+' · '+(ppSide==='buy'?'toplam ':'eline geçen ')+money((ppSide==='buy'?v+f:v-f)/100,ppMkt));
+    if(ppSide==='buy'&&(v+f)/100>A.available)lines.push('⚠ Bakiye yetmiyor')}
+  e.textContent=lines.join('\n');e.style.whiteSpace='pre-line';
+}
+function renderPaper(){
+  const S=PP;if(!S)return;const A=S.accounts[ppMkt],m=ppMkt;
+  document.querySelectorAll('#ppm button').forEach(b=>b.classList.toggle('on',b.dataset.m===m));
+  const kv=(k,v,c)=>el('div',{class:'kv'},el('div',{class:'m'},k),el('b',{class:'num '+(c||'')},v));
+  $('pp_acc').replaceChildren(el('div',{class:'c'},
+    el('div',{class:'row'},el('div',{class:'f1'},el('div',{class:'t',style:'margin:0'},'Toplam değer'),el('div',{class:'q'},el('span',{class:'px num'},money(A.equity,m)),
+      el('span',{class:'ch '+pn(A.pnl)},smoney(A.pnl,m)+' ('+pct(A.pnlPct)+')')))),
+    el('div',{class:'m',style:'margin:2px 0 8px'},'Başlangıç '+money(A.start,m)+(A.since?' · ilk işlem '+new Date(A.since).toLocaleDateString('tr-TR'):'')+' · '+(A.session.open?'seans açık':A.session.reason)),
+    el('div',{class:'grid2'},kv('Nakit',money(A.cash,m)),kv('Kullanılabilir'+(A.reserved?' (emirde '+money(A.reserved,m)+')':''),money(A.available,m)),
+      kv('Pozisyonlar',money(A.positions,m)),kv('Açık K/Z',smoney(A.unrealized,m),pn(A.unrealized)),
+      kv('Gerçekleşen K/Z',smoney(A.realized,m),pn(A.realized)),kv('Komisyon',money(A.fees,m)),
+      kv('Kapanan işlem',String(A.closed)),kv('İsabet',A.winRate==null?'—':'%'+A.winRate)),
+    A.priceMissing?el('div',{class:'warn'},A.priceMissing+' pozisyonun güncel fiyatı yok; maliyetle gösteriliyor.'):null));
+  // pozisyonlar
+  $('pp_pos').replaceChildren(A.pos.length?el('div',{class:'c'},el('div',{class:'t'},'Pozisyonlar · satmak için dokun'),...A.pos.map(p=>el('div',{class:'pr click',title:'Satış formuna al',onclick:()=>{
+      $('pp_sym').value=ppSym(p.sym);ppSide='sell';$('pp_type').value='market';$('pp_qty').value=String(p.free||'');ppQ=null;ppForm();ppQuote(true);$('body').scrollTo({top:0,behavior:'smooth'})}},
+    el('div',{class:'f1',style:'min-width:0'},el('div',{class:'s'},ppSym(p.sym)),el('div',{class:'d'},p.qty.toLocaleString('tr-TR')+' ad · ort '+fmt(p.avg)+(p.last!=null?' → '+fmt(p.last):'')+(p.free<p.qty?' · '+(p.qty-p.free)+' emirde':''))),
+    el('div',{class:'r'},el('div',{},money(p.value,m)),el('div',{class:pn(p.pnl)},smoney(p.pnl,m)+' '+pct(p.pnlPct)))))):'');
+  // bekleyen emirler
+  const ords=S.orders.filter(o=>o.market===m);
+  $('pp_ord').replaceChildren(ords.length?el('div',{class:'c'},el('div',{class:'t'},'Bekleyen emirler'),...ords.map(o=>el('div',{class:'pr'},
+    el('div',{class:'f1'},el('div',{class:'s'},el('span',{class:o.side==='buy'?'pos':'neg'},o.side==='buy'?'AL ':'SAT '),ppSym(o.sym)),
+      el('div',{class:'d'},(o.type==='stop'?'Zarar durdur ≤ ':o.side==='buy'?'Limit ≤ ':'Limit ≥ ')+fmt(o.price)+' · '+o.qty.toLocaleString('tr-TR')+' ad · '+ago(o.at))),
+    el('button',{class:'xb',onclick:async ev=>{ev.target.disabled=true;const r=await ppCall({op:'cancel',id:o.id});toast(r.ok?'Emir iptal edildi':r.msg);renderPaper()}},'İptal')))):'');
+  // islem gecmisi
+  const trs=S.trades.filter(x=>x.market===m).slice(0,20);
+  $('pp_trd').replaceChildren(trs.length?el('div',{class:'c'},el('div',{class:'t'},'Son işlemler'),...trs.map(x=>el('div',{class:'pr'},
+    el('div',{class:'f1'},el('div',{class:'s'},el('span',{class:x.side==='buy'?'pos':'neg'},x.side==='buy'?'AL ':'SAT '),ppSym(x.sym)),
+      el('div',{class:'d'},x.qty.toLocaleString('tr-TR')+' ad @ '+fmt(x.price)+' · '+({market:'piyasa',limit:'limit',stop:'zarar durdur'}[x.type]||x.type)+' · '+dt(x.at))),
+    el('div',{class:'r'},el('div',{},money(x.value,m)),x.pnl!=null?el('div',{class:pn(x.pnl)},smoney(x.pnl,m)):el('div',{class:'d'},'kom. '+money(x.fee,m)))))):'');
+  // ayarlar (odaktaki alan ezilmez)
+  const act=document.activeElement;
+  if(act!==$('pp_com'))$('pp_com').value=String(+(S.set.commission*1000).toFixed(3)).replace('.',',');
+  if(act!==$('pp_slp'))$('pp_slp').value=String(S.set.slippage).replace('.',',');
+  $('pp_any').checked=S.set.anyTime;
+  if(act!==$('pp_start'))$('pp_start').placeholder='Başlangıç: '+money(A.start,m);
+  ppForm();fit();
+}
+document.querySelectorAll('#ppm button').forEach(b=>b.onclick=()=>{if(ppMkt===b.dataset.m)return;ppMkt=b.dataset.m;ppQ=null;ppErr('');renderPaper();if($('pp_sym').value)ppQuote(true)});
+document.querySelectorAll('#pp_side button').forEach(b=>b.onclick=()=>{ppSide=b.dataset.s;ppErr('');ppForm()});
+$('pp_type').onchange=()=>{if($('pp_type').value!=='market'&&!$('pp_px').value&&ppQ)$('pp_px').value=String(ppQ.price).replace('.',',');ppForm()};
+$('pp_qty').oninput=ppEst;$('pp_px').oninput=ppEst;
+$('pp_qb').onclick=()=>ppQuote(false);
+$('pp_sym').onkeydown=e=>{if(e.key==='Enter')ppQuote(false)};
+$('pp_sym').onchange=()=>{ppQ=null;ppQuote(true)};
+$('pp_max').onclick=()=>{if(!ppQ)return toast('Önce fiyatı al');const A=PP.accounts[ppMkt];
+  if(ppSide==='sell'){const p=A.pos.find(x=>x.sym===ppQ.symbol);$('pp_qty').value=p?String(p.free):'0'}
+  else{const t=$('pp_type').value,lp=pNum($('pp_px').value);let n=ppMax;
+    // limit emirde ayrilan tutar limit fiyattan hesaplanir
+    if(t==='limit'&&lp>0){const c=PP.set.commission;n=Math.floor(A.available*100/(lp*100*(1+c)));while(n>0&&Math.round(lp*n*100)+Math.round(Math.round(lp*n*100)*c)>Math.round(A.available*100))n--}
+    $('pp_qty').value=String(Math.max(0,n))}
+  ppEst()};
+$('pp_go').onclick=async()=>{
+  ppErr('');const sym=$('pp_sym').value.trim(),qty=pInt($('pp_qty').value),t=$('pp_type').value,price=t==='market'?undefined:pNum($('pp_px').value);
+  if(!sym)return ppErr('Hisse kodu yaz.');
+  if(!Number.isSafeInteger(qty)||qty<1)return ppErr('Adet 1 ya da daha büyük tam sayı olmalı.');
+  if(t!=='market'&&!(price>0))return ppErr('Geçerli bir fiyat yaz (ör. 312,50).');
+  const g=$('pp_go');g.disabled=true;const old=g.textContent;g.textContent='Gönderiliyor…';
+  try{const r=await ppCall({op:'order',symbol:sym,market:ppMkt,side:ppSide,type:t,qty,price});
+    if(!r.ok){ppErr(r.msg);return}
+    if(r.trade){const x=r.trade;toast((x.side==='buy'?'Alındı: ':'Satıldı: ')+x.qty.toLocaleString('tr-TR')+' '+ppSym(x.sym)+' @ '+fmt(x.price));$('pp_qty').value=''}
+    else if(r.order)toast('Emir bekliyor: '+ppSym(r.order.sym)+' @ '+fmt(r.order.price));
+    ppQuote(true)}
+  finally{g.disabled=false;g.textContent=old;renderPaper()}
+};
+async function ppSet(o){const r=await ppCall({op:'settings',...o});if(!r.ok)toast(r.msg);else toast('Kaydedildi');renderPaper()}
+$('pp_com').onchange=()=>{const v=pNum($('pp_com').value);if(!(v>=0&&v<=10))return toast('Komisyon binde 0 ile 10 arasında olmalı');ppSet({commission:+(v/1000).toFixed(6)})};
+$('pp_slp').onchange=()=>{const v=pNum($('pp_slp').value);if(!(v>=0&&v<=100))return toast('Kayma 0 ile 100 baz puan arasında olmalı');ppSet({slippage:v})};
+$('pp_any').onchange=()=>ppSet({anyTime:$('pp_any').checked});
+$('pp_reset').onclick=async()=>{
+  const raw=$('pp_start').value.trim(),st=raw?pNum(raw):null;
+  if(raw&&!(st>=1000))return toast('Başlangıç bakiyesi en az 1.000 olmalı');
+  // Yanlislikla silmeye karsi: 4 sn icinde ikinci tik
+  if(Date.now()-ppResetAt>4000){ppResetAt=Date.now();$('pp_reset').textContent='Emin misin? Tekrar bas';setTimeout(()=>{$('pp_reset').textContent='Hesabı sıfırla'},4000);return}
+  ppResetAt=0;$('pp_reset').textContent='Hesabı sıfırla';
+  const r=await ppCall({op:'reset',market:ppMkt,start:st});toast(r.ok?(ppMkt==='US'?'ABD':'BIST')+' hesabı sıfırlandı':r.msg);$('pp_start').value='';renderPaper()};
+api.on('paper',s=>{PP=s;if($('pp').classList.contains('on'))renderPaper()});
+setInterval(()=>{if($('pp').classList.contains('on')&&!document.hidden)ppLoad()},30000);
 </script></body></html>

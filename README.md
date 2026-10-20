@@ -1,6 +1,6 @@
 # Cem App
 
-Mac için hepsi bir arada uygulama: Borsa (grafik okuma, derinlik, AL/SAT, haberler), Ses, Dosya Paylaşımı, Temizlik ve Dosya Kilidi. Özellikler Merkez penceresinden açılıp kapatılır.
+Mac için hepsi bir arada uygulama: Borsa (grafik okuma, derinlik, AL/SAT, haberler, sanal işlem), Ses, Dosya Paylaşımı, Temizlik ve Dosya Kilidi. Özellikler Merkez penceresinden açılıp kapatılır.
 
 ## Borsa
 
@@ -39,6 +39,20 @@ Analiz sekmesinin üstüne hisse kodunu (ör. `THYAO`), zaman dilimini ve borsay
 - **Alpha Vantage** (isteğe bağlı, Ayarlar'a anahtar): ABD hisselerinde haber + duygu skoru ve yedek fiyat. Ücretsiz plan günde 25 istek; uygulama sayar, sınırda durur. BIST'te kota harcanmaz.
 - **Fiyat ölçeği:** Ekrandaki mumlar gerçek mumlarla eşleştirilir (en iyi kaydırma + doğrusal uyum, r² ≥ 0,97). Eşleşince destek/direnç, derinlik duvarları, Fibonacci, ölçüm ve alarm çizgileri gerçek fiyatla etiketlenir. Grafiğin zaman dilimi seçimle aynı olmalı.
 - **Gerçek veriden analiz:** RSI, MACD, EMA, skor ve AL/SAT sinyalleri gerçek fiyatlardan, tarihleriyle hesaplanır; geçmiş sinyallerin 5 mum sonra doğru çıkma oranı gösterilir (komisyon/kayma hariç, tavsiye değildir).
+
+## Sanal işlem (sahte bakiye)
+
+Borsa penceresindeki **Sanal** sekmesi, gerçek para harcamadan alım satım denemek içindir. Hiçbir aracı kuruma emir gönderilmez.
+
+- **İki ayrı hesap:** BIST (başlangıç ₺100.000) ve ABD ($10.000). Başlangıç bakiyesi değiştirilebilir; sıfırlama yalnızca seçili hesabı temizler.
+- **Emir türleri:** piyasa, limit (al/sat) ve zarar durdur (satış). Açığa satış yoktur.
+- **Gerçek fiyat:** Yahoo Finance 1 dk mumları (BIST ~15 dk gecikmeli). Fiyat alınamazsa işlem eski fiyatla yapılmaz.
+- **Bekleyen emirler:** limit alışta gereken tutar (komisyon dahil) ayrılır; satış emirleri adetleri ayırır. Emirler, emirden sonra başlayan 1 dk mumlarla kontrol edilir (iki yenileme arasındaki dokunuşlar da kaçmaz; boşluklu açılışta açılış fiyatından dolar). Uygulama açıkken dakikada bir kontrol edilir, dolunca bildirim gelir.
+- **Maliyet:** komisyon (varsayılan binde 2) ve isteğe bağlı kayma (baz puan). Ortalama maliyet komisyon dahildir; tutarlar kuruş hassasiyetinde tam sayı olarak tutulur.
+- **Seans:** BIST takvimi (tatil, yarım gün) ve ABD 09:30–16:00 (New York). Seans kapalıyken piyasa emri verilmez; istersen Ayarlar'dan seans dışı işlemi açabilirsin.
+- **Özet:** toplam değer, nakit, kullanılabilir bakiye, açık ve gerçekleşen kâr/zarar, komisyon, isabet oranı, pozisyonlar, bekleyen emirler ve son işlemler.
+
+Veriler `paper.json` dosyasında (uygulama veri klasörü) saklanır; bozuk dosya yedeklenip yeni hesap açılır.
 
 ## Grok (xAI) ile görsel okuma (isteğe bağlı)
 
@@ -157,6 +171,7 @@ GitHub Actions her push'ta macOS için imzasız bir `.dmg` üretir (Actions › 
 | `grok.js` | xAI Grok ile grafik ve derinlik okuma (isteğe bağlı) |
 | `calendar.js` | BIST seans takvimi, tatiller ve yarım günler |
 | `market.js` | Yahoo Finance ve Alpha Vantage: mumlar, fiyat, haberler, önbellek ve kota |
+| `paper.js` | Sanal işlem motoru: sahte bakiye, emirler, komisyon, kâr/zarar |
 | `tg.js` | Telegram bağlantısı (GramJS) |
 | `depth.js` | Derinlik verisi ayrıştırma, duvarlar, al/sat baskısı ve trendi |
 | `preload.js` | Pencerelere açılan sınırlı API |

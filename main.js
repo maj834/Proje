@@ -7,6 +7,7 @@ const depthLib=require('./depth');
 const tg=require('./tg');
 const sync=require('./sync');
 const market=require('./market');
+const paperLib=require('./paper');
 const calendar=require('./calendar');
 const shareLib=require('./share');
 const APP_NAME='Cem App';
@@ -18,6 +19,7 @@ const audioUi=require('./audio-main').registerAudio({ipcMain,app,BrowserWindow,p
 hubUi=require('./hub-main').registerHub({ipcMain,app,BrowserWindow,path,cfg:()=>cfg(),save:o=>save(o),name:APP_NAME,actions:{
   open:id=>({borsa:()=>showPop(),ses:()=>audioUi.open(),paylas:()=>openShare(),temizlik:()=>cleanerUi.open(),kilit:()=>lockUi&&lockUi.open()})[id]?.(),
   toggle:(id,on)=>{
+    if(id==='borsa'&&paper)paperSchedule();
     if(id==='borsa'){if(on)registerShortcuts();else{globalShortcut.unregisterAll();if(cfg().live)setLive(false);setDepthAuto(0);
       if(drawing)setDrawing(false);lastDepth=null;sendOv('depth',null);clearAnalysis();ov.hide();pop.hide()}}
     if(id==='ses'&&!on)audioUi.stop();
@@ -751,6 +753,61 @@ function state(){
     shortcuts:scState,candleColors:candleColors(),cal:{...calendar.yearInfo(),year:new Date().getFullYear()},notify:Notification.isSupported()};
 }
 
+// --- sanal islem (sahte bakiye) ----------------------------------------------
+// Gercek emir gonderilmez. Fiyat Yahoo 1 dk mumlarindan (BIST ~15 dk gecikmeli). Islemler sirayla yapilir (cift tiklama yarisi olmaz).
+let paper=null,paperQ=Promise.resolve(),paperTimer=null;
+const paperRun=fn=>{const p=paperQ.then(fn);paperQ=p.catch(()=>{});return p};
+const paperMkt=m=>m==='US'?'US':'BIST';
+async function paperQuote(symbol,mk){
+  const y=market.yahooSymbol(symbol,mk);if(!y)throw new Error('Geçerli bir hisse kodu yaz (ör. THYAO).');
+  const r=await market.candles(y,'1dk',mk);
+  if(r.stale)throw new Error('Güncel fiyat alınamadı: '+(r.staleReason||'bağlantı yok')+'. İşlem eski fiyatla yapılmaz.');
+  const q=r.quote||{};if(!(q.price>0))throw new Error(y+' için fiyat yok.');
+  return {symbol:y,price:q.price,prev:q.prev,currency:q.currency,name:q.name,time:q.time,bars:r.rows||[],delayed:/\.IS$/.test(y)};
+}
+// Pozisyon ve emirlerdeki sembollerin fiyatini al, bekleyen emirleri isle. Hata veren sembol atlanir.
+async function paperRefresh({notify=false}={}){
+  const fills=[],failed=[],errors=[];
+  for(const sym of paper.symbols().slice(0,60)){
+    const mk=paper.marketOf(sym);if(!mk)continue;
+    try{const q=await paperQuote(sym,mk);const r=paper.process(sym,q.bars,q);fills.push(...r.fills);failed.push(...r.failed)}
+    catch(e){errors.push(sym.replace(/\.IS$/,'')+': '+e.message)}
+  }
+  if(notify&&Notification.isSupported()){
+    for(const f of fills)new Notification({title:'Sanal işlem · '+f.sym.replace(/\.IS$/,''),body:(f.side==='buy'?'Alış':'Satış')+' emri doldu: '+f.qty+' adet @ '+f.price}).show();
+    for(const x of failed)new Notification({title:'Sanal işlem · '+x.order.sym.replace(/\.IS$/,''),body:'Emir iptal edildi: '+x.msg}).show();
+  }
+  return {fills,failed,errors};
+}
+const paperOut=(extra={})=>({ok:true,...extra,state:paper.summary()});
+const paperFail=e=>({ok:false,msg:e&&e.message?e.message:'Beklenmeyen hata',state:paper.summary()});
+// Bekleyen emir varken popup kapali olsa da dakikada bir kontrol edilir (Borsa ozelligi kapaliysa durur).
+function paperSchedule(){
+  const need=paper&&paper.hasOrders()&&modOn('borsa');
+  if(need&&!paperTimer)paperTimer=setInterval(()=>{if(!paper.hasOrders()||!modOn('borsa')){clearInterval(paperTimer);paperTimer=null;return}
+    paperRun(()=>paperRefresh({notify:true})).then(r=>{if(r.fills.length||r.failed.length)send('paper',paper.summary())}).catch(()=>{})},60000);
+  if(!need&&paperTimer){clearInterval(paperTimer);paperTimer=null}
+}
+async function paperOp(o){
+  o=o&&typeof o==='object'?o:{};
+  if(!modOn('borsa'))return {ok:false,msg:'Borsa özelliği kapalı.'};
+  try{switch(o.op){
+    case 'state':{const r=await paperRefresh({notify:false});return paperOut(r)}
+    case 'quote':{const mk=paperMkt(o.market),q=await paperQuote(String(o.symbol||'').slice(0,20),mk);
+      const r=paper.process(q.symbol,q.bars,q);
+      return paperOut({quote:{symbol:q.symbol,price:q.price,prev:q.prev,currency:q.currency,name:q.name,time:q.time,delayed:q.delayed},
+        maxBuy:paper.maxBuy(mk,q.price),fills:r.fills})}
+    case 'order':{const mk=paperMkt(o.market),q=await paperQuote(String(o.symbol||'').slice(0,20),mk);
+      paper.process(q.symbol,q.bars,q);
+      const r=paper.place({symbol:q.symbol,market:mk,side:o.side,type:o.type,qty:o.qty,price:o.price},q);
+      paperSchedule();return paperOut(r)}
+    case 'cancel':paper.cancel(String(o.id||''));paperSchedule();return paperOut();
+    case 'reset':paper.reset(paperMkt(o.market),o.start==null?undefined:o.start);paperSchedule();return paperOut();
+    case 'settings':paper.settings({commission:o.commission,slippage:o.slippage,anyTime:o.anyTime});return paperOut();
+    default:return {ok:false,msg:'Bilinmeyen işlem.'};
+  }}catch(e){return paperFail(e)}
+}
+
 app.whenReady().then(()=>{
   migrateDrawings();mk();
   // Dosya kilidi: ev ve veri klasorlerini okudugu icin uygulama hazir olunca kaydedilir
@@ -840,6 +897,9 @@ app.whenReady().then(()=>{
   ipcMain.handle('openBilling',()=>shell.openExternal('https://console.anthropic.com/settings/billing'));
   ipcMain.handle('quit',()=>app.quit());
   market.init(app.getPath('userData'));
+  paper=paperLib.create({file:path.join(app.getPath('userData'),'paper.json')});
+  ipcMain.handle('paper',(e,o)=>paperRun(()=>paperOp(o)));
+  paperSchedule();
   ipcMain.handle('sbConnect',async(e,p)=>{try{
     const r=await sync.signIn({url:p.url,anon:p.anon,email:String(p.email||'').trim(),password:String(p.password||'')});
     save({sb:{url:r.url,anon:enc(String(p.anon).trim()),email:r.user,refresh:enc(sync.tokens().refresh)},sbOn:true});
