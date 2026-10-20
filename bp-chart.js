@@ -225,8 +225,8 @@ function create(el,opts={}){
       PL.push(c.createPriceLine({price:l.price,color:sty[0],lineWidth:sty[1],lineStyle:sty[2],axisLabelVisible:true,title:l.title}))}
     const pl=D.pro&&D.pro.ok&&D.pro.plan;
     if(show.plan&&pl&&!pl.wait&&Array.isArray(pl.entry))PL.push(c.createPriceLine({price:(pl.entry[0]+pl.entry[1])/2,color:C.acc,lineWidth:1,lineStyle:3,axisLabelVisible:true,title:'Giriş'}));
-    for(const a of D.alarms||[])if(a&&fin(a.price))PL.push(c.createPriceLine({price:a.price,color:C.acc,lineWidth:1,lineStyle:1,axisLabelVisible:true,title:'Alarm'+(a.kind==='above'?' ↑':a.kind==='below'?' ↓':'')}));
-    for(const p of D.positions||[])if(p&&fin(p.cost))PL.push(c.createPriceLine({price:p.cost,color:C.muted,lineWidth:1,lineStyle:0,axisLabelVisible:true,title:'Maliyet'}));
+    for(const a of D.alarms||[])if(a&&fin(a.price))PL.push(c.createPriceLine({price:a.price,color:C.acc,lineWidth:1,lineStyle:1,axisLabelVisible:true,title:a.label||'Alarm'+(a.kind==='above'?' ↑':a.kind==='below'?' ↓':'')}));
+    for(const p of D.positions||[])if(p&&fin(p.cost))PL.push(c.createPriceLine({price:p.cost,color:C.muted,lineWidth:1,lineStyle:0,axisLabelVisible:true,title:p.label||'Maliyet'}));
     const mk=markers({rows:R,signals:D.signals,pro:D.pro,trades:D.trades,show},C);
     if(LW.createSeriesMarkers)markerApi=LW.createSeriesMarkers(c,mk);
     if(range&&key===D.symbol+'|'+D.tf)try{chart.timeScale().setVisibleLogicalRange(range)}catch(e){}

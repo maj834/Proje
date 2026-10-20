@@ -8,7 +8,7 @@ const engine = require('../engine');
 const realMarket = require('../market');
 const BP = require('../borsa-pro-main.js');
 
-const CHANNELS = ['bp:ai', 'bp:alarm', 'bp:ask', 'bp:capital', 'bp:depth', 'bp:feeds', 'bp:lab', 'bp:load', 'bp:okul', 'bp:open', 'bp:overview', 'bp:plan', 'bp:planApply', 'bp:portfolio', 'bp:prefs',
+const CHANNELS = ['bp:ai', 'bp:alarm', 'bp:ask', 'bp:capital', 'bp:demo', 'bp:depth', 'bp:feeds', 'bp:lab', 'bp:load', 'bp:okul', 'bp:open', 'bp:overview', 'bp:plan', 'bp:planApply', 'bp:portfolio', 'bp:prefs',
   'bp:quotes', 'bp:report', 'bp:scan', 'bp:scanCancel', 'bp:search', 'bp:state', 'bp:watch'];
 const T0 = Date.UTC(2026, 9, 19, 8, 0);                 // Pazartesi 11:00 Istanbul
 const flush = async (n = 5) => { for (let i = 0; i < n; i++) await new Promise(r => setImmediate(r)); };
@@ -150,7 +150,7 @@ function harness(t, o = {}) {
     BrowserWindow: Win, path, screen: { getPrimaryDisplay: () => ({ workAreaSize: o.area || { width: 1920, height: 1080 } }) },
     Notification: Notif, shell: { openExternal: u => opened.push(u) }, nativeTheme: { shouldUseDarkColors: o.dark !== false, on() {} },
     cfg: () => store.c, save: x => { store.c = { ...store.c, ...x }; store.saves++; }, isOn: () => h.on,
-    market, engine: o.engine || engine, calendar, power, data, lab, analyst, ext, say: s => said.push(s), now: () => clock.t, timers,
+    demo: o.demo === undefined ? require('../bp-demo') : o.demo, market, engine: o.engine || engine, calendar, power, data, lab, analyst, ext, say: s => said.push(s), now: () => clock.t, timers,
     meta: o.meta === undefined ? { U, PRESETS, TAGS: { 'kirilim-yukari': { name: 'Yukarı kırılım', dir: 1 } } } : o.meta,
     quant: o.quant || null, history: o.history || null, fund: o.fund || null, radar: o.radar || null, planner: o.planner || null, apis: o.apis || null, secrets: o.secrets || null };
   h.deps = deps; h.Notif = Notif;
@@ -849,7 +849,7 @@ test('preload: yalniz bp: kanallari, ana surecle ayni kanal kumesi; on yalniz bp
   delete require.cache[pPath]; require(pPath);
   assert.equal(exposed.k, 'bp');
   const api = exposed.v;
-  assert.deepEqual(Object.keys(api).sort(), ['ai', 'alarm', 'ask', 'capital', 'depth', 'feeds', 'lab', 'load', 'okul', 'on', 'open', 'overview', 'plan', 'planApply', 'portfolio', 'prefs', 'quotes', 'report', 'scan', 'scanCancel', 'search', 'state', 'watch']);
+  assert.deepEqual(Object.keys(api).sort(), ['ai', 'alarm', 'ask', 'capital', 'demo', 'depth', 'feeds', 'lab', 'load', 'okul', 'on', 'open', 'overview', 'plan', 'planApply', 'portfolio', 'prefs', 'quotes', 'report', 'scan', 'scanCancel', 'search', 'state', 'watch']);
   for (const k of Object.keys(api)) if (k !== 'on') assert.equal(await api[k]({ a: 1 }), 'ok');
   const chans = [...new Set(invokes.map(x => x[0]))].sort();
   assert.deepEqual(chans, CHANNELS, 'ana surecin kaydettigi kanallarla birebir');
@@ -1044,4 +1044,48 @@ test('bp:feeds: durum, anahtar kaydi + dogrulama, piyasa (doviz/kripto/radar), h
   const h2 = harness(t); h2.ui.open();
   r = await h2.call('bp:feeds', { op: 'market' }); assert.equal(r.ok, true); assert.equal(r.fx, null); assert.equal(r.crypto, null);
   assert.equal((await h2.call('bp:feeds', { op: 'key', provider: 'news', key: 'a'.repeat(32) })).ok, false);
+});
+
+// --- yerel demo hesap -----------------------------------------------------------------------
+function demoHarness(t,o={}){const h=harness(t,o);h.ui.open();h.ui.enable();h.px=100;h.bars=[];h.stale=false;
+  h.market.candles=async(sym,tf)=>({rows:tf==='1g'?[]:h.bars,stale:h.stale,quote:{price:h.px,currency:sym.endsWith('.IS')?'TRY':'USD',time:h.clock.t,name:'Test'}});
+  h.demo=o=>h.call('bp:demo',o);return h}
+test('bp:demo: al/sat, ayrilan adet/bakiye, iptal, ayarlar ve hesabi sifirlama',async t=>{
+  const h=demoHarness(t);const order=(x={})=>h.demo({op:'order',symbol:'THYAO',market:'BIST',side:'buy',type:'market',qty:10,...x});
+  let r=await order();assert.equal(r.ok,true);assert.equal(r.summary.accounts.BIST.cash,98998);assert.equal(r.summary.accounts.BIST.pos[0].qty,10);
+  assert.equal(h.notes.at(-1).title,'Borsa Pro · Demo');assert.equal(h.evts('demo').length,1);assert.equal(h.said.length,0);
+  r=await order({type:'limit',price:90,qty:20});assert.equal(r.summary.accounts.BIST.reserved,1803.6);const id=r.order.id;
+  r=await h.demo({op:'cancel',id});assert.equal(r.summary.accounts.BIST.reserved,0);
+  r=await order({side:'sell',type:'stop',price:95,qty:8});assert.equal(r.summary.accounts.BIST.pos[0].free,2);
+  r=await order({side:'sell',qty:3});assert.equal(r.ok,false);assert.match(r.error,/Satılabilir/);
+  r=await h.demo({op:'quote',symbol:'THYAO',market:'BIST'});assert.equal(r.quote.symbol,'THYAO.IS');assert.ok(r.maxBuy>0);
+  r=await h.demo({op:'settings',commissionPct:0.1,slippageBp:5,anyTime:true});assert.deepEqual(r.summary.set,{commission:0.001,slippage:5,anyTime:true});
+  r=await h.demo({op:'reset',market:'BIST',start:50000});assert.equal(r.summary.accounts.BIST.cash,50000);assert.equal(r.summary.orders.length,0);assert.equal(r.summary.trades.length,0);
+  assert.equal(r.summary.accounts.US.cash,10000);assert.ok(fs.existsSync(path.join(h.dir,'bp-demo.json')));
+});
+test('bp:demo: mum dokunusu, bosluk, bildirim ve gecmis zaman damgasi',async t=>{
+  const h=demoHarness(t);let r=await h.demo({op:'order',symbol:'THYAO',market:'BIST',side:'buy',type:'limit',price:90,qty:10});assert.ok(r.order);
+  const at=h.clock.t+60000;h.clock.t+=180000;h.px=100;h.bars=[{t:at,o:88,h:100,l:87,c:99}];
+  r=await h.demo({op:'refresh'});assert.equal(r.fills.length,1);assert.equal(r.fills[0].price,88);assert.equal(r.fills[0].at,at);assert.equal(h.notes.length,1);
+  r=await h.demo({op:'refresh'});assert.equal(r.fills.length,0);assert.equal(h.notes.length,1);
+});
+test('bp:demo: eski veri, yanlis para birimi, gecersiz adet/ayar ve kapali motor',async t=>{
+  const h=demoHarness(t);const o={op:'order',symbol:'THYAO',market:'BIST',side:'buy',type:'market',qty:1};
+  h.stale=true;assert.equal((await h.demo(o)).ok,false);h.stale=false;
+  for(const patch of [{qty:1.5},{qty:0},{market:'UK'},{type:'stop',price:90}])assert.equal((await h.demo({...o,...patch})).ok,false);
+  const orig=h.market.candles;h.market.candles=async()=>({rows:[],quote:{price:100,currency:'USD',time:h.clock.t}});assert.equal((await h.demo(o)).ok,false);h.market.candles=orig;
+  assert.equal((await h.demo({op:'settings',commissionPct:2})).ok,false);
+  h.market.candles=async()=>({rows:[],quote:{price:100,currency:'TRY',time:h.clock.t-26*60000}});assert.equal((await h.demo(o)).ok,false);
+  const no=demoHarness(t,{demo:null});assert.equal((await no.demo({op:'state'})).ok,false);
+});
+test('bp:demo: siralama, ozellik kapanirken devam eden emir yazilmaz',async t=>{
+  const h=demoHarness(t),gate=deferred();const orig=h.market.candles;h.market.candles=async(...a)=>{await gate.p;return orig(...a)};
+  const req=h.demo({op:'order',symbol:'THYAO',market:'BIST',side:'buy',type:'market',qty:1});await flush();h.ui.disable();gate.ok();assert.equal((await req).ok,false);
+  h.ui.enable();h.ui.open();const r=await h.demo({op:'state'});assert.equal(r.summary.trades.length,0);assert.equal(r.summary.accounts.BIST.cash,100000);
+});
+test('bp:demo: bekleyen emir arka planda, kilitte durur ve yeniden acilista geri gelir',async t=>{
+  const h=demoHarness(t);await h.demo({op:'order',symbol:'THYAO',market:'BIST',side:'buy',type:'limit',price:90,qty:2});
+  assert.equal(h.timers.pending,2);h.ui.close();assert.equal(h.timers.pending,1);
+  h.power.set({locked:true});assert.equal(h.timers.pending,0);h.power.set({locked:false});assert.equal(h.timers.pending,1);
+  h.clock.t+=60000;h.px=89;await h.timers.fire();await flush(20);assert.equal(h.notes.length,1);assert.equal(h.timers.pending,0);
 });
