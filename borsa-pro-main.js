@@ -257,6 +257,11 @@ function registerBorsaPro({ipcMain,app,BrowserWindow,path,screen,Notification,sh
     if(bist&&q1&&!q1.stale)remember(sym,quote);              // yalniz taze fiyat (mum onbellegi 30 dk eski olabilir; alarm baslangici bozulmasin)
     let pro;try{pro=engine.proAnalyze(frames,{primary:tf,depth:es.depth||null,news:es.news||null,riskPct:riskPct(),bench:bist&&Array.isArray(bn)?bn:null})}catch(e){pro=err('Analiz yapılamadı: '+msg(e))}
     if(!pro||typeof pro!=='object')pro=err('Analiz yapılamadı.');
+    // Gunluk karar taramayla ayni girdilerle: gunluk mumlar + gunlukten haftalik (Yahoo haftalik/saatlik dilimler karara girmez).
+    // Boylece ayni anda tarayici ile analiz ayni karari verir; dilim/seviye kartlari yine tum dilimleri gosterir.
+    if(tf==='1g'&&pro.ok&&Array.isArray(frames['1g'])&&meta&&typeof meta.resampleWeekly==='function')try{
+      const g=frames['1g'],sv=engine.proAnalyze({'1g':g,'1h':meta.resampleWeekly(g)},{primary:'1g',depth:es.depth||null,news:es.news||null,riskPct:riskPct(),bench:bist&&Array.isArray(bn)?bn:null});
+      if(sv&&sv.ok&&sv.verdict){pro.verdict=sv.verdict;pro.plan=sv.plan}}catch(e){}
     const daily=Array.isArray(frames['1g'])&&frames['1g'].length?frames['1g']:null;
     let stats=null;if(daily&&data&&typeof data.stats==='function')try{stats=data.stats(daily,bn||null)||null}catch(e){}
     const out=rows.length>MAX_ROWS?rows.slice(-MAX_ROWS):rows,t0=out[0].t;let signals=[];
