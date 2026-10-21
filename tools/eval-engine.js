@@ -46,6 +46,20 @@ const r3=v=>v==null?null:+v.toFixed(3);
     for(const h of H){const Y=R.filter(r=>Number.isFinite(r.fw[h].ex));o.ic_skor['h'+h]=r3(corr(Y.map(r=>r.score),Y.map(r=>r.fw[h].ex)));
       o.ic['h'+h]={};for(const k of keys){const Z=Y.filter(r=>Number.isFinite(r.comp[k]));o.ic['h'+h][k]=r3(corr(Z.map(r=>r.comp[k]),Z.map(r=>r.fw[h].ex)))}}
     out.sonuc[nm]=o}
+  // Agirlik karsilastirmasi: mevcut motor agirliklari vs egitim donemi IC'sine (10 gun) gore agirliklar; test doneminde olculur.
+  const CUR={trend:0.25,mtf:0.15,momentum:0.2,hacim:0.1,yapi:0.2},ICW={};
+  for(const k of Object.keys(CUR)){const v=out.sonuc.egitim.ic.h10[k];ICW[k]=Math.max(0,v||0)}
+  const sc=(r,W)=>{let s=0,w=0;for(const k in W)if(Number.isFinite(r.comp[k])){s+=W[k]*r.comp[k];w+=W[k]}return w?s/w*100:0};
+  const BK=[[-101,-40],[-40,-20],[-20,0],[0,20],[20,40],[40,101]];
+  function judge(R,W){const o={};for(const h of H){const Y=R.filter(r=>Number.isFinite(r.fw[h].ex)),xs=Y.map(r=>sc(r,W));
+      o['ic'+h]=r3(corr(xs,Y.map(r=>r.fw[h].ex)));const ord=Y.map((r,i)=>[xs[i],r.fw[h].ex]).sort((a,b)=>a[0]-b[0]),q=Math.floor(ord.length/5);
+      o['ustAlt'+h]=q?r3(mean(ord.slice(-q).map(x=>x[1]))-mean(ord.slice(0,q).map(x=>x[1]))):null}
+    o.kova=BK.map(([lo,hi])=>{const X=R.filter(r=>{const v=sc(r,W);return v>=lo&&v<hi});const ex=X.map(r=>r.fw[10].ex).filter(Number.isFinite);
+      return {aralik:[lo,hi],n:X.length,fazlaPozitif10:r3(mean(ex.map(v=>v>0?1:0))),ortFazla10:r3(mean(ex)),yukselme10:r3(mean(X.map(r=>r.fw[10].ret>0?1:0))),
+        fazlaPozitif20:r3(mean(X.map(r=>r.fw[20].ex).filter(Number.isFinite).map(v=>v>0?1:0))),ortFazla20:r3(mean(X.map(r=>r.fw[20].ex).filter(Number.isFinite)))}});
+    return o}
+  out.agirlik={mevcut:CUR,ic:ICW,egitim:{mevcut:judge(part.egitim,CUR),ic:judge(part.egitim,ICW)},test:{mevcut:judge(part.test,CUR),ic:judge(part.test,ICW)},
+    tum:{mevcut:judge(recs,CUR),ic:judge(recs,ICW)}};
   fs.mkdirSync('eval-out',{recursive:true});fs.writeFileSync('eval-out/sonuc.json',JSON.stringify(out,null,1));
   fs.writeFileSync('eval-out/ornekler.json',JSON.stringify(recs));
   const txt='EVAL_JSON_BEGIN\n'+JSON.stringify(out)+'\nEVAL_JSON_END';console.log(txt);
