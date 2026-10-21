@@ -362,18 +362,18 @@ test('quote: gecersiz kod, 404, bos sonuc ve fiyatsiz cevap mesajlari; ABD/ozel 
   mode = 404; await assert.rejects(M.quote('IJKL'), /bulunamadı/); mode = 'ok'; assert.equal((await M.quote('IJKL')).price, 352.25);
 });
 
-test('onbellek diske kisilarak yazilir; yenilenen kayit sona tasinir, en fazla 220 kayit', async t => {
+test('onbellek diske kisilarak yazilir; yenilenen kayit sona tasinir, en fazla 1100 kayit', async t => {
   const { M, dir } = setup(t);
   mockFetch(t, [[isChart, url => ({ body: yahooChart(decodeURIComponent(url.split('/chart/')[1].split('?')[0])) })]]);
   await M.candles('THYAO', '1g');
   const f = path.join(dir, 'market-cache.json');
   assert.ok(JSON.parse(fs.readFileSync(f, 'utf8'))['yc:THYAO.IS:1g'], 'ilk yazma hemen');
-  for (let i = 0; i < 230; i++) await M.candles('S' + String(i).padStart(3, '0') + 'X', '1g');
+  for (let i = 0; i < 1110; i++) await M.candles('S' + String(i).padStart(4, '0') + 'X', '1g');
   M.flush();
   const disk = JSON.parse(fs.readFileSync(f, 'utf8'));
-  assert.equal(Object.keys(disk).length, 220);
+  assert.equal(Object.keys(disk).length, 1100);
   assert.ok(!disk['yc:THYAO.IS:1g'], 'en eski dusar');
-  assert.ok(disk['yc:S229X.IS:1g']);
+  assert.ok(disk['yc:S1109X.IS:1g']);
 });
 
 // --- fundamentals(): Yahoo quoteSummary (cerez + crumb) ---------------------------------------------------------

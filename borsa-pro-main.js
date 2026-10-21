@@ -6,7 +6,7 @@
 const fs=require('fs'),crypto=require('crypto');
 
 const TFS=['1dk','5dk','15dk','1s','1g','1h'],MKTS=['BIST','US'],KINDS=['above','below','verdict'],LABELS=['AL','SAT','BEKLE'];
-const UNIVERSES=['BIST30','BIST50','BIST100','WATCH'],PROVIDERS=['groq','claude','grok'],PNAME={groq:'Groq',claude:'Claude',grok:'Grok'};
+const UNIVERSES=['BIST30','BIST50','BIST100','BIST500','WATCH'],PROVIDERS=['groq','claude','grok'],PNAME={groq:'Groq',claude:'Claude',grok:'Grok'};
 const MAX_WATCH=60,MAX_ALARMS=100,MAX_POS=200,MAX_ROWS=800;
 const IV=60000,IV_BAT=180000,VERDICT_MS=15*60000,OV_TTL=60000,DEPTH_FRESH=5*60000,CTX_TTL=15*60000,AN_TTL=2*60000,AI_TTL=10*60000,
   PX_FRESH=3*60000,BENCH_TTL=30*60000;
@@ -147,8 +147,8 @@ function registerBorsaPro({ipcMain,app,BrowserWindow,path,screen,Notification,sh
   const ysym=(s,mkt)=>{if(typeof s!=='string'||!s.trim()||s.length>30)return null;
     try{return market&&typeof market.yahooSymbol==='function'?market.yahooSymbol(s,mkt)||null:ysymFallback(s,mkt)}catch(e){return null}};
   const lib=k=>(meta&&meta[k])||(data&&data[k])||null;
-  const univ=()=>{const u=obj(lib('U')),o={};for(const k of ['BIST30','BIST50','BIST100'])o[k]=Array.isArray(u[k])?u[k]:[];return o};
-  const counts=()=>{const u=univ();return {BIST30:u.BIST30.length,BIST50:u.BIST50.length,BIST100:u.BIST100.length,WATCH:conf().watch.length}};
+  const univ=()=>{const u=obj(lib('U')),o={};for(const k of ['BIST30','BIST50','BIST100','BIST500'])o[k]=Array.isArray(u[k])?u[k]:[];return o};
+  const counts=()=>{const u=univ();return {BIST30:u.BIST30.length,BIST50:u.BIST50.length,BIST100:u.BIST100.length,BIST500:u.BIST500.length,WATCH:conf().watch.length}};
   const providers=()=>{try{const p=analyst&&analyst.providers?analyst.providers():[];return Array.isArray(p)?p.filter(x=>PROVIDERS.includes(x)):[]}catch(e){return []}};
   const remember=(sym,q)=>{if(sym&&q&&fin(q.price)&&q.price>0&&!q.error)lastPx.set(sym,{price:q.price,prev:fin(q.prev)?q.prev:null,chgPct:fin(q.chgPct)?q.chgPct:null,stale:!!q.stale,at:now()})};
   const freshPx=sym=>{const q=lastPx.get(sym);return q&&!q.stale&&now()-q.at<PX_FRESH?q.price:null};

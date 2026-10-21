@@ -929,7 +929,7 @@ const COLS=[['symbol','Hisse'],['price','Fiyat'],['chgPct','Gün'],['verdict','K
 const colVal=(r,k)=>k==='verdict'?(r.verdict?r.verdict.dir:0):k==='score'?(r.verdict?r.verdict.score:null):k==='conf'?(r.verdict?r.verdict.confidence:null):k==='d20'?(r.perf?r.perf.d20:null):k==='tags'?(r.tags||[]).length:r[k];
 function renderScan(){
   const v=$('v-tarama'),st=S.st,sc=S.scan,uni=(st.prefs&&st.prefs.universe)||'BIST30',U=st.universes||{};
-  const useg=el('div',{class:'seg'},...['BIST30','BIST50','BIST100','WATCH'].map(u=>el('button',{class:u===uni?'on':'',onclick:()=>{st.prefs={...st.prefs,universe:u};bp.prefs({universe:u}).catch(()=>{});renderScan()}},
+  const useg=el('div',{class:'seg'},...['BIST30','BIST50','BIST100','BIST500','WATCH'].map(u=>el('button',{class:u===uni?'on':'',onclick:()=>{st.prefs={...st.prefs,universe:u};bp.prefs({universe:u}).catch(()=>{});renderScan()}},
     (u==='WATCH'?'İzleme':u)+(U[u]?' ('+U[u]+')':''))));
   const prog=el('div',{class:'prog'},el('i',{id:'sprog'}));
   const go_=el('button',{class:'btn pri',disabled:scanning,onclick:startScan},scanning?'Taranıyor…':'Tara');
@@ -940,7 +940,7 @@ function renderScan(){
   const pchips=el('div',{class:'tb',style:'padding:0 0 10px'},el('button',{class:'chip'+(!S.preset?' on':''),onclick:()=>{S.preset=null;renderScan()}},'Tümü'),
     ...presets.map(p=>el('button',{class:'chip'+(S.preset===p.id?' on':''),title:p.desc,onclick:()=>{S.preset=S.preset===p.id?null:p.id;renderScan()}},p.name,sc?el('span',{class:'mu num'},String(cnt(p.id))):null)));
   if(!sc||!sc.rows||!sc.rows.length){v.replaceChildren(head,pchips,el('div',{class:'empty'},el('b',{},'Henüz tarama yok'),
-    'Seçili evrendeki her hisse günlük ve haftalık veriyle analiz edilir: karar, skor, kırılım, sıkışma, uyumsuzluk, 52 hafta zirvesi, hacim patlaması. BIST100 ilk taramada yaklaşık 30–60 sn sürer, sonra önbellekten hızlıdır.'));return}
+    'Seçili evrendeki her hisse günlük ve haftalık veriyle analiz edilir: karar, skor, kırılım, sıkışma, uyumsuzluk, 52 hafta zirvesi, hacim patlaması. BIST100 ilk taramada yaklaşık 30–60 sn, BIST500 birkaç dakika sürer; sonra önbellekten hızlıdır.'));return}
   let rows=sc.rows.slice();if(S.preset)rows=rows.filter(r=>(r.presets||[]).includes(S.preset));if(S.sector)rows=rows.filter(r=>r.sector===S.sector);
   const {k,d}=S.sort;rows.sort((a,b)=>{const x=colVal(a,k),y=colVal(b,k);if(k==='symbol')return d*String(x).localeCompare(String(y));return d*((fin(x)?x:-1e9)-(fin(y)?y:-1e9))});
   const B=sc.breadth;

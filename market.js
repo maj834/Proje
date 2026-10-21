@@ -14,9 +14,9 @@ function init(d){
   try{cache=JSON.parse(fs.readFileSync(path.join(dir,'market-cache.json'),'utf8'))}catch(e){cache={}}
   try{avUse=JSON.parse(fs.readFileSync(path.join(dir,'av-usage.json'),'utf8'))}catch(e){}
 }
-// Disk onbellegi: en yeni CACHE_MAX kayit (BIST100 taramasi + bakilan hisseler sigsin). Yazma kisilir: ilk yazma hemen,
+// Disk onbellegi: en yeni CACHE_MAX kayit (BIST500 taramasi + bakilan hisseler sigsin). Yazma kisilir: ilk yazma hemen,
 // sonrakiler en fazla PERSIST_MS'de bir (tarama sirasinda dosya her istekte yeniden yazilmasin); kapanista flush().
-const CACHE_MAX=220,PERSIST_MS=5000;let lastWrite=0,writeTimer=null;
+const CACHE_MAX=1100,PERSIST_MS=5000;let lastWrite=0,writeTimer=null;
 const writeNow=()=>{if(writeTimer){clearTimeout(writeTimer);writeTimer=null}if(!dir)return;lastWrite=Date.now();try{
   const keep=Object.fromEntries(Object.entries(cache).filter(([,v])=>Date.now()-v.at<7*86400000).slice(-CACHE_MAX));cache=keep;
   fs.writeFileSync(path.join(dir,'market-cache.json'),JSON.stringify(keep))}catch(e){}};

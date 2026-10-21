@@ -80,7 +80,9 @@ test('U: BIST30 < BIST50 < BIST100, tekrarsiz, gecerli kodlar, hepsinin adi var'
     for (const s of U[k]) { assert.match(s, /^[A-Z][A-Z0-9]{3,5}$/, s); assert.ok(NAMES[s] && NAMES[s].length > 1, 'ad yok: ' + s); assert.equal(M.yahooSymbol(s), s + '.IS'); }
   }
   assert.ok(U.BIST30.every(s => U.BIST50.includes(s)) && U.BIST50.every(s => U.BIST100.includes(s)));
-  assert.deepEqual(Object.keys(U), ['BIST30', 'BIST50', 'BIST100'], 'not alani numaralandirilmaz');
+  assert.deepEqual(Object.keys(U), ['BIST30', 'BIST50', 'BIST100', 'BIST500'], 'not alani numaralandirilmaz');
+  assert.equal(U.BIST500.length, 500); assert.equal(new Set(U.BIST500).size, 500); assert.ok(U.BIST100.every(s => U.BIST500.includes(s)));
+  for (const s of U.BIST500) assert.match(s, /^[A-Z][A-Z0-9]{1,7}$/, s);
   assert.match(U.note, /Yaklaşık/);
   for (const s of ['THYAO', 'ASELS', 'GARAN', 'SISE', 'TUPRS', 'BIMAS', 'KCHOL']) assert.ok(U.BIST30.includes(s), s);
   assert.ok(!U.BIST100.includes('KOZAL') && U.BIST30.includes('TRALT'), 'KOZAL -> TRALT kod degisikligi');

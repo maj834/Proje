@@ -546,19 +546,28 @@ function structure(sw){const h=sw.hi.slice(-2),l=sw.lo.slice(-2);
 // en cok temas (0,35 ATR icinde tepe/dip), sonra en uzun aciklik, sonra en yeni ikinci nokta. Fiyattan 8 ATR'den uzak cizgi alinmaz.
 // Kanal: karsi uctan paralel. Tur basina en fazla bir cizgi (karar bileseni yalniz kirilimi kullanir).
 function trendlines(rows,sw,atr){const N=rows.length,out=[],c=rows[N-1].c;if(!(atr>0)||N<10)return out;
-  const mk=(all,type)=>{const pts=all.slice(-8),sup=type==='destek';let best=null;
-    for(let x=0;x<pts.length-1;x++)for(let y=x+1;y<pts.length;y++){const a=pts[x],b=pts[y];if(b.i-a.i<3)continue;
-      const m=(b.p-a.p)/(b.i-a.i);if(sup?m<=0:m>=0)continue;
-      const at=i=>a.p+m*(i-a.i);let ok=true;
-      for(let i=a.i;i<N-1;i++)if(sup?rows[i].c<at(i)-atr*0.25:rows[i].c>at(i)+atr*0.25){ok=false;break}
-      if(!ok||Math.abs(at(N-1)-c)>atr*8)continue;
-      const touch=pts.slice(x).filter(q=>Math.abs(q.p-at(q.i))<=atr*0.35).length;
-      const sc=touch*1000+(b.i-a.i)+b.i/N;
+  // Trader kurali: cizgi iki tepe/dip (fitil) arasindan gecer; sonrasinda fitiller en fazla 0.6 ATR, kapanislar 0.15 ATR tasabilir
+  // (son 2 mum haric: onlar kirilimi belirler). Fiyattan 3 ATR'den uzak, cok dik (mum basina >0.6 ATR) ya da son 150 mumdan
+  // eski cizgiler atilir. Puan: dokunus sayisi (fitil cizgiye 0.3 ATR yakin, en az 3 mum arayla) > yakinlik > guncellik.
+  const from=Math.max(0,N-150),TOL=atr*0.3;
+  const mk=(all,type)=>{const sup=type==='destek',pts=all.filter(q=>q.i>=from&&q.i<=N-3).slice(-10);let best=null;
+    for(let x=0;x<pts.length-1;x++)for(let y=x+1;y<pts.length;y++){const a=pts[x],b=pts[y];if(b.i-a.i<5)continue;
+      const m=(b.p-a.p)/(b.i-a.i);if(sup?m<=0:m>=0)continue;if(Math.abs(m)>atr*0.6)continue;
+      const at=i=>a.p+m*(i-a.i);let ok=true,touch=0,last=-9;
+      for(let i=a.i;i<N;i++){const r=rows[i],L=at(i);
+        if(i<N-2&&(sup?L-r.c>TOL*0.5||L-r.l>TOL*2:r.c-L>TOL*0.5||r.h-L>TOL*2)){ok=false;break}
+        if(i<N-2&&Math.abs((sup?r.l:r.h)-L)<=TOL&&i-last>=3){touch++;last=i}}
+      if(!ok||touch<2)continue;
+      // Yeni kirilan cizgi (son kapanis cizginin ters tarafinda) 6 ATR'ye kadar gosterilir; digerleri 3 ATR
+      const dist=Math.abs(at(N-1)-c),brk=sup?c<at(N-1):c>at(N-1);if(dist>atr*(brk?6:3))continue;
+      const sc=touch*1000-dist/atr*60+b.i/N*30;
       if(!best||sc>best.sc)best={sc,a,m,touch}}
     if(!best)return;const {a,m}=best,at=i=>a.p+m*(i-a.i);let off=0;
     for(let i=a.i;i<N;i++)off=sup?Math.max(off,rows[i].h-at(i)):Math.min(off,rows[i].l-at(i));
+    const lastTwo=[N-2,N-1].filter(i=>i>=0);
     out.push({type,i1:a.i,p1:a.p,i2:N-1,p2:+at(N-1).toFixed(4),now:+at(N-1).toFixed(4),slopePct:+(m/c*100).toFixed(3),touches:best.touch,
-      channel:Math.abs(off)>atr?+(at(N-1)+off).toFixed(4):null,broken:sup?c<at(N-1)-atr*0.25:c>at(N-1)+atr*0.25})};
+      channel:Math.abs(off)>atr&&Math.abs(off)<atr*8?+(at(N-1)+off).toFixed(4):null,
+      broken:lastTwo.some(i=>sup?rows[i].c<at(i)-atr*0.25:rows[i].c>at(i)+atr*0.25)&&(sup?c<at(N-1):c>at(N-1))})};
   mk(sw.lo,'destek');mk(sw.hi,'direnc');return out}
 const last=a=>a[a.length-1];
 // Kirilim ve tekrar test: en az iki temasli bolgenin son 6 mumda kapanisla gecilmesi; sonrasinda bolgeye geri cekilip ustunde kalma.

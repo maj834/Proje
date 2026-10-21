@@ -278,7 +278,7 @@ test('bp:state: varsayilanlar, evren sayilari, son tarama dosyasi, saglayicilar,
   assert.deepEqual(s.alarms, []); assert.deepEqual(s.portfolio, { positions: [], summary: BP.summarize([], () => null, '') });
   assert.equal(s.capital, null); assert.equal(s.riskPct, 1); assert.deepEqual(s.prefs, {}); assert.deepEqual(s.providers, ['groq', 'claude']);
   assert.equal(s.lastScan.rows[0].symbol, 'THYAO'); assert.deepEqual(s.marketStatus, { open: true, reason: null });
-  assert.deepEqual(s.universes, { BIST30: 30, BIST50: 50, BIST100: 100, WATCH: BP.DEF_WATCH.length });
+  assert.deepEqual(s.universes, { BIST30: 30, BIST50: 50, BIST100: 100, BIST500: 0, WATCH: BP.DEF_WATCH.length });
   assert.equal(s.scanning, null); assert.deepEqual(s.presets, PRESETS); assert.ok(s.tags['kirilim-yukari']); assert.equal(s.strategies[0].id, 'ema');
   assert.equal(h.data.calls.quotes.length, 0, 'pozisyon yokken fiyat istenmez');
   // bozuk dosya / evren listesi yok / analist bozuk
@@ -287,7 +287,7 @@ test('bp:state: varsayilanlar, evren sayilari, son tarama dosyasi, saglayicilar,
   h2.ui.open();
   const s2 = await h2.call('bp:state');
   assert.equal(s2.lastScan, null); assert.deepEqual(s2.providers, []); assert.deepEqual(s2.presets, []);
-  assert.deepEqual(s2.universes, { BIST30: 0, BIST50: 0, BIST100: 0, WATCH: BP.DEF_WATCH.length });
+  assert.deepEqual(s2.universes, { BIST30: 0, BIST50: 0, BIST100: 0, BIST500: 0, WATCH: BP.DEF_WATCH.length });
 });
 
 // --- bp:load -----------------------------------------------------------------------------------

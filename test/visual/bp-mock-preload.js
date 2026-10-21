@@ -104,7 +104,7 @@ async function load({symbol='THYAO',tf='1g',market:mkt='BIST'}={}){
       buyers:[{name:'Bank of America',net:820000},{name:'Yapı Kredi',net:310000}],sellers:[{name:'İş Yatırım',net:-540000},{name:'Garanti BBVA',net:-210000}]},errors:[],stale:false}}
 contextBridge.exposeInMainWorld('bp',{
   state:async()=>{if(process.env.BP_SCAN&&!lastScan)await scanNow('BIST30');return {watch,tf:'1g',market:'BIST',symbol:process.env.BP_SYM||'THYAO',alarms,portfolio:port(),capital,riskPct:1,prefs,providers:process.env.BP_NOAI?[]:['groq','claude'],
-    lastScan,marketStatus:{open:true,reason:null},universes:{BIST30:D.U.BIST30.length,BIST50:D.U.BIST50.length,BIST100:D.U.BIST100.length,WATCH:watch.length},
+    lastScan,marketStatus:{open:true,reason:null},universes:{BIST30:D.U.BIST30.length,BIST50:D.U.BIST50.length,BIST100:D.U.BIST100.length,BIST500:D.U.BIST500.length,WATCH:watch.length},
     presets:D.PRESETS,tags:D.TAGS,strategies:lab.STRATEGIES}},
   load,quotes:async l=>(await data.quotes(l)).map(q=>q&&liveList.includes(q.symbol)?{...q,live:true}:q),search:async q=>data.search(q),overview:async()=>data.overview(),
   watch:async o=>{if(o.op==='add')watch=[...new Set([...watch,String(o.symbol).toUpperCase()])];if(o.op==='remove')watch=watch.filter(x=>x!==o.symbol);return {ok:true,watch}},
