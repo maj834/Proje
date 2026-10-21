@@ -14,11 +14,9 @@ jobs:
       - run: |
           UA='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36'
           t() { curl -s -o /tmp/o -w "%{http_code} %{time_total}s %{size_download}B" --max-time 25 -A "$UA" "$@"; echo "  <- $*" | cut -c1-200; head -c 200 /tmp/o | tr -d '\n'; echo; }
-          for r in 5y 10y max; do t "https://query1.finance.yahoo.com/v8/finance/chart/THYAO.IS?range=$r&interval=1d"; done
-          t "https://query1.finance.yahoo.com/v8/finance/chart/THYAO.IS?range=10y&interval=1d&events=div%2Csplits"
-          t "https://query2.finance.yahoo.com/v8/finance/chart/GARAN.IS?range=10y&interval=1d"
-          t "https://query1.finance.yahoo.com/v8/finance/chart/XU100.IS?period1=1476000000&period2=1792000000&interval=1d"
-          for i in 1 2 3 4 5; do t "https://query1.finance.yahoo.com/v8/finance/chart/AKBNK.IS?range=10y&interval=1d"; done
-          t "https://www.isyatirim.com.tr/_layouts/15/IsYatirim.Website/Common/Data.aspx/MaliTablo?companyCode=THYAO&exchange=TRY&financialGroup=XI_29&year1=2025&period1=12&year2=2025&period2=9&year3=2025&period3=6&year4=2025&period4=3" -H 'X-Requested-With: XMLHttpRequest'
-          t "https://www.kap.org.tr/tr/api/company/generic/excel/IGS/A"
-          t "https://stooq.com/q/d/l/?s=thyao.tr&i=d"
+          t "https://query1.finance.yahoo.com/v8/finance/chart/THYAO.IS?range=1mo&interval=1d"
+          t "https://www.isyatirim.com.tr/_layouts/15/Isyatirim.Website/Common/Data.aspx/HisseTekil?hisse=THYAO&startdate=01-10-2016&enddate=21-10-2026" -H 'X-Requested-With: XMLHttpRequest'
+          python3 -c "import json;d=json.load(open('/tmp/o'));v=d.get('value') or [];print('satir',len(v));print(json.dumps(v[:1],ensure_ascii=False));print(json.dumps(v[-1:],ensure_ascii=False))"
+          t "https://www.isyatirim.com.tr/_layouts/15/Isyatirim.Website/Common/Data.aspx/HisseTekil?hisse=XU100&startdate=01-10-2016&enddate=21-10-2026" -H 'X-Requested-With: XMLHttpRequest'
+          t "https://www.isyatirim.com.tr/_layouts/15/Isyatirim.Website/Common/Data.aspx/HisseTekil?hisse=ASELS&startdate=01-01-2024&enddate=31-12-2024" -H 'X-Requested-With: XMLHttpRequest'
+          python3 -c "import json;d=json.load(open('/tmp/o'));v=d.get('value') or [];print('satir',len(v));print(json.dumps(v[100:101],ensure_ascii=False))"
