@@ -669,6 +669,14 @@ function tradePlan(dir,price,atr,sup,res,riskPct=1){
 // ext.depth: {pressure:-100..100, flow:net lot, live:-1|0|1}; ext.news: [{score}] (bot, -5..5), ext.sentiment: -1..1 (Alpha Vantage).
 const TF_NAME={'1dk':'1 dk','5dk':'5 dk','15dk':'15 dk','1s':'Saatlik','1g':'Günlük','1h':'Haftalık'};
 const TF_W={'1h':1,'1g':1,'1s':0.5,'15dk':0.4,'5dk':0.3,'1dk':0.2};
+// Bilesen agirliklari ve kalibrasyon: tools/eval-engine.js yuruyen testinden (BIST100, 98 hisse, 2023-05..2026-09, 14.855 ornek, 5 gunde bir).
+// Agirliklar egitim doneminin (2025-06 oncesi) 10 gunluk bilgi katsayisina (IC) gore; test doneminde (2025-06..2026-09) eski
+// agirliklardan iyi cikti (10g IC 0.037->0.038, en ust/en alt %20 fazla getiri farki 10g %0.9->%1.1, 20g %2.1->%2.6).
+// Toplam 0.9 (derinlik/haber ayri eklenir). Eski: trend .25, mtf .15, momentum .2, hacim .1, yapi .2.
+const W_TREND=0.23,W_MTF=0.24,W_MOM=0.12,W_VOL=0.21,W_STR=0.10;
+// Skor kovasi -> [alt, ust, ornek, 10g yukselme orani, 10g XU100'e gore ort. fazla getiri, 20g fazla getiri] (tum donem, yeni agirliklar)
+const CALIB={evren:'BIST100',donem:'2023–2026',ornek:14855,kova:[[-101,-40,2244,0.488,-0.008,-0.017],[-40,-20,1895,0.513,-0.003,-0.003],[-20,0,1624,0.506,-0.004,-0.005],
+  [0,20,1395,0.516,-0.006,-0.010],[20,40,1859,0.529,0.003,0.002],[40,101,5838,0.545,0.006,0.014]]};
 function proAnalyze(frames,{primary='1g',depth=null,news=null,sentiment=null,riskPct=1,intraday=false}={}){
   const clean=rs=>(rs||[]).filter(r=>[r.o,r.h,r.l,r.c].every(Number.isFinite)&&r.c>0&&r.l>0&&r.h>=r.l);
   const rows=clean(frames[primary]);
@@ -696,13 +704,13 @@ function proAnalyze(frames,{primary='1g',depth=null,news=null,sentiment=null,ris
     if(T&&fin(T.ema200))why.push('Fiyat EMA200 '+(x>T.ema200?'üzerinde':'altında'));
     v+=st.dir*0.25;if(st.dir)why.push(st.text);
     for(const t of tl)if(t.broken){v+=t.type==='destek'?-0.3:0.3;why.push(t.type==='destek'?'Yükselen destek çizgisi kırıldı':'Alçalan direnç çizgisi kırıldı')}
-    comps.push({key:'trend',name:'Trend',w:0.25,v:clamp(v,-1,1),why})}
+    comps.push({key:'trend',name:'Trend',w:W_TREND,v:clamp(v,-1,1),why})}
   // 2) Coklu zaman dilimi uyumu
   {const others=Object.keys(tr).filter(k=>k!==primary);
     if(others.length){let s=0,w=0;const why=[];for(const k of others){const wt=TF_W[k]||0.5;s+=tr[k].s*wt;w+=wt;why.push(TF_NAME[k]+': '+tr[k].text)}
       const all=[primary,...others].map(k=>tr[k]&&tr[k].dir).filter(v=>v!=null),al=all.length>1&&all.every(d=>d===all[0])&&all[0]!==0;
       if(al)why.unshift('Tüm zaman dilimleri '+(all[0]>0?'yükselişte':'düşüşte')+' (uyumlu)');
-      comps.push({key:'mtf',name:'Zaman dilimi uyumu',w:0.15,v:clamp(w?s/w:0,-1,1),why})}}
+      comps.push({key:'mtf',name:'Zaman dilimi uyumu',w:W_MTF,v:clamp(w?s/w:0,-1,1),why})}}
   // 3) Momentum
   {const why=[];let v=0;const r=R[N-1],strongT=T&&T.adx>=25;
     if(fin(r)){if(r>=70){v+=strongT&&T.dir>0?0:-0.3;why.push('RSI '+Math.round(r)+' aşırı alım'+(strongT&&T.dir>0?' (güçlü trendde normal)':''))}
@@ -711,7 +719,7 @@ function proAnalyze(frames,{primary='1g',depth=null,news=null,sentiment=null,ris
     if(fin(hC[N-1])){v+=Math.sign(hC[N-1])*0.25;if(mCross){v+=mCross*0.2;why.push('MACD histogram sıfırı '+(mCross>0?'yukarı':'aşağı')+' kesti'+(mAgo?' ('+mAgo+' mum önce)':''))}else why.push('MACD '+(hC[N-1]>0?'pozitif':'negatif'))}
     if(srx&&((srx>0&&K[N-1]<=30)||(srx<0&&K[N-1]>=70))){v+=srx*0.2;why.push('Stokastik RSI '+(srx>0?'dipte yukarı':'tepede aşağı')+' kesişim')}
     for(const d of [dR,dM])if(d){v+=d.dir*(d===dR?0.35:0.25);why.push(d.text)}
-    comps.push({key:'momentum',name:'Momentum',w:0.2,v:clamp(v,-1,1),why})}
+    comps.push({key:'momentum',name:'Momentum',w:W_MOM,v:clamp(v,-1,1),why})}
   // 4) Hacim
   {const why=[];let v=0;const hasV=rows.slice(-20).some(r=>(r.v||0)>0);
     if(hasV){const ob=slopeLR(OBV.slice(-20)),pr=slopeLR(c.slice(-20));
@@ -720,7 +728,7 @@ function proAnalyze(frames,{primary='1g',depth=null,news=null,sentiment=null,ris
       const vr=VR[N-1];if(fin(vr)&&vr>=2){const d=Math.sign(c[N-1]-c[N-2]);v+=d*0.4;why.push('Hacim 20 mum ortalamasının '+vr.toFixed(1).replace('.',',')+' katı ('+(d>0?'yükseliş':'düşüş')+' mumu)')}
       if(vw&&fin(vw[N-1])){v+=x>vw[N-1]?0.2:-0.2;why.push('Fiyat VWAP '+(x>vw[N-1]?'üzerinde':'altında'))}
       if(prof){v+=x>prof.poc?0.1:-0.1;why.push('Fiyat hacim profili POC '+(x>prof.poc?'üzerinde':'altında'))}
-      comps.push({key:'hacim',name:'Hacim',w:0.1,v:clamp(v,-1,1),why})}}
+      comps.push({key:'hacim',name:'Hacim',w:W_VOL,v:clamp(v,-1,1),why})}}
   // 5) Yapi: kirilim, formasyon, seviyelere yakinlik, Bollinger
   {const why=[];let v=0;
     for(const b of bo){v+=b.dir*(b.retest?0.7:0.55);why.push(b.text)}
@@ -729,7 +737,7 @@ function proAnalyze(frames,{primary='1g',depth=null,news=null,sentiment=null,ris
     if(S3[0]&&(x-S3[0].hi)<atr*0.5){v+=0.2;why.push('Desteğe çok yakın ('+(+S3[0].hi.toFixed(2))+')')}
     if(bbBreak&&(squeeze||sqRecent)){v+=bbBreak*0.3;why.push('Bollinger sıkışmasından '+(bbBreak>0?'yukarı':'aşağı')+' çıkış')}
     else if(squeeze)why.push('Bollinger sıkışması: sert hareket yakın olabilir');
-    comps.push({key:'yapi',name:'Fiyat yapısı',w:0.2,v:clamp(v,-1,1),why})}
+    comps.push({key:'yapi',name:'Fiyat yapısı',w:W_STR,v:clamp(v,-1,1),why})}
   // 6) Derinlik / kurum akisi (Telegram botu)
   if(depth&&(fin(depth.pressure)||fin(depth.flow)||depth.live)){const why=[];let v=0;
     if(fin(depth.pressure)){v+=depth.pressure/100*0.6;why.push('Derinlik baskısı '+(depth.pressure>0?'+':'')+depth.pressure)}
@@ -743,6 +751,7 @@ function proAnalyze(frames,{primary='1g',depth=null,news=null,sentiment=null,ris
       if(fin(sentiment)){v+=clamp(sentiment*2,-1,1);k++;why.push('Haber duygu skoru '+(sentiment>0?'+':'')+sentiment.toFixed(2).replace('.',','))}
       comps.push({key:'haber',name:'Haber',w:0.07,v:clamp(v/k,-1,1),why})}}
   const verdict=verdictOf(comps,Math.min(1,N/200));
+  if(primary==='1g'){const k=CALIB.kova.find(b=>verdict.score>=b[0]&&verdict.score<b[1]);if(k)verdict.calib={n:k[2],up10:k[3],ex10:k[4],ex20:k[5],evren:CALIB.evren,donem:CALIB.donem,ornek:CALIB.ornek}}
   // BEKLE'de plan yerine tetikler: direncin ustunde kapanis AL, destegin altinda kapanis SAT senaryosu.
   const plan=tradePlan(verdict.dir||1,x,atr,S3,R3,riskPct);
   if(plan){if(!verdict.dir){plan.wait=true;plan.triggerUp=R3[0]?+R3[0].hi.toFixed(4):null;plan.triggerDown=S3[0]?+S3[0].lo.toFixed(4):null}
