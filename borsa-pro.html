@@ -65,7 +65,7 @@ button,input,select{font:inherit;color:inherit}
 .chip{display:inline-flex;align-items:center;gap:5px;height:24px;padding:0 9px;border:1px solid var(--line-2);border-radius:12px;background:none;color:var(--fg-2);cursor:pointer;font:500 11px var(--font);white-space:nowrap}
 .chip i{width:8px;height:8px;border-radius:2px}
 .chip.on{color:var(--fg);border-color:var(--fg-3);background:var(--sunk)}table.t.md-t td,table.t.md-t th{text-align:left;white-space:normal;font-family:var(--font);min-width:56px}table.t.md-t td{font-size:12px;vertical-align:top}.lnk{color:var(--fg);text-decoration:underline;text-underline-offset:2px;cursor:pointer}.chip:hover{color:var(--fg)}
-.chip.sm{height:20px;padding:0 7px;font-size:10.5px;cursor:default}
+.chip:disabled{opacity:.4;cursor:default}.chip.sm{height:20px;padding:0 7px;font-size:10.5px;cursor:default}
 .cbox{position:relative;margin:0 10px 10px 14px;border:1px solid var(--line);border-radius:var(--r2);background:var(--surface);min-height:0;overflow:hidden}
 #chart{position:absolute;inset:0}
 .ovl{position:absolute;inset:0;display:none;place-items:center;z-index:5;background:color-mix(in oklch,var(--surface) 75%,transparent);text-align:center;padding:30px}
@@ -400,9 +400,9 @@ function setTf(tf){if(!TFS.includes(tf)||tf===S.tf&&S.data)return;S.tf=tf;S.span
 // Gorunen aralik: gunluk veri ~2 yil; 5Y (ve gun ici dilimlerde 52H) icin haftalik dilime gecilir
 const SPANS=[['1A',21],['3A',63],['6A',126],['52H',252],['5Y',1260],['Tümü','all']];
 const SPANT={'1A':'Son 1 ay','3A':'Son 3 ay','6A':'Son 6 ay','52H':'Son 52 hafta','5Y':'Son 5 yıl (haftalık mumlar)','Tümü':'Tüm veri'};
-function applySpan(){if(!S.span||!ch||!ch.setSpan)return;const d=(SPANS.find(x=>x[0]===S.span)||[])[1];if(d!=null)ch.setSpan(d)}
+function applySpan(){if(!S.span||!ch||!ch.setSpan)return;const d=(SPANS.find(x=>x[0]===S.span)||[])[1];if(d!=null)ch.setSpan(d);setTimeout(renderHead,50)}
 function setSpan(k){S.span=k;const need=k==='5Y'||k==='Tümü'&&S.tf!=='1g'?'1h':k==='52H'&&!['1g','1h'].includes(S.tf)?'1g':(['6A'].includes(k)&&['5dk','15dk'].includes(S.tf))?'1s':null;
-  if(need&&need!==S.tf){S.tf=need;renderWatch();if(S.sym)load(S.sym);return}applySpan();renderHead()}
+  if(need&&need!==S.tf){S.tf=need;renderWatch();if(S.sym)load(S.sym);return}applySpan()}
 async function load(sym,o={}){
   if(!sym)return;const seq=++S.loading;S.sym=String(sym).toLocaleUpperCase('tr-TR');renderWatch();renderHead();
   if(chartInit()&&!o.quiet)ovl(S.sym+' yükleniyor…',TFN[S.tf]+' veri ve analiz',true);
@@ -418,15 +418,17 @@ function drawChart(){
   const alarms=(S.st.alarms||[]).filter(a=>a.symbol===r.symbol&&a.kind!=='verdict'&&!a.fired);
   const positions=((S.st.portfolio&&S.st.portfolio.positions)||[]).filter(p=>p.symbol===r.symbol);
   ch.setData({rows:r.rows,tf:r.tf,pro:r.pro,signals:r.signals,symbol:r.symbol,alarms,positions,trades:S.trades,show:{...S.show,trades:!!S.trades}});
-  if(ch.setDrawings)ch.setDrawings(drawLoad(r.symbol))}
+  if(ch.setDrawings){ch.setDrawings(drawLoad(r.symbol));renderHead()}}
 const IND=[['ema','EMA 20/50','var(--acc)'],['ema200','EMA 200','#a77cf0'],['bb','Bollinger','#8c9bb4'],['vwap','VWAP','#f0894b'],['volume','Hacim',null],['rsi','RSI',null],['macd','MACD',null],
   ['levels','Seviyeler',null],['plan','Plan',null],['signals','AL/SAT',null],['trendlines','Trend çizgileri',null],['profile','Hacim profili',null]];
+function spanChg(){if(!S.span||!ch||!ch.visibleChange)return null;const v=ch.visibleChange();return v&&fin(v.pct)?v:null}
 function hdChg(r,qt){const rs=r&&Array.isArray(r.rows)?r.rows:[];
   if(S.tf==='1h'&&rs.length>1){const a=rs[rs.length-2].c,b=rs[rs.length-1].c;if(fin(a)&&fin(b)&&a>0)return (b/a-1)*100}return qt.chgPct}
 function renderHead(){
   const r=S.data,qt=r&&r.quote||{};
   $('sh').replaceChildren(el('span',{class:'sym'},S.sym||'—'),el('span',{class:'nm'},r?r.name||'':''),
     r?el('span',{class:'px'},fp(qt.price)):null,(c=>r&&fin(c)?el('span',{class:'chg '+sgnc(c),title:S.tf==='1h'?'Haftalık değişim (son haftalık mum)':'Günlük değişim'},pct(c)):null)(hdChg(r,qt)),
+    (v=>v?el('span',{class:'chg '+sgnc(v.pct),title:'Görünen aralıkta değişim ('+SPANT[S.span]+')'},S.span+' '+pct(v.pct)):null)(r?spanChg():null),
     r&&qt.stale?el('span',{class:'badge',title:'Bağlantı yok; son bilinen veri'},'eski veri'):null,
     el('span',{class:'sp'}),
     el('div',{class:'seg'},...TFS.map((t,i)=>el('button',{class:t===S.tf?'on':'',title:TFN[t]+' ('+(i+1)+')',onclick:()=>setTf(t)},t))),
@@ -451,8 +453,10 @@ function drawSave(sym,list){try{if(list.length)localStorage.setItem(drawKey(sym)
 function drawBar(){const t=ch.getTool(),n=ch.getDrawings().length;
   return el('span',{class:'row',style:'gap:4px;margin-left:8px;align-items:center'},el('span',{class:'mu',style:'font-size:11px'},'Çiz:'),
     ...DRAWT.map(([k,nm,tip])=>el('button',{class:'chip'+(t===k?' on':''),title:tip,onclick:()=>{ch.setTool(t===k?null:k);if(t!==k)toast(tip+' · Esc: vazgeç')}},nm)),
-    n?el('button',{class:'chip',title:'Son çizimi sil',onclick:()=>ch.undoDrawing()},'Geri al'):null,
-    n?el('button',{class:'chip',title:'Bu hissedeki tüm çizimleri sil',onclick:()=>{if(confirm(S.sym+' üzerindeki '+n+' çizim silinsin mi?'))ch.clearDrawings()}},'Temizle'):null)}
+    // Silme dugmeleri hep gorunur (cizim yoksa pasif): hisse acilirken cizimler dugmelerden sonra yukleniyordu
+    el('button',{class:'chip'+(t==='sil'?' on':''),disabled:!n,title:n?'Silmek istediğin çizime tıkla':'Silinecek çizim yok',onclick:()=>{ch.setTool(t==='sil'?null:'sil');if(t!=='sil')toast('Silmek istediğin çizgiye tıkla · Esc: bitir')}},'Sil'),
+    el('button',{class:'chip',disabled:!n,title:'Son çizimi sil',onclick:()=>ch.undoDrawing()},'Geri al'),
+    el('button',{class:'chip',disabled:!n,title:'Bu hissedeki tüm çizimleri sil',onclick:()=>{if(confirm(S.sym+' üzerindeki '+n+' çizim silinsin mi?'))ch.clearDrawings()}},'Temizle'))}
 function toggleShow(k,on){const v=k==='vwap'?(on?false:true):!on;S.show={...S.show,[k]:v};if(ch)ch.setShow({[k]:v});bp.prefs({show:{[k]:v}}).catch(()=>{});renderHead();
   if(k==='trendlines'&&v){const P=S.data&&S.data.pro,tl=P&&P.ok&&P.trend&&P.trend.trendlines||[];
     toast(tl.length?tl.map(t=>(t.type==='destek'?'Yükselen destek':'Alçalan direnç')+' '+fp(t.now)+(t.broken?' (kırıldı)':'')).join(' · '):'Bu zaman diliminde geçerli trend çizgisi yok (en az iki yükselen dip ya da alçalan tepe gerekir).')}}

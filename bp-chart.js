@@ -286,7 +286,21 @@ function create(el,opts={}){
       else if(d.kind==='fib'){const hi=d.a.p,lo=d.b.p,from=Math.min(i1,i2);
         for(const f of FIB){const p=hi+(lo-hi)*f;seg(from,p,last,p,f===0.5||f===0.618?col:C.muted,f===0||f===1?0:2,1,'Fib '+(f*100).toFixed(1).replace('.0',''))}}
       else if(d.kind==='rect'){const top=Math.max(d.a.p,d.b.p),bot=Math.min(d.a.p,d.b.p);seg(i1,top,i2,top,col,0,1,'');seg(i1,bot,i2,bot,col,0,1,'')}}}
-  const NEED={trend:2,ray:2,fib:2,rect:2,hline:1};
+  const NEED={trend:2,ray:2,fib:2,rect:2,hline:1,sil:1};
+  // Sil araci: tiklanan noktaya 10 pikselden yakin cizim silinir (yoksa arac acik kalir)
+  function segDist(px,py,x1,y1,x2,y2){const dx=x2-x1,dy=y2-y1,L=dx*dx+dy*dy;let t=L?((px-x1)*dx+(py-y1)*dy)/L:0;t=Math.max(0,Math.min(1,t));return Math.hypot(px-(x1+t*dx),py-(y1+t*dy))}
+  function drawingAt(px,py){if(!S.candle||!R.length)return -1;const ts=chart.timeScale(),last=R.length-1;
+    const X=i=>ts.logicalToCoordinate?ts.logicalToCoordinate(i):ts.timeToCoordinate(R[i].time),Y=p=>S.candle.priceToCoordinate(p);let best=-1,bd=10;
+    DR.forEach((d,k)=>{let dist=Infinity;
+      if(d.kind==='hline'){const y=Y(d.a.p);if(y!=null)dist=Math.abs(py-y)}
+      else{const i1=nearest(d.a.t),i2=nearest(d.b.t);if(i1<0||i2<0)return;const x1=X(i1),x2=X(i2),y1=Y(d.a.p),y2=Y(d.b.p);if([x1,x2,y1,y2].some(v=>v==null))return;
+        if(d.kind==='trend')dist=segDist(px,py,x1,y1,x2,y2);
+        else if(d.kind==='ray'){const xl=X(last),m=i2!==i1?(y2-y1)/(x2-x1||1):0,lo=Math.min(i1,i2),xs=X(lo),ys=lo===i1?y1:y2;dist=segDist(px,py,xs,ys,xl,ys+m*(xl-xs))}
+        else if(d.kind==='fib'){const xs=Math.min(x1,x2),xl=X(last);if(px>=xs-6&&px<=xl+6)for(const f of FIB){const y=Y(d.a.p+(d.b.p-d.a.p)*f);if(y!=null)dist=Math.min(dist,Math.abs(py-y))}}
+        else if(d.kind==='rect'){const xa=Math.min(x1,x2),xb=Math.max(x1,x2),ya=Math.min(y1,y2),yb=Math.max(y1,y2);
+          if(px>=xa-6&&px<=xb+6)dist=py>=ya&&py<=yb?0:Math.min(Math.abs(py-ya),Math.abs(py-yb))}}
+      if(dist<bd){bd=dist;best=k}});
+    return best}
   function snap(i,price){const r=R[i];if(!r)return price;const c=[r.h,r.l,r.o,r.c].sort((a,b)=>Math.abs(a-price)-Math.abs(b-price))[0];
     return Math.abs(c-price)/price<0.006?c:price}
   // Onizleme serisi build() icinde bir kez eklenir; imlec hareketinde yalniz verisi degisir. (Fare olayi sirasinda seri
@@ -297,6 +311,8 @@ function create(el,opts={}){
     if(!pend||i==null||!S.candle){if(prevKey){prevKey='';try{prevS.setData([])}catch(e){}}return}const i1=nearest(pend.t);if(i1<0)return;const a=Math.min(i1,i),b=Math.max(i1,i);
     const k=a+'|'+b+'|'+(+price).toPrecision(6);if(k===prevKey)return;prevKey=k;
     try{prevS.setData(a===b?[{time:R[a].time,value:pend.p}]:[{time:R[a].time,value:a===i1?pend.p:price},{time:R[b].time,value:b===i1?pend.p:price}])}catch(e){}}
+  function removeAt(px,py){const k=drawingAt(px,py);if(k<0)return false;DR=DR.filter((_,j)=>j!==k);
+    setTimeout(()=>{drawUser();if(drawFn)try{drawFn(DR.slice())}catch(e){}if(toolFn)try{toolFn(tool,null,0)}catch(e){}},0);return true}
   function placePoint(i,price){if(!tool||!R[i])return;const pt={t:R[i].time*1000,p:+snap(i,price).toFixed(decimals(price))};
     if(NEED[tool]===1||pend){const d={id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),kind:tool,a:pend||pt,b:pt};
       if(tool==='hline')d.a=pt;DR=[...DR,d];pend=null;preview(null);const t=tool;tool=null;
@@ -316,10 +332,11 @@ function create(el,opts={}){
     const pr=S.candle.coordinateToPrice(p.point.y);return i0!=null&&fin(pr)?[i0,pr]:null}
   // Iki noktaya hizli tiklayinca kutuphane ikinci tiki cift tik sayip click gondermiyor: cizim modunda cift tik da nokta koyar
   if(chart.subscribeDblClick)chart.subscribeDblClick(p=>{
-    if(!tool||!pend||!p||!p.point||!S.candle||p.paneIndex>0)return;const q=toolPoint(p);
+    if(!tool||tool==='sil'||!pend||!p||!p.point||!S.candle||p.paneIndex>0)return;const q=toolPoint(p);
     if(q&&nearest(pend.t)!==q[0])placePoint(q[0],q[1])});
   chart.subscribeClick(p=>{
     if(!p||!p.point||!S.candle||p.paneIndex>0)return;const ev=p.sourceEvent||{};
+    if(tool==='sil'){removeAt(p.point.x,p.point.y);return}
     if(tool&&!(ev.altKey||ev.metaKey)){const q=toolPoint(p);if(q)placePoint(q[0],q[1]);return}
     if(!clickFn)return;
     if(!(ev.altKey||ev.metaKey))return;          // Alt (ya da Cmd) + tik: o fiyata alarm
@@ -348,6 +365,9 @@ function create(el,opts={}){
       if(days==='all'||!fin(+days)){try{chart.timeScale().fitContent()}catch(e){}return}
       const per={'1h':1/5,'1g':1,'1s':8,'15dk':32,'5dk':96,'1dk':480}[D.tf]||1,k=Math.max(10,Math.min(n,Math.round(days*per)));
       try{chart.timeScale().setVisibleLogicalRange({from:n-k-0.5,to:n+3})}catch(e){}},
+    // Gorunen ilk mumdan son muma yuzde degisim (aralik dugmeleri icin)
+    visibleChange(){try{const r=chart.timeScale().getVisibleLogicalRange();if(!r||!R.length)return null;const a=Math.max(0,Math.ceil(r.from)),b=R.length-1;
+      return a<b&&R[a].c>0?{pct:(R[b].c/R[a].c-1)*100,from:R[a].time,bars:b-a}:null}catch(e){return null}},
     // Yakinlastir (f<1) / uzaklastir (f>1): sag kenar sabit
     zoom(f){try{const ts=chart.timeScale(),r=ts.getVisibleLogicalRange();if(!r)return;const w=Math.max(10,Math.min(R.length+20,(r.to-r.from)*f));ts.setVisibleLogicalRange({from:r.to-w,to:r.to})}catch(e){}},
     resize(){try{chart.resize(el.clientWidth,el.clientHeight)}catch(e){}},
