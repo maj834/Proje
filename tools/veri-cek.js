@@ -46,6 +46,33 @@ async function fiyat(){
   console.log('\nfiyat',Object.keys(data).length,'eksik',miss.length,'429:',N429,miss.join(' '));
   save('fiyat'+sfx(),{alindi:new Date().toISOString(),kaynak:'Yahoo chart 10y 1d; t=UTC+3 gun no (gun*864e5 ms); ac=temettu/bolunme duzeltilmis kapanis',eksik:miss,data})}
 
+// Is Yatirim gunluk fiyat gecmisi (HisseTekil): duzeltilmis kapanis/min/max/AOF, TL hacim, XU100 degeri, sermaye, piyasa degeri.
+// Acilis yok (o = onceki duzeltilmis kapanis kabul edilir). Yahoo GitHub calistiricilarina 429 verdiginde yedek kaynak.
+const HT='https://www.isyatirim.com.tr/_layouts/15/Isyatirim.Website/Common/Data.aspx/HisseTekil';
+const dmy=d=>String(d.getUTCDate()).padStart(2,'0')+'-'+String(d.getUTCMonth()+1).padStart(2,'0')+'-'+d.getUTCFullYear();
+async function htGet(sym,y0,y1){for(let k=0;k<3;k++){try{
+    const u=HT+'?'+new URLSearchParams({hisse:sym,startdate:dmy(new Date(Date.UTC(y0,0,1))),enddate:dmy(new Date(Date.UTC(y1,11,31)))}).toString();
+    const r=await fetch(u,{headers:IS_H,signal:AbortSignal.timeout(60000)});if(r.status!==200){await sleep(2000*(k+1));continue}
+    const j=await r.json();FAIL=0;return j&&Array.isArray(j.value)?j.value:[]}catch(e){await sleep(2000*(k+1))}}FAIL++;return null}
+const dnum=s=>{const m=/^(\d{2})-(\d{2})-(\d{4})/.exec(String(s||''));return m?Math.round(Date.UTC(+m[3],+m[2]-1,+m[1])/864e5):null};
+async function fiyatIs(){
+  const syms=shard(D.U.BIST500),data={},miss=[],t0=Date.now();let k=0,ilk=null;const Y=new Date().getUTCFullYear();
+  for(const s of syms){if(late()){miss.push('SURE');break}
+    let rows=[];
+    // 3 yillik parcalar (yanit boyutu/sure sinirina karsi)
+    for(let y=2016;y<=Y;y+=3){const v=await htGet(s,y,Math.min(Y,y+2));await sleep(150);if(v===null){rows=null;break}rows.push(...v)}
+    if(rows&&rows.length&&!ilk)ilk={s,keys:Object.keys(rows[0]),ornek:rows[rows.length-1]};
+    if(!rows||rows.length<60){miss.push(s);continue}
+    const byDay=new Map();for(const r of rows){const d=dnum(r.HGDG_TARIH);if(d!=null)byDay.set(d,r)}
+    const ds=[...byDay.keys()].sort((a,b)=>a-b),o={t:[],o:[],h:[],l:[],c:[],ac:[],v:[],aof:[],xu:[],sermaye:[],pd:[],hc:[]};let prev=null;
+    for(const d of ds){const r=byDay.get(d),c=+r.HGDG_KAPANIS,hi=+r.HGDG_MAX,lo=+r.HGDG_MIN;if(!(c>0))continue;
+      o.t.push(d);o.c.push(p6(c));o.h.push(p6(hi>0?Math.max(hi,c):c));o.l.push(p6(lo>0?Math.min(lo,c):c));o.o.push(p6(prev!=null?prev:c));o.ac.push(p6(c));
+      const tl=+r.HGDG_HACIM||0;o.v.push(Math.round(tl/c));o.aof.push(p6(+r.HGDG_AOF||c));o.xu.push(p6(+r.END_DEGER||NaN));
+      o.sermaye.push(+r.SERMAYE||null);o.pd.push(+r.PD||null);o.hc.push(p6(+r.HG_KAPANIS||NaN));prev=c}
+    data[s]=o;if(++k%20===0)console.log('fiyatIs',k,'/',syms.length,Math.round((Date.now()-t0)/1000)+' sn')}
+  console.log('\nfiyatIs',Object.keys(data).length,'eksik',miss.length,miss.join(' '));console.log('ilk',JSON.stringify(ilk).slice(0,900));
+  save('fiyatis'+sfx(),{alindi:new Date().toISOString(),kaynak:'Is Yatirim HisseTekil; HGDG_* duzeltilmis; v=TL hacim/kapanis; xu=XU100 (END_DEGER); hc=duzeltilmemis kapanis; o=onceki kapanis',eksik:miss,data})}
+
 // Is Yatirim MaliTablo: 4 donem/istek. Yalniz ozet kalemler (aciklamaya gore). Bankalar UFRS grubunda.
 const IS_URL='https://www.isyatirim.com.tr/_layouts/15/IsYatirim.Website/Common/Data.aspx/MaliTablo';
 const IS_H={accept:'*/*','accept-language':'tr-TR,tr;q=0.9','x-requested-with':'XMLHttpRequest','user-agent':UA,referer:'https://www.isyatirim.com.tr/tr-tr/analiz/hisse/Sayfalar/sirket-karti.aspx'};
@@ -114,6 +141,6 @@ async function kap(){
   fs.writeFileSync(path.join(OUT,'kap-deneme.json'),JSON.stringify(rep,null,1))}
 
 (async()=>{
-  for(const p0 of PARTS){const [p,sh]=p0.split('@');SH=sh?sh.split('/').map(Number):[0,1];const t0=Date.now();try{await ({fiyat,temel,sermaye,kap})[p]()}catch(e){console.log('HATA',p,e&&e.stack||e)}
+  for(const p0 of PARTS){const [p,sh]=p0.split('@');SH=sh?sh.split('/').map(Number):[0,1];const t0=Date.now();try{await ({fiyat,fiyatIs,temel,sermaye,kap})[p]()}catch(e){console.log('HATA',p,e&&e.stack||e)}
     console.log('bitti',p,Math.round((Date.now()-t0)/1000)+' sn')}
 })();
