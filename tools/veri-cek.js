@@ -17,7 +17,7 @@ const p6=v=>v==null||!Number.isFinite(v)?null:+v.toPrecision(6);
 
 async function yahoo(y,range='10y'){
   for(let k=0;k<5;k++){try{
-    const r=await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(y)}?range=${range}&interval=1d&events=div%2Csplits`,{headers:{'user-agent':UA}});
+    const r=await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(y)}?range=${range}&interval=1d&events=div%2Csplits`,{headers:{'user-agent':UA},signal:AbortSignal.timeout(30000)});
     if(r.status===429){await sleep(5000*(k+1));continue}
     if(r.status===404)return null;
     const j=await r.json(),q=j.chart&&j.chart.result&&j.chart.result[0];if(!q||!q.timestamp)return null;
@@ -37,7 +37,8 @@ async function fiyat(){
   const syms=D.U.BIST500,idx=['XU100.IS','XU030.IS','XBANK.IS','XUSIN.IS','XUMAL.IS','XUHIZ.IS','XUTEK.IS','XHOLD.IS','USDTRY=X','EURTRY=X','GC=F','BZ=F','^GSPC','^VIX','EEM'];
   const data={},miss=[];
   for(const y of idx){const r=await yahoo(y);if(r)data[y]=r;else miss.push(y);await sleep(300)}
-  for(const s of syms){const r=await yahoo(s+'.IS');if(r&&r.t.length>60)data[s]=r;else miss.push(s);await sleep(250);process.stdout.write('.')}
+  const t0=Date.now();let k=0;
+  for(const s of syms){const r=await yahoo(s+'.IS');if(r&&r.t.length>60)data[s]=r;else miss.push(s);await sleep(250);if(++k%25===0)console.log('fiyat',k,'/',syms.length,Math.round((Date.now()-t0)/1000)+' sn')}
   console.log('\nfiyat',Object.keys(data).length,'eksik',miss.length,miss.join(' '));
   save('fiyat',{alindi:new Date().toISOString(),kaynak:'Yahoo chart 10y 1d; t=UTC+3 gun no (gun*864e5 ms); ac=temettu/bolunme duzeltilmis kapanis',eksik:miss,data})}
 
@@ -48,15 +49,16 @@ const KALEM=[/^Satış Gelirleri$/,/^BRÜT KAR \(ZARAR\)$/,/^FAALİYET KARI \(ZA
   /^Özkaynaklar$/,/^Ana Ortaklığa Ait Özkaynaklar$/,/^Ödenmiş Sermaye$/,/^Nakit ve Nakit Benzerleri$/,/^Finansal Borçlar$/,/^Dönen Varlıklar$/,/^Kısa Vadeli Yükümlülükler$/,
   /İşletme Faaliyetlerinden Kaynaklanan Net Nakit/,/^Serbest Nakit Akım$/,/^Amortisman/,/^Finansman Giderleri/,/^Net Faaliyet Kar/,/^FAVÖK/,
   /^AKTİF TOPLAMI$/,/^XVI\. ÖZKAYNAKLAR$/,/^16\.1 Ödenmiş Sermaye$/,/^XXIII\. NET DÖNEM KARI/,/^III\. NET FAİZ GELİRİ/,/^I\. FAİZ GELİRLERİ$/,/^VI\. KREDİLER$/,/^XVII\. SÜRDÜRÜLEN FAALİYETLER DÖNEM NET/];
-async function isGet(params){
+let FAIL=0;const gate=()=>{if(FAIL>=40)throw new Error('kaynak art arda 40 kez yanit vermedi, vazgecildi')};
+async function isGet(params){gate();
   for(let k=0;k<3;k++){try{const u=IS_URL+'?'+new URLSearchParams(params).toString();
-    const r=await fetch(u,{headers:IS_H});if(r.status!==200){await sleep(1500*(k+1));continue}
-    const j=await r.json();return j}catch(e){await sleep(1500*(k+1))}}
-  return null}
+    const r=await fetch(u,{headers:IS_H,signal:AbortSignal.timeout(20000)});if(r.status!==200){await sleep(1500*(k+1));continue}
+    const j=await r.json();FAIL=0;return j}catch(e){await sleep(1500*(k+1))}}
+  FAIL++;return null}
 async function temel(){
   const syms=D.U.BIST500,out={},hata=[];let ilk=null;
   const qs=[];for(let y=2017;y<=2026;y++)for(const m of [3,6,9,12])if(y<2026||m<=6)qs.push([y,m]);
-  for(const s of syms){let grp=null,rec={};
+  try{for(const s of syms){let grp=null,rec={};
     for(const g of ['XI_29','UFRS']){
       for(let i=0;i<qs.length;i+=4){const ch=qs.slice(i,i+4).reverse();const prm={companyCode:s,exchange:'TRY',financialGroup:g};
         ch.forEach(([y,m],k)=>{prm['year'+(k+1)]=y;prm['period'+(k+1)]=m});
@@ -69,22 +71,22 @@ async function temel(){
           const key=(it.itemCode||'')+'|'+d;rec[key]=rec[key]||{};
           ch.forEach(([y,m],k)=>{const v=it['value'+(k+1)];if(v!=null&&v!==''&&Number.isFinite(+v))rec[key][y*100+m]=+v})}}
       if(grp)break}
-    if(grp)out[s]={g:grp,k:rec};else hata.push(s);process.stdout.write(grp?'.':'x')}
+    if(grp)out[s]={g:grp,k:rec};else hata.push(s);process.stdout.write(grp?'.':'x')}}catch(e){console.log('\ntemel durdu:',e.message)}
   console.log('\ntemel',Object.keys(out).length,'hata',hata.length,hata.slice(0,40).join(' '));console.log('ilk yanit',JSON.stringify(ilk).slice(0,600));
   save('temel',{alindi:new Date().toISOString(),kaynak:'Is Yatirim MaliTablo; anahtar itemCode|aciklama; donem yyyymm; tutarlar TL',hata,data:out})}
 
 // Sermaye artirimlari (bedelsiz/bedelli) ve temettu gecmisi
 const CI='https://www.isyatirim.com.tr/_layouts/15/IsYatirim.Website/StockInfo/CompanyInfoAjax.aspx';
-async function ciPost(fn,body){for(let k=0;k<3;k++){try{const r=await fetch(CI+'/'+fn,{method:'POST',headers:{...IS_H,'content-type':'application/json; charset=UTF-8'},body:JSON.stringify(body)});
-  if(r.status!==200){await sleep(1500*(k+1));continue}const j=await r.json();const d=j&&j.d;return typeof d==='string'?JSON.parse(d):d}catch(e){await sleep(1500*(k+1))}}return null}
+async function ciPost(fn,body){gate();for(let k=0;k<3;k++){try{const r=await fetch(CI+'/'+fn,{method:'POST',headers:{...IS_H,'content-type':'application/json; charset=UTF-8'},body:JSON.stringify(body),signal:AbortSignal.timeout(20000)});
+  if(r.status!==200){await sleep(1500*(k+1));continue}const j=await r.json();FAIL=0;const d=j&&j.d;return typeof d==='string'?JSON.parse(d):d}catch(e){await sleep(1500*(k+1))}}FAIL++;return null}
 async function sermaye(){
   const syms=D.U.BIST500,sa={},tm={};let ilk=null,ilkT=null;
-  for(const s of syms){
+  try{for(const s of syms){
     const a=await ciPost('GetSermayeArttirimlari',{hisseKodu:s,hisseTanimKodu:'',yil:0,zaman:'HEPSI',endeksKodu:'09',sektorKodu:''});await sleep(120);
     if(a&&a.length){sa[s]=a;if(!ilk)ilk=a.slice(0,2)}
     const t=await ciPost('GetTemettuDagitimlari',{hisseKodu:s,hisseTanimKodu:'',yil:0,zaman:'HEPSI',endeksKodu:'09',sektorKodu:''});await sleep(120);
     if(t&&t.length){tm[s]=t;if(!ilkT)ilkT=t.slice(0,2)}
-    process.stdout.write('.')}
+    process.stdout.write('.')}}catch(e){console.log('\nsermaye durdu:',e.message)}
   console.log('\nsermaye',Object.keys(sa).length,'temettu',Object.keys(tm).length);console.log('ornek SA',JSON.stringify(ilk).slice(0,700));console.log('ornek T',JSON.stringify(ilkT).slice(0,500));
   save('sermaye',{alindi:new Date().toISOString(),kaynak:'Is Yatirim CompanyInfoAjax GetSermayeArttirimlari/GetTemettuDagitimlari',sermaye:sa,temettu:tm})}
 
@@ -101,7 +103,7 @@ async function kap(){
     ['GET','https://www.kap.org.tr/tr/sirket-bilgileri/ozet/1218-turk-hava-yollari-a-o'],
   ];
   const rep=[];
-  for(const [m,u,b] of tries){try{const r=await fetch(u,{method:m,headers:{'user-agent':UA,accept:'application/json, text/plain, */*','accept-language':'tr','content-type':'application/json',referer:'https://www.kap.org.tr/tr/bildirim-sorgu'},body:b?JSON.stringify(b):undefined});
+  for(const [m,u,b] of tries){try{const r=await fetch(u,{method:m,headers:{'user-agent':UA,accept:'application/json, text/plain, */*','accept-language':'tr','content-type':'application/json',referer:'https://www.kap.org.tr/tr/bildirim-sorgu'},body:b?JSON.stringify(b):undefined,signal:AbortSignal.timeout(20000)});
       const t=await r.text();rep.push({u,m,s:r.status,ct:r.headers.get('content-type'),n:t.length,bas:t.slice(0,300)})}
     catch(e){rep.push({u,m,hata:String(e&&e.message||e)})}await sleep(500)}
   for(const x of rep)console.log('KAP',JSON.stringify(x));

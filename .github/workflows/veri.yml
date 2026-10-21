@@ -22,7 +22,8 @@ jobs:
       - uses: actions/setup-node@v5
         with: {node-version: 22}
       - run: node tools/veri-cek.js '${{ matrix.parca }}'
-      - uses: actions/upload-artifact@v6
+      - if: always()
+        uses: actions/upload-artifact@v6
         with:
           name: veri-${{ strategy.job-index }}
           path: tools/veri/
