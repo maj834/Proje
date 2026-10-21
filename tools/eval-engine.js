@@ -40,6 +40,11 @@ const r3=v=>v==null?null:+v.toFixed(3);
         ft.reg=bench[bi].c>e(bc,200)?1:-1;ft.reg50=e(bc.slice(-50),50)>e(bc,200)?1:-1}
       {const cs=win.map(r=>r.c),k=2/201;let v=cs[0];for(const x of cs)v=x*k+v*(1-k);ft.ema200=c0>v?1:-1}
       ft.wk=(a.trend&&a.trend.frames&&a.trend.frames['1h']&&a.trend.frames['1h'].dir)||0;
+      // Haber izi (fiyat/hacim soku): son 5 mumda gunluk getirisi >= 2.5 x (20 gunluk ort. mutlak getiri) ve hacmi >= 2 x 20g ortalama olan en buyuk mum
+      {const W=win,n=W.length,ar=[],vv=[];for(let i=n-25;i<n-5;i++){ar.push(Math.abs(W[i].c/W[i-1].c-1));vv.push(W[i].v||0)}
+        const ma=mean(ar)||0.01,mv=mean(vv)||1;let best=null;
+        for(let i=n-5;i<n;i++){const r=W[i].c/W[i-1].c-1,vr=(W[i].v||0)/mv;if(Math.abs(r)>=2.5*ma&&vr>=2&&(!best||Math.abs(r)>Math.abs(best.r)))best={r,vr,ago:n-1-i,gap:W[i].o/W[i-1].c-1}}
+        ft.sok=best?Math.sign(best.r):0;ft.sokMag=best?best.r:0;ft.sokGap=best?Math.sign(best.gap)===Math.sign(best.r)&&Math.abs(best.gap)>=ma:false}
       recs.push({s,day,score:a.verdict.score,label:a.verdict.label,conf:a.verdict.confidence,comp,ft,fw})}
     process.stdout.write('.')}
   console.log('\nhisse',ok,'ornek',recs.length);
@@ -79,9 +84,11 @@ const r3=v=>v==null?null:+v.toFixed(3);
     AL_rs:r=>r.label==='AL'&&r.ft.rs126>0, AL_rs_rejim:r=>r.label==='AL'&&r.ft.rs126>0&&r.ft.reg===1,
     guclu:r=>r.score>=40&&r.ft.wk>0&&r.ft.ema200>0, guclu_rs:r=>r.score>=40&&r.ft.wk>0&&r.ft.ema200>0&&r.ft.rs126>0,
     guclu_rs_rejim:r=>r.score>=40&&r.ft.wk>0&&r.ft.ema200>0&&r.ft.rs126>0&&r.ft.reg===1,
-    SAT:r=>r.label==='SAT', SAT_zayif:r=>r.label==='SAT'&&r.ft.rs126<0&&r.ft.ema200<0};
+    SAT:r=>r.label==='SAT', SAT_zayif:r=>r.label==='SAT'&&r.ft.rs126<0&&r.ft.ema200<0,
+    sok_yukari:r=>r.ft.sok>0, sok_asagi:r=>r.ft.sok<0, sok_yukari_bosluk:r=>r.ft.sok>0&&r.ft.sokGap, sok_asagi_bosluk:r=>r.ft.sok<0&&r.ft.sokGap,
+    AL_sok_yukari:r=>r.label==='AL'&&r.ft.sok>0, AL_sok_asagi:r=>r.label==='AL'&&r.ft.sok<0, SAT_sok_asagi:r=>r.label==='SAT'&&r.ft.sok<0, sok_yok:r=>r.ft.sok===0};
   out.deney={ic:{},filtre:{}};
-  for(const [nm,R] of Object.entries(part)){out.deney.ic[nm]={};for(const f of ['rs63','rs126','reg','reg50','ema200','wk'])for(const h of [10,20]){
+  for(const [nm,R] of Object.entries(part)){out.deney.ic[nm]={};for(const f of ['rs63','rs126','reg','reg50','ema200','wk','sok','sokMag'])for(const h of [10,20]){
       const Y=R.filter(r=>Number.isFinite(r.ft[f])&&Number.isFinite(r.fw[h].ex));out.deney.ic[nm][f+'_'+h]=r3(corr(Y.map(r=>r.ft[f]),Y.map(r=>r.fw[h].ex)))}
     out.deney.filtre[nm]={};for(const [k,f] of Object.entries(FIL)){const X=R.filter(f);out.deney.filtre[nm][k]={h10:stat(X,10),h20:stat(X,20)}}}
   fs.mkdirSync('eval-out',{recursive:true});fs.writeFileSync('eval-out/sonuc.json',JSON.stringify(out,null,1));
