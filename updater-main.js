@@ -1,11 +1,11 @@
-// Guncelleme (ana surec): acilistan 30 sn sonra ve 6 saatte bir GitHub Releases'e bakar; yeni surumu arka planda indirip
+// Guncelleme (ana surec): acilistan 30 sn sonra ve 30 dakikada bir GitHub Releases'e bakar; yeni surumu arka planda indirip
 // dogrular, hazir olunca bildirim gosterir. Kurulum: "Yeniden baslat" (install) ya da uygulama kapanirken (onQuit).
 // Ayrintilar ve guvenlik denetimleri updater.js'te. Gelistirme modunda (paketlenmemis) CEM_UPDATE_TEST yoksa calismaz.
 'use strict';
 const fs = require('fs'), os = require('os');
 const U = require('./updater.js');
 
-const FIRST_DELAY = 30 * 1000, EVERY = 6 * 60 * 60 * 1000;
+const FIRST_DELAY = 30 * 1000, EVERY = 30 * 60 * 1000;
 // Acilis isareti: uygulama 'ready'den bu kadar sonra hatasiz calisiyorsa <dir>/started-<surum> yazilir. Kurulum betigi yeni surumu
 // actiktan sonra bu dosyayi bekler (STARTED_WAIT sn); gelmezse yeni surumu kapatir, yedegi geri yukler ve eskiyi acar.
 // STARTED_WAIT: acik ama isaret yazmayan (takilan) surum ancak bu kadar sn sonra geri alinir. Uzun: imzasiz surumde macOS

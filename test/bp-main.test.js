@@ -9,7 +9,7 @@ const realMarket = require('../market');
 const BP = require('../borsa-pro-main.js');
 
 const CHANNELS = ['bp:ai', 'bp:alarm', 'bp:ask', 'bp:capital', 'bp:demo', 'bp:depth', 'bp:feeds', 'bp:lab', 'bp:load', 'bp:mcp', 'bp:okul', 'bp:open', 'bp:overview', 'bp:plan', 'bp:planApply', 'bp:portfolio', 'bp:prefs',
-  'bp:quotes', 'bp:report', 'bp:scan', 'bp:scanCancel', 'bp:search', 'bp:state', 'bp:watch'];
+  'bp:quotes', 'bp:report', 'bp:scan', 'bp:scanCancel', 'bp:search', 'bp:state', 'bp:upd', 'bp:watch'];
 const T0 = Date.UTC(2026, 9, 19, 8, 0);                 // Pazartesi 11:00 Istanbul
 const flush = async (n = 5) => { for (let i = 0; i < n; i++) await new Promise(r => setImmediate(r)); };
 const deferred = () => { let ok; const p = new Promise(r => { ok = r; }); return { p, ok }; };
@@ -849,7 +849,7 @@ test('preload: yalniz bp: kanallari, ana surecle ayni kanal kumesi; on yalniz bp
   delete require.cache[pPath]; require(pPath);
   assert.equal(exposed.k, 'bp');
   const api = exposed.v;
-  assert.deepEqual(Object.keys(api).sort(), ['ai', 'alarm', 'ask', 'capital', 'demo', 'depth', 'feeds', 'lab', 'load', 'mcp', 'okul', 'on', 'open', 'overview', 'plan', 'planApply', 'portfolio', 'prefs', 'quotes', 'report', 'scan', 'scanCancel', 'search', 'state', 'watch']);
+  assert.deepEqual(Object.keys(api).sort(), ['ai', 'alarm', 'ask', 'capital', 'demo', 'depth', 'feeds', 'lab', 'load', 'mcp', 'okul', 'on', 'open', 'overview', 'plan', 'planApply', 'portfolio', 'prefs', 'quotes', 'report', 'scan', 'scanCancel', 'search', 'state', 'upd', 'watch']);
   for (const k of Object.keys(api)) if (k !== 'on') assert.equal(await api[k]({ a: 1 }), 'ok');
   const chans = [...new Set(invokes.map(x => x[0]))].sort();
   assert.deepEqual(chans, CHANNELS, 'ana surecin kaydettigi kanallarla birebir');

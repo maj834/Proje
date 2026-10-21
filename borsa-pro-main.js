@@ -128,7 +128,7 @@ function soft(f,ms){let p;try{p=f()}catch(e){return Promise.resolve(null)}
 function withTimeout(p,ms,m){return new Promise((ok,no)=>{const t=setTimeout(()=>no(new Error(m||'Zaman aşımı.')),ms);if(t.unref)t.unref();
   Promise.resolve(p).then(v=>{clearTimeout(t);ok(v)},e=>{clearTimeout(t);no(e)})})}
 
-function registerBorsaPro({ipcMain,app,BrowserWindow,path,screen,Notification,shell,nativeTheme,cfg,save,isOn=()=>true,market,engine,calendar,power,
+function registerBorsaPro({ipcMain,app,BrowserWindow,path,screen,Notification,shell,nativeTheme,cfg,save,isOn=()=>true,market,engine,calendar,power,upd=null,
   data,lab,analyst,ext={},say=()=>{},now=()=>Date.now(),timers,meta=null,quant=null,history=null,fund=null,radar=null,planner=null,apis=null,secrets=null,demo=null,okul=null,mcp=null}){
   const T=timers||{setTimeout:(f,ms)=>setTimeout(f,ms),clearTimeout:h=>clearTimeout(h)};
   ext=obj(ext);
@@ -639,11 +639,15 @@ function registerBorsaPro({ipcMain,app,BrowserWindow,path,screen,Notification,sh
       scanning:scanning?{done:scanning.done,total:scanning.total,universe:scanning.universe,tf:scanning.tf}:null,
       presets:Array.isArray(lib('PRESETS'))?lib('PRESETS'):[],tags:obj(lib('TAGS')),strategies:lab&&Array.isArray(lab.STRATEGIES)?lab.STRATEGIES:[]}}
 
+  // Guncelleme durumu (Borsa Pro durum cubugu): surum, indiriliyor/hazir, 'Yeniden baslat ve kur'
+  async function updOp(a){const op=a&&a.op;if(!upd)return {ok:false,error:'Güncelleme bu ortamda yok.'};
+    const st=op==='check'?await upd.check(true):op==='install'?await upd.install():upd.state();
+    const o=st&&typeof st==='object'?st:{};return {ok:true,current:o.current||null,latest:o.latest||null,phase:o.phase||'idle',progress:typeof o.progress==='number'?o.progress:null,error:o.error||null}}
   // --- IPC: hepsi 'bp:' onekli; once gonderen, sonra ozellik acik mi; hata Turkce {ok:false,error} ---------------
   const H={'bp:state':state,'bp:load':load,'bp:quotes':quotes,'bp:watch':watch,'bp:scan':scan,
     'bp:scanCancel':()=>{const was=!!scanning;cancelScan();return {ok:true,cancelled:was}},
     'bp:overview':overview,'bp:feeds':feeds,'bp:mcp':mcpOp,'bp:search':search,'bp:lab':labRun,'bp:ai':ai,'bp:report':aiReport,'bp:ask':ask,'bp:depth':depthOp,'bp:plan':planRun,'bp:planApply':planApply,'bp:alarm':alarm,'bp:portfolio':portfolio,
-    'bp:demo':demoCtl.op,'bp:capital':capital,'bp:prefs':prefs,'bp:open':openUrl,'bp:okul':okulOp};
+    'bp:demo':demoCtl.op,'bp:capital':capital,'bp:prefs':prefs,'bp:open':openUrl,'bp:okul':okulOp,'bp:upd':updOp};
   for(const [ch,f] of Object.entries(H))ipcMain.handle(ch,async(e,a)=>{
     if(!isWin(e))return err('İzin yok');if(!isOn())return err('Borsa özelliği kapalı.');
     try{const r=await f(a);return isOn()?r:err('Borsa özelliği kapalı.')}

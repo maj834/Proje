@@ -342,10 +342,10 @@ function harness(t, { current = '2.0.5', m, body = Buffer.from('ZIPDATA'), conf 
   return { ui, d, appPath, handlers, appEv, sent, notes, spawned, timers, fetchCalls, quits: () => quits, ready: () => onReady(), conf: () => C };
 }
 
-test('registerUpdater: 30 sn + 6 saat; denetle -> indir -> hazir -> bildirim -> kur (betik + quit)', async (t) => {
+test('registerUpdater: 30 sn + 30 dk; denetle -> indir -> hazir -> bildirim -> kur (betik + quit)', async (t) => {
   const h = harness(t);
   h.ready();
-  assert.deepEqual(h.timers.map(x => x.ms), [30000, 6 * 3600 * 1000, 3000]);
+  assert.deepEqual(h.timers.map(x => x.ms), [30000, 30 * 60 * 1000, 3000]);
   await h.timers[0].f();
   let s = h.ui.state();
   assert.equal(s.phase, 'ready'); assert.equal(s.latest, '2.0.10'); assert.equal(s.current, '2.0.5'); assert.equal(s.progress, 1);

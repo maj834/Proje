@@ -263,7 +263,7 @@ td.dm-act .btn{height:22px;padding:0 7px;font-size:11px;margin-left:3px}
     <section class="view pg" id="v-piyasa"></section>
   </main>
 </div>
-<footer class="sb"><span id="sbl">Veri: Yahoo Finance · BIST ~15 dk gecikmeli</span><span class="sp"></span><span id="sbr"></span><span>Teknik analiz çıktısıdır, yatırım tavsiyesi değildir.</span></footer>
+<footer class="sb"><span id="sbl">Veri: Yahoo Finance · BIST ~15 dk gecikmeli</span><span class="sp"></span><span id="sbr"></span><span id="sbv"></span><span>Teknik analiz çıktısıdır, yatırım tavsiyesi değildir.</span></footer>
 </div>
 <div class="toast" id="toast"></div>
 <script>
@@ -385,6 +385,18 @@ function renderWatch(){
       el('span',{class:'c'},wDisp(s),tg?el('span',{class:'wt'},tg==='Kripto'?'₿':'$'):null,isLive(s)?el('span',{class:'lz',title:x.live?'Canlı (Telegram) fiyat':'Canlı listede; sıradaki güncelleme bekleniyor'},x.live?' ⚡':' ϟ'):null),spark(x.spark),el('span',{class:'p'},fp(x.price)),
       el('span',{class:'n'},x.error?'veri yok':x.name||''),(c=>el('span',{class:'ch '+sgnc(c),title:S.tf==='1h'?'Haftalık değişim (5 işlem günü)':'Günlük değişim'},pct(c)))(wChg(x)),
       el('button',{class:'x',title:'Listeden çıkar',onclick:async e=>{e.stopPropagation();const r=await call(bp.watch,{op:'remove',symbol:s});if(okr(r)){S.st.watch=r.watch;renderWatch()}}},'×'))}))}
+// Surum ve guncelleme (durum cubugu): guncelleme 30 dk'da bir denetlenir; hazirsa tek tikla yeniden baslat ve kur
+let UPD=null;
+function renderUpd(){const b=$('sbv');if(!b)return;const u=UPD;if(!u||!u.ok){b.replaceChildren();return}
+  const v=el('span',{class:'mu',title:'Uygulama sürümü'},'v'+(u.current||'?'));
+  const btn=(t,f,acc)=>el('button',{class:'chip'+(acc?' on':''),style:'height:20px;margin-left:6px',onclick:f},t);
+  b.replaceChildren(v,
+    u.phase==='ready'?btn('Güncelleme hazır: v'+u.latest+' · Yeniden başlat ve kur',async()=>{UPD=await bp.upd({op:'install'});renderUpd()},true):
+    u.phase==='downloading'?el('span',{class:'mu',style:'margin-left:6px'},'Güncelleme iniyor'+(fin(u.progress)?' %'+Math.round(u.progress*100):'')):
+    u.phase==='checking'?el('span',{class:'mu',style:'margin-left:6px'},'Denetleniyor…'):
+    btn(u.phase==='uptodate'?'Güncel':'Güncellemeyi denetle',async()=>{UPD={...u,phase:'checking'};renderUpd();UPD=await bp.upd({op:'check'});renderUpd()}))}
+async function pollUpd(){if(!bp.upd)return;try{UPD=await bp.upd({op:'state'})}catch(e){}renderUpd()}
+setTimeout(pollUpd,1500);setInterval(pollUpd,60000);
 let qBusy=false;
 async function refreshQuotes(){
   if(qBusy||!S.st||!S.st.watch.length||document.hidden)return;

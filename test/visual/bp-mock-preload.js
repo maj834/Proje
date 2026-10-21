@@ -103,6 +103,7 @@ async function load({symbol='THYAO',tf='1g',market:mkt='BIST'}={}){
     depth:{at:Date.now()-60e3,pressure:24,trend:'Alış baskısı artıyor',flow:{net:1.2e6},signal:{dir:1,why:['Aktif alış ağırlıklı','BofA topluyor']},
       buyers:[{name:'Bank of America',net:820000},{name:'Yapı Kredi',net:310000}],sellers:[{name:'İş Yatırım',net:-540000},{name:'Garanti BBVA',net:-210000}]},errors:[],stale:false}}
 contextBridge.exposeInMainWorld('bp',{
+  upd:async a=>({ok:true,current:'2.0.188',latest:'2.0.189',phase:a&&a.op==='check'?'uptodate':'ready',progress:1,error:null}),
   state:async()=>{if(process.env.BP_SCAN&&!lastScan)await scanNow('BIST30');return {watch,tf:'1g',market:'BIST',symbol:process.env.BP_SYM||'THYAO',alarms,portfolio:port(),capital,riskPct:1,prefs,providers:process.env.BP_NOAI?[]:['groq','claude'],
     lastScan,marketStatus:{open:true,reason:null},universes:{BIST30:D.U.BIST30.length,BIST50:D.U.BIST50.length,BIST100:D.U.BIST100.length,BIST500:D.U.BIST500.length,WATCH:watch.length},
     presets:D.PRESETS,tags:D.TAGS,strategies:lab.STRATEGIES}},

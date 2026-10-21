@@ -180,7 +180,7 @@ const extApis=(()=>{try{return require('./ext-apis').createExtApis({fetch:(...a)
 // Borsa Pro: buyuk analiz penceresi (etkilesimli grafik, tarayici, strateji laboratuvari, portfoy, alarmlar, yapay zeka yorumu).
 // Borsa ozelligine baglidir: Merkez'de kapatilinca penceresi ve alarm izleyicisi durur. Yapay zeka yorumu once ucretsiz Groq
 // (Neo'nun anahtari), yoksa Claude ya da Grok anahtariyla; gorsel gonderilmez, yalniz hesaplanmis analiz ozeti.
-const borsaPro=require('./borsa-pro-main').registerBorsaPro({ipcMain,app,BrowserWindow,path,screen,Notification,shell,nativeTheme,
+const borsaPro=require('./borsa-pro-main').registerBorsaPro({ipcMain,app,BrowserWindow,path,screen,Notification,shell,nativeTheme,upd:updUi,
   cfg:()=>cfg(),save:o=>save(o),isOn:()=>modOn('borsa'),market,engine,calendar,power:require('./power'),
   demo:require('./bp-demo'),data:bpData,meta:require('./bp-data'),lab:require('./bp-strategy'),
   quant:require('./bp-quant'),history:require('./bp-history').createHistory(),fund:(()=>{try{return require('./bp-fund')}catch(e){return null}})(),
