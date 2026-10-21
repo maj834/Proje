@@ -110,3 +110,90 @@ def sinyal(df, col, q=0.2, h=20, fit='egitim'):
                       AL_n=len(al), AL_yuk=round((al['ret%d' % h] > 0).mean(), 3), AL_fazla=round((al['ex%d' % h] > 0).mean(), 3), AL_ort=round(al['ex%d' % h].mean(), 4),
                       SAT_n=len(sat), SAT_dus=round((sat['ret%d' % h] < 0).mean(), 3), SAT_eksik=round((sat['ex%d' % h] < 0).mean(), 3), SAT_ort=round(sat['ex%d' % h].mean(), 4))
     return out
+
+
+# ---------------------------------------------------------------- ileri yuruyen capraz dogrulama (walk-forward)
+ALL = ['m5','m21','m63','m126','m252x','rs5','rs21','rs63','rs126','rs252','d20','d50','d200','e50s','e200s','hi252','lo252','hi63','dsh',
+       'rsi','macdh','adx','dmi','bbp','bbw','vol21','vol63','vr','atrp','beta','idio','max21','min21','tv5','tv21','upv','clv','size','amih',
+       'shk','shkUp','shkDn','gap','r1','mkt21','mkt63','mktd200','mktvol','mktrsi']
+# Uygulamadaki (gonderilen) model ayari: tools/arastirma/final2.py
+SHIP = dict(num_leaves=8, learning_rate=0.03, n_estimators=200, min_child_samples=1000, subsample=0.8, subsample_freq=1,
+            colsample_bytree=0.7, verbose=-1, random_state=1)
+# Kat yillari: her kat icin egitim = katin baslangicindan EMBARGO gun oncesine kadar (genisleyen pencere), tahmin = o donem.
+FOLDS = [('2020-01-01', '2021-01-01'), ('2021-01-01', '2022-01-01'), ('2022-01-01', '2023-01-01'), ('2023-01-01', '2024-01-01'),
+         ('2024-01-01', '2025-01-01'), ('2025-01-01', '2025-06-12')]
+EMBARGO_DAYS = 45   # 40 islem gunluk hedef ortusmesin (takvim gunu)
+
+
+def rank_target(df, y='ex20'):
+    return df.groupby('tarih')[y].rank(pct=True)
+
+
+def wf_predict(df, fit_predict, folds=FOLDS):
+    """fit_predict(train_df, pred_df) -> np.array tahmin. df: lab.load() (test haric). Donus: katlardaki dis-ornek tahminleri (Series)."""
+    out = pd.Series(np.nan, index=df.index)
+    t = pd.to_datetime(df['tarih'])
+    for a, b in folds:
+        a_, b_ = pd.Timestamp(a), pd.Timestamp(b)
+        tr = df[t < a_ - pd.Timedelta(days=EMBARGO_DAYS)]
+        te = df[(t >= a_) & (t < b_)]
+        if len(tr) < 5000 or not len(te):
+            continue
+        out.loc[te.index] = np.asarray(fit_predict(tr, te), dtype=float)
+    return out
+
+
+def wf_report(df, pred, ys=('ex10', 'ex20', 'ex40')):
+    """Kat (yil) bazinda IC ve toplam; ayrica AL/SAT (ust/alt %20, tarih ici) isabet oranlari."""
+    d = df.assign(_p=pred).dropna(subset=['_p'])
+    d['_yil'] = d['tarih'].str[:4]
+    rows = []
+    for yil, g in d.groupby('_yil'):
+        r = dict(yil=yil, n=len(g))
+        for y in ys:
+            r['ic_' + y] = ic(g, '_p', y)['ic']
+        rows.append(r)
+    tot = dict(yil='HEPSI', n=len(d))
+    for y in ys:
+        a = ic(d, '_p', y); tot['ic_' + y] = a['ic']; tot['t_' + y] = a['t']
+    rows.append(tot)
+    q = d.groupby('tarih')['_p'].rank(pct=True)
+    al, sat = d[q >= 0.8], d[q <= 0.2]
+    isabet = dict(AL_yuk20=round((al['ret20'] > 0).mean(), 3), AL_gec20=round((al['ex20'] > 0).mean(), 3), AL_ex20=round(al['ex20'].mean(), 4),
+                  SAT_dus20=round((sat['ret20'] < 0).mean(), 3), SAT_geri20=round((sat['ex20'] < 0).mean(), 3), SAT_ex20=round(sat['ex20'].mean(), 4),
+                  taban_yuk20=round((d['ret20'] > 0).mean(), 3))
+    return pd.DataFrame(rows), isabet
+
+
+def ship_fit_predict(tr, te, feats=ALL, params=SHIP, y='ex20'):
+    import lightgbm as lgb
+    m = lgb.LGBMRegressor(**params, n_jobs=2).fit(tr[feats].astype(float), rank_target(tr, y).fillna(0.5))
+    return m.predict(te[feats].astype(float))
+
+
+# ---------------------------------------------------------------- ham fiyat verisi (yeni ozellikler icin)
+def load_prices(veri_dir='/home/user/Proje/tools/veri'):
+    """tools/veri/yfiyat-*.json.br -> {sembol: DataFrame(gun,o,h,l,c,ac,v)}; veri-seti.js ile ayni kirilma (bolunme) duzeltmesi.
+    Endeksler/makro: 'XU100.IS','XBANK.IS','XUSIN.IS','XU030.IS','USDTRY=X','EURTRY=X','GC=F','BZ=F','^GSPC','^VIX','EEM' (varsa)."""
+    import glob, json, brotli
+    data = {}
+    for f in sorted(glob.glob(veri_dir + '/yfiyat-*.json.br')):
+        data.update(json.loads(brotli.decompress(open(f, 'rb').read()))['data'])
+    out = {}
+    for s, d in data.items():
+        df = pd.DataFrame({k: d[k] for k in ('t', 'o', 'h', 'l', 'c', 'ac', 'v')}).rename(columns={'t': 'gun'})
+        c = df['c'].values.astype(float)
+        adj = np.ones(len(df))
+        for i in range(len(df) - 1, 0, -1):
+            r = c[i] / c[i - 1]
+            if r < 0.7 or r > 1.43:
+                k = df['o'].values[i] / c[i - 1]
+                g = k if abs(np.log(k)) > np.log(1.3) else r
+                adj[:i] *= g
+                c[:i] *= g
+        for col in ('o', 'h', 'l'):
+            df[col] = df[col].values * adj
+        df['c'] = c
+        df['v'] = df['v'] / adj
+        out[s] = df
+    return out
