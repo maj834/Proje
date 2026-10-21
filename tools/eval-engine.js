@@ -31,7 +31,15 @@ const r3=v=>v==null?null:+v.toFixed(3);
         if(bi!=null){const d1=new Date(rows[t-1+h].t).toISOString().slice(0,10),bj=bIdx.get(d1);if(bj!=null)ex=ret-(bench[bj].c/bench[bi].c-1)}
         fw[h]={ret,ex}}
       const comp={};for(const c of a.verdict.components)comp[c.key]=c.v;
-      recs.push({s,day,score:a.verdict.score,label:a.verdict.label,conf:a.verdict.confidence,comp,fw})}
+      // Ek ozellikler (yalniz gecmis veri): goreli guc 63/126 gun (XU100'e gore), piyasa rejimi, hisse EMA200 ustu
+      const ft={};const back=k=>t-1-k>=0?rows[t-1-k]:null;
+      if(bi!=null)for(const k of [63,126]){const p0=back(k);if(!p0)continue;const d0=new Date(p0.t).toISOString().slice(0,10),b0=bIdx.get(d0);
+        if(b0!=null)ft['rs'+k]=(c0/p0.c)-(bench[bi].c/bench[b0].c)}
+      if(bi!=null&&bi>=200){const bc=bench.slice(bi-199,bi+1).map(r=>r.c);const e=(arr,n)=>{const k=2/(n+1);let v=arr[0];for(const x of arr)v=x*k+v*(1-k);return v};
+        ft.reg=bench[bi].c>e(bc,200)?1:-1;ft.reg50=e(bc.slice(-50),50)>e(bc,200)?1:-1}
+      {const cs=win.map(r=>r.c),k=2/201;let v=cs[0];for(const x of cs)v=x*k+v*(1-k);ft.ema200=c0>v?1:-1}
+      ft.wk=(a.trend&&a.trend.frames&&a.trend.frames['1h']&&a.trend.frames['1h'].dir)||0;
+      recs.push({s,day,score:a.verdict.score,label:a.verdict.label,conf:a.verdict.confidence,comp,ft,fw})}
     process.stdout.write('.')}
   console.log('\nhisse',ok,'ornek',recs.length);
   const days=[...new Set(recs.map(r=>r.day))].sort(),cut=days[Math.floor(days.length*0.6)];
@@ -60,6 +68,20 @@ const r3=v=>v==null?null:+v.toFixed(3);
     return o}
   out.agirlik={mevcut:CUR,ic:ICW,egitim:{mevcut:judge(part.egitim,CUR),ic:judge(part.egitim,ICW)},test:{mevcut:judge(part.test,CUR),ic:judge(part.test,ICW)},
     tum:{mevcut:judge(recs,CUR),ic:judge(recs,ICW)}};
+  // Deneyler: ozelliklerin bilgi katsayisi ve secici AL filtreleri (egitim/test). Taban: tum ornekler ve mevcut AL.
+  const stat=(X,h)=>{const ex=X.map(r=>r.fw[h].ex).filter(Number.isFinite);return {n:X.length,yukselme:r3(mean(X.map(r=>r.fw[h].ret>0?1:0))),fazlaPozitif:r3(mean(ex.map(v=>v>0?1:0))),ortFazla:r3(mean(ex)),ortGetiri:r3(mean(X.map(r=>r.fw[h].ret)))}};
+  const FIL={
+    taban:r=>true, AL:r=>r.label==='AL',
+    rs126:r=>r.ft.rs126>0.10, rs63:r=>r.ft.rs63>0.05,
+    rejim:r=>r.ft.reg===1, AL_rejim:r=>r.label==='AL'&&r.ft.reg===1,
+    AL_rs:r=>r.label==='AL'&&r.ft.rs126>0, AL_rs_rejim:r=>r.label==='AL'&&r.ft.rs126>0&&r.ft.reg===1,
+    guclu:r=>r.score>=40&&r.ft.wk>0&&r.ft.ema200>0, guclu_rs:r=>r.score>=40&&r.ft.wk>0&&r.ft.ema200>0&&r.ft.rs126>0,
+    guclu_rs_rejim:r=>r.score>=40&&r.ft.wk>0&&r.ft.ema200>0&&r.ft.rs126>0&&r.ft.reg===1,
+    SAT:r=>r.label==='SAT', SAT_zayif:r=>r.label==='SAT'&&r.ft.rs126<0&&r.ft.ema200<0};
+  out.deney={ic:{},filtre:{}};
+  for(const [nm,R] of Object.entries(part)){out.deney.ic[nm]={};for(const f of ['rs63','rs126','reg','reg50','ema200','wk'])for(const h of [10,20]){
+      const Y=R.filter(r=>Number.isFinite(r.ft[f])&&Number.isFinite(r.fw[h].ex));out.deney.ic[nm][f+'_'+h]=r3(corr(Y.map(r=>r.ft[f]),Y.map(r=>r.fw[h].ex)))}
+    out.deney.filtre[nm]={};for(const [k,f] of Object.entries(FIL)){const X=R.filter(f);out.deney.filtre[nm][k]={h10:stat(X,10),h20:stat(X,20)}}}
   fs.mkdirSync('eval-out',{recursive:true});fs.writeFileSync('eval-out/sonuc.json',JSON.stringify(out,null,1));
   fs.writeFileSync('eval-out/ornekler.json',JSON.stringify(recs));
   const txt='EVAL_JSON_BEGIN\n'+JSON.stringify(out)+'\nEVAL_JSON_END';console.log(txt);
