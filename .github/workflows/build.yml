@@ -1,6 +1,8 @@
 name: build
 on:
   push:
+    # Yalniz arastirma/olcum dosyalari degistiyse surum cikarma (uygulamaya girmezler)
+    paths-ignore: ['tools/**', '.github/workflows/eval.yml', '.github/workflows/veri.yml']
   pull_request:
   workflow_dispatch:
 # Varsayilan: yalniz okuma. Yazma izni yalniz Release olusturan mac isinde.

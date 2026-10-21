@@ -1,0 +1,48 @@
+name: veri-topla
+# Motor arastirmasi icin ham veri (fiyat 10y, bilanco ozeti, sermaye artirimi/temettu, KAP denemesi) -> tools/veri/ (brotli).
+# GITHUB_TOKEN ile yapilan itme baska is akisini (build/surum) tetiklemez.
+on:
+  workflow_dispatch:
+  push:
+    paths: ['tools/veri-cek.js', '.github/workflows/veri.yml']
+permissions:
+  contents: read
+concurrency: veri-topla
+jobs:
+  cek:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        parca: [fiyat, temel, 'sermaye,kap']
+    steps:
+      - uses: actions/checkout@v5
+        with: {persist-credentials: false}
+      - uses: actions/setup-node@v5
+        with: {node-version: 22}
+      - run: node tools/veri-cek.js '${{ matrix.parca }}'
+      - uses: actions/upload-artifact@v6
+        with:
+          name: veri-${{ strategy.job-index }}
+          path: tools/veri/
+          retention-days: 3
+  yaz:
+    needs: cek
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v5
+        with: {path: tools/veri, merge-multiple: true}
+      - run: |
+          ls -la tools/veri
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add tools/veri
+          git commit -m "Motor arastirma verisi (veri-topla ${GITHUB_RUN_ID})" || exit 0
+          for i in 1 2 3 4; do git pull --rebase origin "$GITHUB_REF_NAME" && git push origin "HEAD:$GITHUB_REF_NAME" && exit 0; sleep $((i*5)); done
+          exit 1
