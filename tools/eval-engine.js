@@ -25,7 +25,8 @@ const r3=v=>v==null?null:+v.toFixed(3);
   const recs=[];let ok=0;
   for(const s of syms){const rows=await yahoo(s+'.IS');await sleep(250);if(!rows||rows.length<WIN+60){console.log('atlandi',s,rows&&rows.length);continue}ok++;
     for(let t=WIN;t<rows.length-H[H.length-1];t+=STEP){const win=rows.slice(t-WIN,t);
-      let a;try{a=E.proAnalyze({'1g':win,'1h':D.resampleWeekly(win)})}catch(e){continue}
+      const lastT=win[win.length-1].t,bw=bench.filter(b=>b.t<=lastT+864e5/2).slice(-WIN);
+      let a;try{a=E.proAnalyze({'1g':win,'1h':D.resampleWeekly(win)},{bench:bw})}catch(e){continue}
       if(!a||!a.ok)continue;const c0=win[win.length-1].c,day=new Date(win[win.length-1].t).toISOString().slice(0,10),bi=bIdx.get(day);
       const fw={};for(const h of H){const c1=rows[t-1+h].c,ret=c1/c0-1;let ex=null;
         if(bi!=null){const d1=new Date(rows[t-1+h].t).toISOString().slice(0,10),bj=bIdx.get(d1);if(bj!=null)ex=ret-(bench[bj].c/bench[bi].c-1)}
@@ -55,8 +56,9 @@ const r3=v=>v==null?null:+v.toFixed(3);
       o.ic['h'+h]={};for(const k of keys){const Z=Y.filter(r=>Number.isFinite(r.comp[k]));o.ic['h'+h][k]=r3(corr(Z.map(r=>r.comp[k]),Z.map(r=>r.fw[h].ex)))}}
     out.sonuc[nm]=o}
   // Agirlik karsilastirmasi: mevcut motor agirliklari vs egitim donemi IC'sine (10 gun) gore agirliklar; test doneminde olculur.
-  const CUR={trend:0.23,mtf:0.24,momentum:0.12,hacim:0.21,yapi:0.10},ICW={};
+  const CUR={trend:0.23,mtf:0.24,momentum:0.12,hacim:0.21,yapi:0.10,goreli:0.22},ICW={};
   for(const k of Object.keys(CUR)){const v=out.sonuc.egitim.ic.h10[k];ICW[k]=Math.max(0,v||0)}
+  const ESKI={trend:0.23,mtf:0.24,momentum:0.12,hacim:0.21,yapi:0.10};
   const sc=(r,W)=>{let s=0,w=0;for(const k in W)if(Number.isFinite(r.comp[k])){s+=W[k]*r.comp[k];w+=W[k]}return w?s/w*100:0};
   const BK=[[-101,-40],[-40,-20],[-20,0],[0,20],[20,40],[40,101]];
   function judge(R,W){const o={};for(const h of H){const Y=R.filter(r=>Number.isFinite(r.fw[h].ex)),xs=Y.map(r=>sc(r,W));
@@ -66,7 +68,7 @@ const r3=v=>v==null?null:+v.toFixed(3);
       return {aralik:[lo,hi],n:X.length,fazlaPozitif10:r3(mean(ex.map(v=>v>0?1:0))),ortFazla10:r3(mean(ex)),yukselme10:r3(mean(X.map(r=>r.fw[10].ret>0?1:0))),
         fazlaPozitif20:r3(mean(X.map(r=>r.fw[20].ex).filter(Number.isFinite).map(v=>v>0?1:0))),ortFazla20:r3(mean(X.map(r=>r.fw[20].ex).filter(Number.isFinite)))}});
     return o}
-  out.agirlik={mevcut:CUR,ic:ICW,egitim:{mevcut:judge(part.egitim,CUR),ic:judge(part.egitim,ICW)},test:{mevcut:judge(part.test,CUR),ic:judge(part.test,ICW)},
+  out.agirlik={mevcut:CUR,ic:ICW,eskiTest:judge(part.test,ESKI),eskiEgitim:judge(part.egitim,ESKI),egitim:{mevcut:judge(part.egitim,CUR),ic:judge(part.egitim,ICW)},test:{mevcut:judge(part.test,CUR),ic:judge(part.test,ICW)},
     tum:{mevcut:judge(recs,CUR),ic:judge(recs,ICW)}};
   // Deneyler: ozelliklerin bilgi katsayisi ve secici AL filtreleri (egitim/test). Taban: tum ornekler ve mevcut AL.
   const stat=(X,h)=>{const ex=X.map(r=>r.fw[h].ex).filter(Number.isFinite);return {n:X.length,yukselme:r3(mean(X.map(r=>r.fw[h].ret>0?1:0))),fazlaPozitif:r3(mean(ex.map(v=>v>0?1:0))),ortFazla:r3(mean(ex)),ortGetiri:r3(mean(X.map(r=>r.fw[h].ret)))}};

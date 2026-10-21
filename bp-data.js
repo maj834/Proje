@@ -416,7 +416,7 @@ function createData({market=require('./market'),engine=require('./engine'),now=(
     if(tf!=='1g'){try{D=await get('1g')}catch(e){D=null}}
     const rows=cleanRows(P.rows),daily=D?cleanRows(D.rows):null,frames={[tf]:rows};
     if(tf==='1g')frames['1h']=resampleWeekly(rows);else if(daily&&daily.length){frames['1g']=daily;if(tf!=='1h')frames['1h']=resampleWeekly(daily)}
-    const pro=engine.proAnalyze(frames,{primary:tf,riskPct:1});
+    const pro=engine.proAnalyze(frames,{primary:tf,riskPct:1,bench:mkt==='BIST'&&Array.isArray(bench)?bench:null});
     if(!pro||!pro.ok)throw new Error((pro&&pro.error)||'Analiz yapılamadı.');
     const code=plainOf(y),st=statsOf(daily||[],bench,engine),q=(D&&D.quote)||P.quote||{},N=rows.length;
     const price=fin(q.price)?q.price:rows[N-1].c;

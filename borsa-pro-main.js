@@ -255,7 +255,7 @@ function registerBorsaPro({ipcMain,app,BrowserWindow,path,screen,Notification,sh
       name:qb.name||null,exchange:qb.exchange||null,time:fin(qb.time)?qb.time:lastC.t,dayHigh:fin(qb.dayHigh)?qb.dayHigh:null,dayLow:fin(qb.dayLow)?qb.dayLow:null,
       volume:fin(qb.volume)?qb.volume:null,stale:!!qb.stale,live:!!qb.live};
     if(bist&&q1&&!q1.stale)remember(sym,quote);              // yalniz taze fiyat (mum onbellegi 30 dk eski olabilir; alarm baslangici bozulmasin)
-    let pro;try{pro=engine.proAnalyze(frames,{primary:tf,depth:es.depth||null,news:es.news||null,riskPct:riskPct()})}catch(e){pro=err('Analiz yapılamadı: '+msg(e))}
+    let pro;try{pro=engine.proAnalyze(frames,{primary:tf,depth:es.depth||null,news:es.news||null,riskPct:riskPct(),bench:bist&&Array.isArray(bn)?bn:null})}catch(e){pro=err('Analiz yapılamadı: '+msg(e))}
     if(!pro||typeof pro!=='object')pro=err('Analiz yapılamadı.');
     const daily=Array.isArray(frames['1g'])&&frames['1g'].length?frames['1g']:null;
     let stats=null;if(daily&&data&&typeof data.stats==='function')try{stats=data.stats(daily,bn||null)||null}catch(e){}

@@ -674,10 +674,12 @@ const TF_W={'1h':1,'1g':1,'1s':0.5,'15dk':0.4,'5dk':0.3,'1dk':0.2};
 // agirliklardan iyi cikti (10g IC 0.037->0.038, en ust/en alt %20 fazla getiri farki 10g %0.9->%1.1, 20g %2.1->%2.6).
 // Toplam 0.9 (derinlik/haber ayri eklenir). Eski: trend .25, mtf .15, momentum .2, hacim .1, yapi .2.
 const W_TREND=0.23,W_MTF=0.24,W_MOM=0.12,W_VOL=0.21,W_STR=0.10;
+// Goreli guc (XU100'e gore 126/63 gun): en tutarli tek bilgi (IC egitim .063/.066, test .061/.074; 10/20 gun). Yalniz gunluk dilim + endeks verisi varsa.
+const W_RS=0.22;
 // Skor kovasi -> [alt, ust, ornek, 10g yukselme orani, 10g XU100'e gore ort. fazla getiri, 20g fazla getiri] (tum donem, yeni agirliklar)
 const CALIB={evren:'BIST100',donem:'2023–2026',ornek:14855,kova:[[-101,-40,2244,0.488,-0.008,-0.017],[-40,-20,1895,0.513,-0.003,-0.003],[-20,0,1624,0.506,-0.004,-0.005],
   [0,20,1395,0.516,-0.006,-0.010],[20,40,1859,0.529,0.003,0.002],[40,101,5838,0.545,0.006,0.014]]};
-function proAnalyze(frames,{primary='1g',depth=null,news=null,sentiment=null,riskPct=1,intraday=false}={}){
+function proAnalyze(frames,{primary='1g',depth=null,news=null,sentiment=null,riskPct=1,intraday=false,bench=null}={}){
   const clean=rs=>(rs||[]).filter(r=>[r.o,r.h,r.l,r.c].every(Number.isFinite)&&r.c>0&&r.l>0&&r.h>=r.l);
   const rows=clean(frames[primary]);
   if(rows.length<50)return {ok:false,error:'Yeterli mum yok ('+rows.length+'/50).'};
@@ -745,6 +747,12 @@ function proAnalyze(frames,{primary='1g',depth=null,news=null,sentiment=null,ris
     if(depth.live){v+=depth.live*0.3;why.push('Canlı işlem akışı '+(depth.live>0?'AL':'SAT'))}
     comps.push({key:'derinlik',name:'Derinlik ve AKD',w:0.1,v:clamp(v,-1,1),why})}
   // 7) Haber duygusu
+  // Goreli guc: ayni gunlerdeki XU100 kapanisina gore (gun anahtari ile eslesir; endeks verisi eksikse bilesen yok)
+  if(primary==='1g'&&Array.isArray(bench)&&bench.length>130){const dk=t=>new Date(t).toISOString().slice(0,10),bm=new Map();for(const b of bench)if(b&&fin(b.c)&&b.c>0)bm.set(dk(b.t),b.c);
+    const rel=k=>{if(N-1-k<0)return null;const a=rows[N-1-k],b0=bm.get(dk(a.t)),b1=bm.get(dk(rows[N-1].t));return b0&&b1?x/a.c-b1/b0:null};
+    const r126=rel(126),r63=rel(63);
+    if(fin(r126)||fin(r63)){const v=(fin(r126)?0.6*r126/0.25:0)+(fin(r63)?0.4*r63/0.15:0),pc=y=>(y>=0?'+':'')+'%'+(y*100).toFixed(1).replace('.',',');
+      comps.push({key:'goreli',name:'Endekse göre güç',w:W_RS,v:clamp(v,-1,1),why:[(fin(r126)?'Son 6 ayda XU100\'e göre '+pc(r126):'')+(fin(r63)?(fin(r126)?', ':'')+'3 ayda '+pc(r63):'')].filter(Boolean)})}}
   {const sc=(news||[]).map(n=>n&&n.score).filter(fin);
     if(sc.length||fin(sentiment)){const why=[];let v=0,k=0;
       if(sc.length){const m=sc.reduce((a,b)=>a+b,0)/sc.length;v+=clamp(m/3,-1,1);k++;why.push(sc.length+' haber, ort. skor '+(m>0?'+':'')+m.toFixed(1).replace('.',','))}
