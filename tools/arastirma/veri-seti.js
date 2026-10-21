@@ -10,8 +10,15 @@ const OUT=arg('--cikti')||'ds.csv',STEP=+(arg('--adim')||5),[PK,PN]=(arg('--parc
 const H=[5,10,20,40],WIN=400,DAY=864e5;
 // Fiyat dosyalari: tools/veri/fiyat.json.br ya da parcalar fiyat-0..n.json.br (hepsi birlestirilir)
 const VD=arg('--veri')||path.join(__dirname,'..','veri');
-const data={};for(const f of fs.readdirSync(VD).filter(f=>/^fiyat(-\d+)?\.json\.br$/.test(f)).sort())
+// Is Yatirim dosyalari (fiyatis*) varsa onlar kullanilir; XU100 her hissenin gunluk 'xu' degerlerinden kurulur.
+// Oncelik: yfiyat-* (Yahoo, curl_cffi) > fiyatis-* (Is Yatirim) > fiyat-* (Yahoo, duz istek)
+const files=fs.readdirSync(VD).filter(f=>/^(y?fiyat|fiyatis)(-\d+)?\.json\.br$/.test(f)).sort();
+const pre=['yfiyat','fiyatis','fiyat'].find(p=>files.some(f=>f.split('-')[0].split('.')[0]===p));
+const data={};for(const f of files.filter(f=>f.split('-')[0].split('.')[0]===pre))
   Object.assign(data,JSON.parse(zlib.brotliDecompressSync(fs.readFileSync(path.join(VD,f)))).data);
+if(!data['XU100.IS']){const m=new Map();for(const d of Object.values(data))if(d.xu)d.t.forEach((t,i)=>{const x=d.xu[i];if(Number.isFinite(x)&&x>0){if(!m.has(t))m.set(t,[]);m.get(t).push(x)}});
+  const ts=[...m.keys()].sort((a,b)=>a-b),med=a=>{a.sort((x,y)=>x-y);return a[a.length>>1]},xc=ts.map(t=>med(m.get(t)));
+  data['XU100.IS']={t:ts,o:xc,h:xc,l:xc,c:xc,ac:xc,v:ts.map(()=>0)}}
 // Yahoo'da duzeltilmemis bolunme/bedelsiz: BIST gunluk limiti ~%10; |degisim| > %30 ise kirilma kabul edilir ve gecmis geriye dogru duzeltilir.
 function toRows(d){const n=d.t.length,rows=[];let fac=1;const f=[];
   for(let i=0;i<n;i++)rows.push({t:d.t[i]*DAY,o:d.o[i],h:d.h[i],l:d.l[i],c:d.c[i],v:d.v[i]||0});
