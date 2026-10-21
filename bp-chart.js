@@ -157,6 +157,8 @@ function create(el,opts={}){
   let theme=opts.theme==='light'?'light':'dark',C=PAL[theme],show={...DEF_SHOW,...(opts.show||{})};
   let D={rows:[],tf:'1g',pro:null,signals:[],trades:null,alarms:[],positions:[],symbol:''},R=[],I={},key='';
   const S={},PL=[],WMS=[];let markerApi=null,bands=null,prof=null,wm=null,paneWm=[],hoverFn=null,clickFn=null;
+  // Kullanici cizimleri: {id,kind:'trend'|'ray'|'hline'|'fib'|'rect',a:{t,p},b:{t,p}} (t: ms, p: fiyat). Kalicilik uygulamada (onDrawings).
+  let DR=[],tool=null,pend=null,drawFn=null,toolFn=null,prevS=null;const DS=[],DPL=[];
   if(getComputedStyle(el).position==='static')el.style.position='relative';
   const legend=document.createElement('div');legend.className='bpc-legend';
   legend.style.cssText='position:absolute;left:10px;top:8px;z-index:3;pointer-events:none;font:500 11.5px/1.5 "Plex Mono",ui-monospace,Menlo,monospace;white-space:nowrap;max-width:calc(100% - 90px);overflow:hidden';
@@ -177,7 +179,8 @@ function create(el,opts={}){
     for(const k of Object.keys(S)){try{chart.removeSeries(S[k])}catch(e){}delete S[k]}
     // Yazi filigranlari panelde kalir (seri silinince gitmez): yeniden cizimde eski panele/yanlis panele tasinmasin
     for(const w of WMS.splice(0))try{w.detach()}catch(e){}
-    PL.length=0;bands=null;prof=null;wm=null;paneWm=[]};
+    for(const x of DS.splice(0))try{chart.removeSeries(x)}catch(e){}if(prevS)try{chart.removeSeries(prevS)}catch(e){}
+    PL.length=0;bands=null;prof=null;wm=null;paneWm=[];DPL.length=0;prevS=null};
   const line=(color,width,pane,extra)=>chart.addSeries(LW.LineSeries,{color,lineWidth:width,priceLineVisible:false,lastValueVisible:false,crosshairMarkerVisible:false,priceFormat:pf,...(extra||{})},pane);
 
   function build(){
@@ -231,7 +234,7 @@ function create(el,opts={}){
     if(LW.createSeriesMarkers)markerApi=LW.createSeriesMarkers(c,mk);
     if(range&&key===D.symbol+'|'+D.tf)try{chart.timeScale().setVisibleLogicalRange(range)}catch(e){}
     else{key=D.symbol+'|'+D.tf;fit()}
-    renderLegend(null)}
+    drawUser();renderLegend(null)}
 
   function bandItems(){
     const out=[];
@@ -261,6 +264,40 @@ function create(el,opts={}){
     if(show.macd&&fin(I.hist&&I.hist[i]))sub.push(span('MACD ',C.muted)+span(fmtPrice(I.macd[i]),C.macd)+' '+span(fmtPrice(I.sig[i]),C.sig)+' '+span(fmtPrice(I.hist[i]),I.hist[i]>=0?C.up:C.dn));
     legend.innerHTML='<div style="display:inline-block;padding:2px 6px;border-radius:4px;background:'+C.legendBg+'">'+head+'<br>'+ohlc+(ind.length?'<br>'+ind.join('&nbsp;&nbsp;'):'')+(sub.length?'<br>'+sub.join('&nbsp;&nbsp;'):'')+'</div>'}
 
+
+  // --- kullanici cizimleri --------------------------------------------------------------------------------------------
+  const FIB=[0,0.236,0.382,0.5,0.618,0.786,1];
+  // Cizim noktasi (ms) -> bu dilimdeki en yakin mum (zaman olcegine yeni nokta eklenmesin); idx ile dogru uzatma
+  function nearest(t){if(!R.length)return -1;let lo=0,hi=R.length-1;const x=t/1000;
+    while(lo<hi){const m=(lo+hi)>>1;if(R[m].time<x)lo=m+1;else hi=m}
+    return lo>0&&Math.abs(R[lo-1].time-x)<Math.abs(R[lo].time-x)?lo-1:lo}
+  function drawUser(){
+    for(const s of DS.splice(0))try{chart.removeSeries(s)}catch(e){}
+    for(const pl of DPL.splice(0))try{S.candle&&S.candle.removePriceLine(pl)}catch(e){}
+    if(!S.candle||!R.length)return;const last=R.length-1;
+    const seg=(i1,p1,i2,p2,color,style,width,title)=>{if(i1===i2)i2=Math.min(last,i1+1);if(i1>i2){[i1,i2]=[i2,i1];[p1,p2]=[p2,p1]}
+      const s=line(color,width||2,0,{lineStyle:style||0,lastValueVisible:!!title,title:title||''});s.setData(i1===i2?[{time:R[i1].time,value:p1}]:[{time:R[i1].time,value:p1},{time:R[i2].time,value:p2}]);DS.push(s);return s};
+    for(const d of DR){const col=d.color||C.acc;
+      if(d.kind==='hline'){DPL.push(S.candle.createPriceLine({price:d.a.p,color:col,lineWidth:1,lineStyle:0,axisLabelVisible:true,title:''}));continue}
+      const i1=nearest(d.a.t),i2=nearest(d.b.t);if(i1<0||i2<0)continue;
+      if(d.kind==='trend'||d.kind==='ray'){
+        if(d.kind==='ray'&&i2!==i1){const m=(d.b.p-d.a.p)/(i2-i1),lo=Math.min(i1,i2);seg(lo,lo===i1?d.a.p:d.b.p,last,(lo===i1?d.a.p:d.b.p)+m*(last-lo),col,0,2,'')}
+        else seg(i1,d.a.p,i2,d.b.p,col,0,2,'')}
+      else if(d.kind==='fib'){const hi=d.a.p,lo=d.b.p,from=Math.min(i1,i2);
+        for(const f of FIB){const p=hi+(lo-hi)*f;seg(from,p,last,p,f===0.5||f===0.618?col:C.muted,f===0||f===1?0:2,1,'Fib '+(f*100).toFixed(1).replace('.0',''))}}
+      else if(d.kind==='rect'){const top=Math.max(d.a.p,d.b.p),bot=Math.min(d.a.p,d.b.p);seg(i1,top,i2,top,col,0,1,'');seg(i1,bot,i2,bot,col,0,1,'')}}}
+  const NEED={trend:2,ray:2,fib:2,rect:2,hline:1};
+  function snap(i,price){const r=R[i];if(!r)return price;const c=[r.h,r.l,r.o,r.c].sort((a,b)=>Math.abs(a-price)-Math.abs(b-price))[0];
+    return Math.abs(c-price)/price<0.006?c:price}
+  function preview(i,price){if(prevS){try{chart.removeSeries(prevS)}catch(e){}prevS=null}
+    if(!pend||i==null||!S.candle)return;const i1=nearest(pend.t);if(i1<0)return;
+    prevS=line(C.acc,1,0,{lineStyle:2});const a=Math.min(i1,i),b=Math.max(i1,i);
+    prevS.setData(a===b?[{time:R[a].time,value:pend.p}]:[{time:R[a].time,value:a===i1?pend.p:price},{time:R[b].time,value:b===i1?pend.p:price}])}
+  function placePoint(i,price){if(!tool||!R[i])return;const pt={t:R[i].time*1000,p:+snap(i,price).toFixed(decimals(price))};
+    if(NEED[tool]===1||pend){const d={id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),kind:tool,a:pend||pt,b:pt};
+      if(tool==='hline')d.a=pt;DR=[...DR,d];pend=null;preview(null);const t=tool;tool=null;drawUser();
+      if(drawFn)try{drawFn(DR.slice())}catch(e){}if(toolFn)try{toolFn(null,t)}catch(e){}}
+    else{pend=pt;if(toolFn)try{toolFn(tool,null,1)}catch(e){}}}
   const idxOf=new Map();
   function hoverInfo(i){const r=R[i];if(!r)return null;const pv=i?R[i-1].c:r.o;
     const g=k=>I[k]&&fin(I[k][i])?I[k][i]:null;
@@ -268,9 +305,12 @@ function create(el,opts={}){
       ind:{ema20:g('ema20'),ema50:g('ema50'),ema200:g('ema200'),rsi:g('rsi'),macd:g('macd'),hist:g('hist'),bbU:g('bbU'),bbL:g('bbL'),vwap:g('vwap')}}}
   chart.subscribeCrosshairMove(p=>{
     const i=p&&p.time!=null&&idxOf.has(p.time)?idxOf.get(p.time):null;renderLegend(i);
+    if(pend&&i!=null&&p.point&&S.candle){const pr=S.candle.coordinateToPrice(p.point.y);if(fin(pr))preview(i,pr)}
     if(hoverFn)try{hoverFn(i==null?null:hoverInfo(i))}catch(e){}});
   chart.subscribeClick(p=>{
-    if(!clickFn||!p||!p.point||!S.candle||p.paneIndex>0)return;const ev=p.sourceEvent||{};
+    if(!p||!p.point||!S.candle||p.paneIndex>0)return;const ev=p.sourceEvent||{};
+    if(tool&&!(ev.altKey||ev.metaKey)){const i=p.time!=null&&idxOf.has(p.time)?idxOf.get(p.time):null,pr=S.candle.coordinateToPrice(p.point.y);if(i!=null&&fin(pr))placePoint(i,pr);return}
+    if(!clickFn)return;
     if(!(ev.altKey||ev.metaKey))return;          // Alt (ya da Cmd) + tik: o fiyata alarm
     const price=S.candle.coordinateToPrice(p.point.y);if(fin(price))try{clickFn(+price.toFixed(decimals(price)))}catch(e){}});
 
@@ -296,6 +336,15 @@ function create(el,opts={}){
     snapshot(){try{return chart.takeScreenshot().toDataURL('image/png')}catch(e){return null}},
     onHover(f){hoverFn=typeof f==='function'?f:null},
     onClickPrice(f){clickFn=typeof f==='function'?f:null},
+    // Cizim araclari: setTool('trend'|'ray'|'hline'|'fib'|'rect'|null); setDrawings(list); onDrawings(f(list)); onTool(f(tool,done,step))
+    setTool(t){tool=NEED[t]?t:null;pend=null;preview(null);if(toolFn)try{toolFn(tool,null,0)}catch(e){}},
+    getTool:()=>tool,
+    setDrawings(list){DR=(Array.isArray(list)?list:[]).filter(d=>d&&NEED[d.kind]&&d.a&&fin(d.a.t)&&fin(d.a.p)&&(d.kind==='hline'||d.b&&fin(d.b.t)&&fin(d.b.p))).slice(0,100);drawUser()},
+    getDrawings:()=>DR.slice(),
+    undoDrawing(){DR=DR.slice(0,-1);drawUser();if(drawFn)try{drawFn(DR.slice())}catch(e){}},
+    clearDrawings(){DR=[];drawUser();if(drawFn)try{drawFn([])}catch(e){}},
+    onDrawings(f){drawFn=typeof f==='function'?f:null},
+    onTool(f){toolFn=typeof f==='function'?f:null},
     colors:()=>({...C}),_chart:chart};
   return api}
 

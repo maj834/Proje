@@ -311,6 +311,8 @@ function chartInit(){
   if(ch)return ch;
   if(!window.BPChart||!window.LightweightCharts){ovl('Grafik bileşeni yüklenemedi','Uygulamayı yeniden başlatmayı dene.');return null}
   try{ch=BPChart.create($('chart'),{theme:dark()?'dark':'light',show:S.show});
+    if(ch.onDrawings){ch.onDrawings(list=>{if(S.data)drawSave(S.data.symbol,list);renderHead()});ch.onTool(()=>renderHead());
+      document.addEventListener('keydown',e=>{if(e.key==='Escape'&&ch&&ch.getTool())ch.setTool(null)})}
     ch.onClickPrice(p=>{if(!S.data)return;const last=S.data.quote&&S.data.quote.price;addAlarm(S.data.symbol,fin(last)&&p<last?'below':'above',p)});
     matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>ch&&ch.setTheme(dark()?'dark':'light'));
   }catch(e){ovl('Grafik açılamadı',String(e.message||e));ch=null}
@@ -404,7 +406,8 @@ function drawChart(){
   const r=S.data;if(!r||!chartInit())return;
   const alarms=(S.st.alarms||[]).filter(a=>a.symbol===r.symbol&&a.kind!=='verdict'&&!a.fired);
   const positions=((S.st.portfolio&&S.st.portfolio.positions)||[]).filter(p=>p.symbol===r.symbol);
-  ch.setData({rows:r.rows,tf:r.tf,pro:r.pro,signals:r.signals,symbol:r.symbol,alarms,positions,trades:S.trades,show:{...S.show,trades:!!S.trades}})}
+  ch.setData({rows:r.rows,tf:r.tf,pro:r.pro,signals:r.signals,symbol:r.symbol,alarms,positions,trades:S.trades,show:{...S.show,trades:!!S.trades}});
+  if(ch.setDrawings)ch.setDrawings(drawLoad(r.symbol))}
 const IND=[['ema','EMA 20/50','var(--acc)'],['ema200','EMA 200','#a77cf0'],['bb','Bollinger','#8c9bb4'],['vwap','VWAP','#f0894b'],['volume','Hacim',null],['rsi','RSI',null],['macd','MACD',null],
   ['levels','Seviyeler',null],['plan','Plan',null],['signals','AL/SAT',null],['trendlines','Trend çizgileri',null],['profile','Hacim profili',null]];
 function renderHead(){
@@ -422,7 +425,19 @@ function renderHead(){
   $('tb').replaceChildren(...IND.map(([k,n,c])=>{const on=k==='vwap'?sh.vwap===true||(sh.vwap==='auto'&&['5dk','15dk','1dk'].includes(S.tf)):!!sh[k];
     return el('button',{class:'chip'+(on?' on':''),onclick:()=>toggleShow(k,on)},c?el('i',{style:'background:'+c}):null,n)}),
     S.trades?el('button',{class:'chip on',onclick:()=>{S.trades=null;drawChart();renderHead()}},'Strateji işlemleri ×'):null,
+    ch&&ch.setTool?drawBar():null,
     el('span',{class:'mu',style:'margin-left:auto;font-size:11px'},'Alt+tık: alarm · tekerlek: yakınlaştır'))}
+// --- cizim araclari (cizimler bu Mac'te, hisse basina saklanir; tum zaman dilimlerinde gorunur) ---
+const DRAWT=[['trend','Trend','İki noktaya tıkla: trend çizgisi'],['ray','Işın','İki noktaya tıkla: sağa uzayan çizgi'],['hline','Yatay','Bir fiyata tıkla: yatay çizgi'],
+  ['fib','Fib','Tepeye sonra dibe (ya da tersi) tıkla: Fibonacci düzeltmesi'],['rect','Kutu','İki köşeye tıkla: fiyat kutusu']];
+const drawKey=s=>'bp.draw.'+String(s||'').toUpperCase();
+function drawLoad(sym){try{const v=JSON.parse(localStorage.getItem(drawKey(sym))||'[]');return Array.isArray(v)?v:[]}catch(e){return []}}
+function drawSave(sym,list){try{if(list.length)localStorage.setItem(drawKey(sym),JSON.stringify(list.slice(0,100)));else localStorage.removeItem(drawKey(sym))}catch(e){}}
+function drawBar(){const t=ch.getTool(),n=ch.getDrawings().length;
+  return el('span',{class:'row',style:'gap:4px;margin-left:8px;align-items:center'},el('span',{class:'mu',style:'font-size:11px'},'Çiz:'),
+    ...DRAWT.map(([k,nm,tip])=>el('button',{class:'chip'+(t===k?' on':''),title:tip,onclick:()=>{ch.setTool(t===k?null:k);if(t!==k)toast(tip+' · Esc: vazgeç')}},nm)),
+    n?el('button',{class:'chip',title:'Son çizimi sil',onclick:()=>ch.undoDrawing()},'Geri al'):null,
+    n?el('button',{class:'chip',title:'Bu hissedeki tüm çizimleri sil',onclick:()=>{if(confirm(S.sym+' üzerindeki '+n+' çizim silinsin mi?'))ch.clearDrawings()}},'Temizle'):null)}
 function toggleShow(k,on){const v=k==='vwap'?(on?false:true):!on;S.show={...S.show,[k]:v};if(ch)ch.setShow({[k]:v});bp.prefs({show:{[k]:v}}).catch(()=>{});renderHead();
   if(k==='trendlines'&&v){const P=S.data&&S.data.pro,tl=P&&P.ok&&P.trend&&P.trend.trendlines||[];
     toast(tl.length?tl.map(t=>(t.type==='destek'?'Yükselen destek':'Alçalan direnç')+' '+fp(t.now)+(t.broken?' (kırıldı)':'')).join(' · '):'Bu zaman diliminde geçerli trend çizgisi yok (en az iki yükselen dip ya da alçalan tepe gerekir).')}}
