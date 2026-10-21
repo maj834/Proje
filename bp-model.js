@@ -1,8 +1,9 @@
-'use strict';
 // bp-model.js: olculmus olasilik modeli. Gunluk mumlardan (yalniz gecmis veri) ozellik dizileri ve model tahmini.
 // Ozellikler mutlak (tek hisse + XU100 ile hesaplanir; capraz kesit siralamasi gerekmez), ayni kod arastirma veri setini
 // (tools/arastirma) ve uygulamadaki analizi besler: egitimde ve uygulamada birebir ayni hesap.
 // rows: [{t(ms),o,h,l,c,v}] eskiden yeniye; bench: XU100 gunluk mumlari (ayni bicim) ya da null.
+(function(root){
+'use strict';
 const fin=Number.isFinite;
 const DAY=864e5,dayOf=t=>Math.floor((t+3*3600e3)/DAY);
 
@@ -81,4 +82,23 @@ function series(rows,bench){
 // Son mumun ozellikleri: {ad: sayi|null}
 function features(rows,bench){const s=series(rows,bench),o={};for(const k of NAMES){const v=s.col[k][s.n-1];o[k]=fin(v)?v:null}return o}
 
-module.exports={NAMES,series,features,alignBench,emaA,rsiA,adxA,dayOf};
+// --- olculmus model (bp-model-agac.js) ---
+let AG=null;function agac(){if(AG)return AG;try{AG=typeof require==='function'?require('./bp-model-agac.js'):root.BpModelAgac}catch(e){AG=root&&root.BpModelAgac}return AG||null}
+// LightGBM agaci: eksik tipi 0 (None) -> NaN 0 sayilir; 2 (NaN) -> varsayilan yon
+function leaf(n,x){while(Array.isArray(n)){const [f,thr,fl]=n;let v=x[f];const mt=fl>>1;
+    if(!fin(v)){if(mt===2){n=(fl&1)?n[3]:n[4];continue}v=0}
+    n=v<=thr?n[3]:n[4]}return n}
+// feats: features() ciktisi. Donus: {v:-1..1 (egitim dagilimina gore yuzdelik), ham, kova:{...}} ya da null
+function predict(feats){const M=agac();if(!M||!feats)return null;
+  const x=M.ozellik.map(k=>feats[k]==null?NaN:+feats[k]);if(x.filter(fin).length<M.ozellik.length*0.7)return null;
+  let p=0;for(const t of M.agac)p+=leaf(t,x);
+  const q=M.q;let v;if(p<=q[0])v=-1;else if(p>=q[q.length-1])v=1;else{let i=1;while(q[i]<p)i++;const f=(p-q[i-1])/((q[i]-q[i-1])||1);v=-1+2*((i-1+f)/(q.length-1))}
+  const k=M.kalib.find(b=>v>b[0]&&v<=b[1])||M.kalib[M.kalib.length-1];
+  return {v:+v.toFixed(3),ham:p,kova:{n:k[2],up20:k[3],gec20:k[4],ex20:k[5],up10:k[6],ex10:k[7]}}}
+// Tek adim: mumlar + XU100 -> model. Yetersiz gecmis (252+ gun) ya da endeks yoksa null.
+function score(rows,bench){if(!Array.isArray(rows)||rows.length<260||!Array.isArray(bench)||bench.length<200)return null;
+  const f=features(rows,bench);return predict(f)}
+
+const api={NAMES,series,features,predict,score,alignBench,emaA,rsiA,adxA,dayOf};
+if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.BpModel=api;
+})(this);

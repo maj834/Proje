@@ -678,6 +678,10 @@ const W_TREND=0.23,W_MTF=0.24,W_MOM=0.12,W_VOL=0.21,W_STR=0.10;
 // Ilk deneme (agirlik .22, 126/63 gun, ±%25/%15'te doyan olcek) test doneminde motoru kotulestirdi (10g IC .042->.039, 20g .064->.055);
 // ham ozellik iyi (IC .061/.074) ama bu olcekleme bilgiyi kaybediyor. Yeniden olculene kadar kapali (bilesen eklenmez).
 const W_RS=0;
+// Olculmus model agirligi: diger bilesenler toplami .9; W_MODEL=5 -> karar skorunun ~%85'i model. Dogrulama (2024-01..2025-06) ve
+// kapali test (2025-06..2026-09) doneminde en iyi karisim .85 model + .15 eski skor (20g IC: eski skor .025/.019 -> karisim .128/.091).
+const W_MODEL=5,MODEL_ORNEK=56080;
+const BM=(()=>{try{return typeof require==='function'?require('./bp-model.js'):root.BpModel}catch(e){return root&&root.BpModel||null}})();
 // Skor kovasi -> [alt, ust, ornek, 10g yukselme orani, 10g XU100'e gore ort. fazla getiri, 20g fazla getiri] (tum donem, yeni agirliklar)
 const CALIB={evren:'BIST100',donem:'2023–2026',ornek:14855,kova:[[-101,-40,2244,0.488,-0.008,-0.017],[-40,-20,1895,0.513,-0.003,-0.003],[-20,0,1624,0.506,-0.004,-0.005],
   [0,20,1395,0.516,-0.006,-0.010],[20,40,1859,0.529,0.003,0.002],[40,101,5838,0.545,0.006,0.014]]};
@@ -755,13 +759,22 @@ function proAnalyze(frames,{primary='1g',depth=null,news=null,sentiment=null,ris
     const r126=rel(126),r63=rel(63);
     if(fin(r126)||fin(r63)){const v=(fin(r126)?0.6*r126/0.25:0)+(fin(r63)?0.4*r63/0.15:0),pc=y=>(y>=0?'+':'')+'%'+(y*100).toFixed(1).replace('.',',');
       comps.push({key:'goreli',name:'Endekse göre güç',w:W_RS,v:clamp(v,-1,1),why:[(fin(r126)?'Son 6 ayda XU100\'e göre '+pc(r126):'')+(fin(r63)?(fin(r126)?', ':'')+'3 ayda '+pc(r63):'')].filter(Boolean)})}}
+  // Olculmus model (bp-model.js): 49 ozellik, LightGBM; 20 gunluk XU100'e gore getiri sirasi. Yalniz gunluk dilim + endeks + 260 mum.
+  let model=null;
+  if(primary==='1g'&&BM&&Array.isArray(bench)){try{model=BM.score(rows,clean(bench))}catch(e){model=null}
+    if(model){const k=model.kova,pc=y=>'%'+Math.round(y*100);
+      comps.push({key:'model',name:'Ölçülmüş model (20 gün)',w:W_MODEL,v:clamp(model.v,-1,1),
+        why:['Model: '+(model.v>=0.6?'güçlü':model.v>=0.2?'olumlu':model.v>-0.2?'nötr':model.v>-0.6?'zayıf':'çok zayıf')+' ('+(model.v>0?'+':'')+model.v.toFixed(2).replace('.',',')+')',
+          'Geçmişte bu bantta 20 günde endeksi geçme '+pc(k.gec20)+', yükselme '+pc(k.up20)]})}}
   {const sc=(news||[]).map(n=>n&&n.score).filter(fin);
     if(sc.length||fin(sentiment)){const why=[];let v=0,k=0;
       if(sc.length){const m=sc.reduce((a,b)=>a+b,0)/sc.length;v+=clamp(m/3,-1,1);k++;why.push(sc.length+' haber, ort. skor '+(m>0?'+':'')+m.toFixed(1).replace('.',','))}
       if(fin(sentiment)){v+=clamp(sentiment*2,-1,1);k++;why.push('Haber duygu skoru '+(sentiment>0?'+':'')+sentiment.toFixed(2).replace('.',','))}
       comps.push({key:'haber',name:'Haber',w:0.07,v:clamp(v/k,-1,1),why})}}
   const verdict=verdictOf(comps,Math.min(1,N/200));
-  if(primary==='1g'){const k=CALIB.kova.find(b=>verdict.score>=b[0]&&verdict.score<b[1]);if(k)verdict.calib={n:k[2],up10:k[3],ex10:k[4],ex20:k[5],evren:CALIB.evren,donem:CALIB.donem,ornek:CALIB.ornek}}
+  if(model){const k=model.kova;verdict.model={v:model.v,up20:k.up20,gec20:k.gec20,ex20:k.ex20};
+    verdict.calib={n:k.n,up10:k.up10,ex10:k.ex10,ex20:k.ex20,up20:k.up20,gec20:k.gec20,evren:'BIST500, 461 hisse',donem:'2024–2026, modelin görmediği dönem',ornek:MODEL_ORNEK,model:true}}
+  else if(primary==='1g'){const k=CALIB.kova.find(b=>verdict.score>=b[0]&&verdict.score<b[1]);if(k)verdict.calib={n:k[2],up10:k[3],ex10:k[4],ex20:k[5],evren:CALIB.evren,donem:CALIB.donem,ornek:CALIB.ornek}}
   // BEKLE'de plan yerine tetikler: direncin ustunde kapanis AL, destegin altinda kapanis SAT senaryosu.
   const plan=tradePlan(verdict.dir||1,x,atr,S3,R3,riskPct);
   if(plan){if(!verdict.dir){plan.wait=true;plan.triggerUp=R3[0]?+R3[0].hi.toFixed(4):null;plan.triggerDown=S3[0]?+S3[0].lo.toFixed(4):null}

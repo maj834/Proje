@@ -4,3 +4,4 @@ dist/
 GrafikOkuyucu_Tanitim.mp4
 build/
 eval-out/
+__pycache__/
