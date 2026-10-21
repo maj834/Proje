@@ -8,8 +8,10 @@ const M=require('../../bp-model.js');
 const arg=k=>{const i=process.argv.indexOf(k);return i>0?process.argv[i+1]:null},has=k=>process.argv.includes(k);
 const OUT=arg('--cikti')||'ds.csv',STEP=+(arg('--adim')||5),[PK,PN]=(arg('--parca')||'0/1').split('/').map(Number),MOTOR=has('--motor');
 const H=[5,10,20,40],WIN=400,DAY=864e5;
-const raw=JSON.parse(zlib.brotliDecompressSync(fs.readFileSync(arg('--veri')||path.join(__dirname,'..','veri','fiyat.json.br'))));
-const data=raw.data;
+// Fiyat dosyalari: tools/veri/fiyat.json.br ya da parcalar fiyat-0..n.json.br (hepsi birlestirilir)
+const VD=arg('--veri')||path.join(__dirname,'..','veri');
+const data={};for(const f of fs.readdirSync(VD).filter(f=>/^fiyat(-\d+)?\.json\.br$/.test(f)).sort())
+  Object.assign(data,JSON.parse(zlib.brotliDecompressSync(fs.readFileSync(path.join(VD,f)))).data);
 // Yahoo'da duzeltilmemis bolunme/bedelsiz: BIST gunluk limiti ~%10; |degisim| > %30 ise kirilma kabul edilir ve gecmis geriye dogru duzeltilir.
 function toRows(d){const n=d.t.length,rows=[];let fac=1;const f=[];
   for(let i=0;i<n;i++)rows.push({t:d.t[i]*DAY,o:d.o[i],h:d.h[i],l:d.l[i],c:d.c[i],v:d.v[i]||0});
