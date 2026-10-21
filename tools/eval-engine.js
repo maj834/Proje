@@ -56,7 +56,7 @@ const r3=v=>v==null?null:+v.toFixed(3);
       o.ic['h'+h]={};for(const k of keys){const Z=Y.filter(r=>Number.isFinite(r.comp[k]));o.ic['h'+h][k]=r3(corr(Z.map(r=>r.comp[k]),Z.map(r=>r.fw[h].ex)))}}
     out.sonuc[nm]=o}
   // Agirlik karsilastirmasi: mevcut motor agirliklari vs egitim donemi IC'sine (10 gun) gore agirliklar; test doneminde olculur.
-  const CUR={trend:0.23,mtf:0.24,momentum:0.12,hacim:0.21,yapi:0.10,goreli:0.22},ICW={};
+  const CUR={trend:0.23,mtf:0.24,momentum:0.12,hacim:0.21,yapi:0.10},ICW={};
   for(const k of Object.keys(CUR)){const v=out.sonuc.egitim.ic.h10[k];ICW[k]=Math.max(0,v||0)}
   const ESKI={trend:0.23,mtf:0.24,momentum:0.12,hacim:0.21,yapi:0.10};
   const sc=(r,W)=>{let s=0,w=0;for(const k in W)if(Number.isFinite(r.comp[k])){s+=W[k]*r.comp[k];w+=W[k]}return w?s/w*100:0};
