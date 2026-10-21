@@ -314,7 +314,7 @@ function mk(){
   ov=new BrowserWindow({transparent:true,frame:false,focusable:false,hasShadow:false,skipTaskbar:true,show:false,enableLargerThanScreen:true,
     webPreferences:{preload:pre,sandbox:true}});
   ov.setAlwaysOnTop(true,'screen-saver');ov.setVisibleOnAllWorkspaces(true,{visibleOnFullScreen:true});
-  ov.setIgnoreMouseEvents(true);ov.setContentProtection(true);ov.loadFile(path.join(__dirname,'overlay.html'));
+  ov.setIgnoreMouseEvents(true,{forward:true});ov.setContentProtection(true);ov.loadFile(path.join(__dirname,'overlay.html'));
   ov.webContents.once('did-finish-load',()=>placeOverlay(screen.getPrimaryDisplay()));
   for(const w of [pop,ov])w.webContents.setWindowOpenHandler(()=>({action:'deny'}));
 }
@@ -368,7 +368,7 @@ function setDrawing(on){
   if(on&&regionMode)setRegionMode(false);
   drawing=on;
   if(on){placeOverlay(activeDisplay());pop.hide();ov.setIgnoreMouseEvents(false);ov.setFocusable(true);ov.show();ov.focus();app.focus({steal:true})}
-  else{ov.setIgnoreMouseEvents(true);ov.setFocusable(false)}
+  else{ov.setIgnoreMouseEvents(true,{forward:true});ov.setFocusable(false)}
   sendOv('mode',on);syncOverlay();
 }
 
@@ -380,7 +380,7 @@ function setRegionMode(on,d){
   regionMode=on;
   if(on){d=d||activeDisplay();placeOverlay(d);pop.hide();ov.setIgnoreMouseEvents(false);ov.setFocusable(true);ov.show();ov.focus();app.focus({steal:true});
     sendOv('region',{on:true,rect:regionOf(d)})}
-  else{ov.setIgnoreMouseEvents(true);ov.setFocusable(false);sendOv('region',{on:false})}
+  else{ov.setIgnoreMouseEvents(true,{forward:true});ov.setFocusable(false);sendOv('region',{on:false})}
   syncOverlay();
 }
 function saveRegion(r){
@@ -1124,6 +1124,8 @@ app.whenReady().then(()=>{
   });
   ipcMain.handle('clearHistory',()=>save({history:[]}));
   ipcMain.handle('hideOverlay',clearAnalysis);
+  // Derinlik karti: fare kartin uzerindeyken overlay tiklamalari alir (kapat dugmesi); disinda tiklamalar alttaki uygulamaya gecer
+  ipcMain.handle('ovMouse',(e,on)=>{if(!ov||ov.isDestroyed()||drawing||regionMode)return;if(on)ov.setIgnoreMouseEvents(false);else ov.setIgnoreMouseEvents(true,{forward:true})});
   ipcMain.handle('draw',(e,on)=>setDrawing(on!==false));
   ipcMain.handle('saveDrawings',(e,list)=>{if(!Array.isArray(list)||!ovKey)return;
     // Bozuk oge (null, a dizisi olmayan) kaydedilirse cfg her okunuşta patlar: yalniz gecerli cizimler

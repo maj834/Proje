@@ -372,6 +372,9 @@ async function wMarketOf(v){const Y=window.BPSymbols,m=Y&&Y.marketOf(v);if(m==='
   let r=[];try{r=await bp.search(v)}catch(e){}if(Array.isArray(r)&&r.some(x=>x&&x.symbol===v.toLocaleUpperCase('tr-TR')))return 'BIST';return m==='US'?'US':S.mkt}
 $('wli').addEventListener('keydown',async e=>{if(e.key==='Enter'){const v=e.target.value.trim();if(!v)return;const r=await call(bp.watch,{op:'add',symbol:v,market:await wMarketOf(v)});
   if(okr(r)){S.st.watch=r.watch;e.target.value='';renderWatch();refreshQuotes()}}else if(e.key==='Escape'){$('wla').classList.remove('on')}});
+// Liste yuzdesi grafik dilimini izler: haftalik dilimde son 5 islem gunu (kucuk grafik kapanislarindan), digerlerinde gunluk
+function wChg(x){const sp=Array.isArray(x.spark)?x.spark.filter(fin):[];
+  if(S.tf==='1h'&&sp.length>=6&&sp[sp.length-6]>0)return (sp[sp.length-1]/sp[sp.length-6]-1)*100;return x.chgPct}
 function renderWatch(){
   const w=S.st?S.st.watch:[];
   if(!w.length){$('wll').replaceChildren(el('div',{class:'empty',style:'padding:20px 8px'},el('b',{},'Liste boş'),'+ ile hisse ekle.'));return}
@@ -380,7 +383,7 @@ function renderWatch(){
     return el('div',{class:'wr'+(s===cur?' on':''),onclick:()=>wOpen(s),title:(x.name||wDisp(s))+(tg?' · '+tg:'')},
       v?el('i',{class:'vd',style:'background:'+(v.label==='AL'?'var(--up)':v.label==='SAT'?'var(--dn)':'var(--line-2)'),title:'Son tarama: '+v.label}):null,
       el('span',{class:'c'},wDisp(s),tg?el('span',{class:'wt'},tg==='Kripto'?'₿':'$'):null,isLive(s)?el('span',{class:'lz',title:x.live?'Canlı (Telegram) fiyat':'Canlı listede; sıradaki güncelleme bekleniyor'},x.live?' ⚡':' ϟ'):null),spark(x.spark),el('span',{class:'p'},fp(x.price)),
-      el('span',{class:'n'},x.error?'veri yok':x.name||''),el('span',{class:'ch '+sgnc(x.chgPct)},pct(x.chgPct)),
+      el('span',{class:'n'},x.error?'veri yok':x.name||''),(c=>el('span',{class:'ch '+sgnc(c),title:S.tf==='1h'?'Haftalık değişim (5 işlem günü)':'Günlük değişim'},pct(c)))(wChg(x)),
       el('button',{class:'x',title:'Listeden çıkar',onclick:async e=>{e.stopPropagation();const r=await call(bp.watch,{op:'remove',symbol:s});if(okr(r)){S.st.watch=r.watch;renderWatch()}}},'×'))}))}
 let qBusy=false;
 async function refreshQuotes(){
@@ -393,7 +396,13 @@ async function refreshQuotes(){
 // --- grafik + analiz -------------------------------------------------------------------------
 // mkt verilmezse: "-USD" / ".US" sonekli kodlar ABD veri yolu, digerleri BIST (tarayici, plan, okul vb. BIST kodlari)
 function go(sym,mkt){sym=String(sym||'');S.mkt=mkt||(/-USD$|\.US$/i.test(sym)?'US':'BIST');if(S.tab!=='grafik')tab('grafik');return load(sym.replace(/\.US$/i,''))}
-function setTf(tf){if(!TFS.includes(tf)||tf===S.tf&&S.data)return;S.tf=tf;if(S.sym)load(S.sym)}
+function setTf(tf){if(!TFS.includes(tf)||tf===S.tf&&S.data)return;S.tf=tf;S.span=null;renderWatch();if(S.sym)load(S.sym)}
+// Gorunen aralik: gunluk veri ~2 yil; 5Y (ve gun ici dilimlerde 52H) icin haftalik dilime gecilir
+const SPANS=[['1A',21],['3A',63],['6A',126],['52H',252],['5Y',1260],['Tümü','all']];
+const SPANT={'1A':'Son 1 ay','3A':'Son 3 ay','6A':'Son 6 ay','52H':'Son 52 hafta','5Y':'Son 5 yıl (haftalık mumlar)','Tümü':'Tüm veri'};
+function applySpan(){if(!S.span||!ch||!ch.setSpan)return;const d=(SPANS.find(x=>x[0]===S.span)||[])[1];if(d!=null)ch.setSpan(d)}
+function setSpan(k){S.span=k;const need=k==='5Y'||k==='Tümü'&&S.tf!=='1g'?'1h':k==='52H'&&!['1g','1h'].includes(S.tf)?'1g':(['6A'].includes(k)&&['5dk','15dk'].includes(S.tf))?'1s':null;
+  if(need&&need!==S.tf){S.tf=need;renderWatch();if(S.sym)load(S.sym);return}applySpan();renderHead()}
 async function load(sym,o={}){
   if(!sym)return;const seq=++S.loading;S.sym=String(sym).toLocaleUpperCase('tr-TR');renderWatch();renderHead();
   if(chartInit()&&!o.quiet)ovl(S.sym+' yükleniyor…',TFN[S.tf]+' veri ve analiz',true);
@@ -402,7 +411,7 @@ async function load(sym,o={}){
   if(seq!==S.loading)return;
   if(!r||!r.ok){S.data=null;ovl('Veri alınamadı',(r&&r.error)||'Bağlantıyı kontrol et.');renderHead();renderAnalysis();return}
   S.data=r;S.sym=r.symbol;S.ai=null;S.chat=[];if(!o.keepTrades)S.trades=null;
-  ovl(null);renderHead();renderWatch();drawChart();renderAnalysis();if(keepScroll)$('ap').scrollTop=keepScroll;if(S.tab==='analist')renderAnalyst();
+  ovl(null);renderHead();renderWatch();drawChart();if(!o.quiet)applySpan();renderAnalysis();if(keepScroll)$('ap').scrollTop=keepScroll;if(S.tab==='analist')renderAnalyst();
   $('sbl').textContent='Veri: Yahoo Finance'+(r.market==='BIST'?' · BIST ~15 dk gecikmeli':/-USD$/.test(r.symbol)?' · Kripto 7/24 · USD':' · ABD · USD')+(r.stale?' · çevrimdışı, eski veri':'')+(r.errors&&r.errors.length?' · '+r.errors.length+' uyarı':'')}
 function drawChart(){
   const r=S.data;if(!r||!chartInit())return;
@@ -412,10 +421,12 @@ function drawChart(){
   if(ch.setDrawings)ch.setDrawings(drawLoad(r.symbol))}
 const IND=[['ema','EMA 20/50','var(--acc)'],['ema200','EMA 200','#a77cf0'],['bb','Bollinger','#8c9bb4'],['vwap','VWAP','#f0894b'],['volume','Hacim',null],['rsi','RSI',null],['macd','MACD',null],
   ['levels','Seviyeler',null],['plan','Plan',null],['signals','AL/SAT',null],['trendlines','Trend çizgileri',null],['profile','Hacim profili',null]];
+function hdChg(r,qt){const rs=r&&Array.isArray(r.rows)?r.rows:[];
+  if(S.tf==='1h'&&rs.length>1){const a=rs[rs.length-2].c,b=rs[rs.length-1].c;if(fin(a)&&fin(b)&&a>0)return (b/a-1)*100}return qt.chgPct}
 function renderHead(){
   const r=S.data,qt=r&&r.quote||{};
   $('sh').replaceChildren(el('span',{class:'sym'},S.sym||'—'),el('span',{class:'nm'},r?r.name||'':''),
-    r?el('span',{class:'px'},fp(qt.price)):null,r&&fin(qt.chgPct)?el('span',{class:'chg '+sgnc(qt.chgPct)},pct(qt.chgPct)):null,
+    r?el('span',{class:'px'},fp(qt.price)):null,(c=>r&&fin(c)?el('span',{class:'chg '+sgnc(c),title:S.tf==='1h'?'Haftalık değişim (son haftalık mum)':'Günlük değişim'},pct(c)):null)(hdChg(r,qt)),
     r&&qt.stale?el('span',{class:'badge',title:'Bağlantı yok; son bilinen veri'},'eski veri'):null,
     el('span',{class:'sp'}),
     el('div',{class:'seg'},...TFS.map((t,i)=>el('button',{class:t===S.tf?'on':'',title:TFN[t]+' ('+(i+1)+')',onclick:()=>setTf(t)},t))),
@@ -428,7 +439,9 @@ function renderHead(){
     return el('button',{class:'chip'+(on?' on':''),onclick:()=>toggleShow(k,on)},c?el('i',{style:'background:'+c}):null,n)}),
     S.trades?el('button',{class:'chip on',onclick:()=>{S.trades=null;drawChart();renderHead()}},'Strateji işlemleri ×'):null,
     ch&&ch.setTool?drawBar():null,
-    el('span',{class:'mu',style:'margin-left:auto;font-size:11px'},'Alt+tık: alarm · tekerlek: yakınlaştır'))}
+    el('span',{class:'sp',style:'flex:1'}),
+    el('div',{class:'seg',title:'Görünen aralık'},...SPANS.map(([k,d])=>el('button',{class:S.span===k?'on':'',title:SPANT[k],onclick:()=>setSpan(k)},k))),
+    el('div',{class:'seg',title:'Tekerlek ya da iki parmakla da yakınlaşır · Alt+tık: alarm'},el('button',{title:'Yakınlaştır',onclick:()=>ch&&ch.zoom&&ch.zoom(0.6)},'+'),el('button',{title:'Uzaklaştır',onclick:()=>ch&&ch.zoom&&ch.zoom(1.6)},'−')))}
 // --- cizim araclari (cizimler bu Mac'te, hisse basina saklanir; tum zaman dilimlerinde gorunur) ---
 const DRAWT=[['trend','Trend','İki noktaya tıkla: trend çizgisi'],['ray','Işın','İki noktaya tıkla: sağa uzayan çizgi'],['hline','Yatay','Bir fiyata tıkla: yatay çizgi'],
   ['fib','Fib','Tepeye sonra dibe (ya da tersi) tıkla: Fibonacci düzeltmesi'],['rect','Kutu','İki köşeye tıkla: fiyat kutusu']];

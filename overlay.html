@@ -38,6 +38,7 @@ body.draw #badge{display:none!important}
 #dcard .sig.new{animation:sigin .6s ease}@keyframes sigin{0%{transform:scale(.96);background:rgba(255,255,255,.18)}100%{transform:none}}
 #dcard .tp{margin-top:6px;font:400 11px var(--mono)}
 body.draw #dcard{display:none!important}
+#dcard .x{margin-left:6px;width:20px;height:20px;border:0;border-radius:4px;background:rgba(255,255,255,.08);color:#eef0f2;font:600 13px/20px var(--font);cursor:pointer;padding:0}#dcard .x:hover{background:rgba(255,255,255,.2)}
 
 /* cizim */
 body.draw #dr .d{cursor:move}body.draw #dr .d *{pointer-events:stroke}body.draw #dr .d text,body.draw #dr .d .fill{pointer-events:all}
@@ -354,7 +355,11 @@ function drawDepth(d){
   if(acc&&BNO.akd.days>=2)parts.push(e('div','tt up',BNO.akd.days+' günlük birikim: '+acc.name.slice(0,18)+' +'+kfmt(acc.net)+' ('+acc.buyDays+'/'+BNO.akd.days+' gün alıcı)'));
   const ev=mine&&(BNO.calendar||[])[0];
   if(ev)parts.push(e('div','tt','Yaklaşan: '+new Date(ev.day+'T12:00:00').toLocaleDateString('tr-TR',{day:'2-digit',month:'short'})+' '+ev.kind));
+  // Kapat: derinlik katmanini kapatir (menuden yeniden acilir). Kart uzerinde fare -> overlay tiklama alir.
+  const x=e('button','x','×');x.title='Derinlik kartını kapat (menüden yeniden açılır)';x.onclick=()=>{card.style.display='none';try{api.ovMouse(false);api.depthSet({overlay:false})}catch(err){}};
+  if(parts[0]&&parts[0].className==='hd')parts[0].append(x);else parts.unshift(x);
   card.replaceChildren(...parts);card.style.display='block';
+  if(!card._hov){card._hov=1;card.addEventListener('mouseenter',()=>{try{api.ovMouse(true)}catch(err){}});card.addEventListener('mouseleave',()=>{try{api.ovMouse(false)}catch(err){}})}
 }
 api.on('botNews',n=>{BNO=n;if(DD)drawDepth(DD)});
 // Derinlik sinyali yalniz ayni hissenin grafigine yazilir; baska hisseninki eski sinyali de siler

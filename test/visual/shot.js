@@ -18,6 +18,14 @@ app.whenReady().then(async()=>{
   while(Date.now()-t0<5000){if(await win.webContents.executeJavaScript('!!window.__ready').catch(()=>false))break;await new Promise(r=>setTimeout(r,100))}
   // SHOT_JS: hazir olduktan sonra sayfada calistirilacak kod (ornek: bir dugmeye tiklamak); sonra 1,5 sn beklenir
   if(process.env.SHOT_JS){await win.webContents.executeJavaScript(process.env.SHOT_JS).catch(e=>console.log('[SHOT_JS]',e.message));await new Promise(r=>setTimeout(r,1500))}
+  // SHOT_CLICKS: gercek fare tiklamalari "x,y;x,y" (sendInputEvent; cizim/surukleme gibi kanvas etkilesimlerini dener). "w" -> tekerlek
+  for(const c of String(process.env.SHOT_CLICKS||'').split(';').filter(Boolean)){const [x,y,k]=c.split(',');
+    if(k==='d'){await new Promise(r=>setTimeout(r,+x));continue}
+    if(k==='w'){win.webContents.sendInputEvent({type:'mouseWheel',x:+x,y:+y,deltaX:0,deltaY:-240,canScroll:true});await new Promise(r=>setTimeout(r,250));continue}
+    win.webContents.sendInputEvent({type:'mouseMove',x:+x,y:+y});await new Promise(r=>setTimeout(r,120));
+    win.webContents.sendInputEvent({type:'mouseDown',x:+x,y:+y,button:'left',clickCount:1});await new Promise(r=>setTimeout(r,60));
+    win.webContents.sendInputEvent({type:'mouseUp',x:+x,y:+y,button:'left',clickCount:1});await new Promise(r=>setTimeout(r,300))}
+  if(process.env.SHOT_JS2){await win.webContents.executeJavaScript(process.env.SHOT_JS2).then(v=>console.log('[SHOT_JS2]',JSON.stringify(v))).catch(e=>console.log('[SHOT_JS2]',e.message))}
   await new Promise(r=>setTimeout(r,400));
   const img=await win.webContents.capturePage();
   fs.writeFileSync(path.resolve(out),img.toPNG());

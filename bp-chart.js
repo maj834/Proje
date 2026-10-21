@@ -234,7 +234,7 @@ function create(el,opts={}){
     if(LW.createSeriesMarkers)markerApi=LW.createSeriesMarkers(c,mk);
     if(range&&key===D.symbol+'|'+D.tf)try{chart.timeScale().setVisibleLogicalRange(range)}catch(e){}
     else{key=D.symbol+'|'+D.tf;fit()}
-    drawUser();renderLegend(null)}
+    drawUser();prevS=line(C.acc,1,0,{lineStyle:2});prevKey='';renderLegend(null)}
 
   function bandItems(){
     const out=[];
@@ -289,14 +289,18 @@ function create(el,opts={}){
   const NEED={trend:2,ray:2,fib:2,rect:2,hline:1};
   function snap(i,price){const r=R[i];if(!r)return price;const c=[r.h,r.l,r.o,r.c].sort((a,b)=>Math.abs(a-price)-Math.abs(b-price))[0];
     return Math.abs(c-price)/price<0.006?c:price}
-  function preview(i,price){if(prevS){try{chart.removeSeries(prevS)}catch(e){}prevS=null}
-    if(!pend||i==null||!S.candle)return;const i1=nearest(pend.t);if(i1<0)return;
-    prevS=line(C.acc,1,0,{lineStyle:2});const a=Math.min(i1,i),b=Math.max(i1,i);
-    prevS.setData(a===b?[{time:R[a].time,value:pend.p}]:[{time:R[a].time,value:a===i1?pend.p:price},{time:R[b].time,value:b===i1?pend.p:price}])}
+  // Onizleme serisi build() icinde bir kez eklenir; imlec hareketinde yalniz verisi degisir. (Fare olayi sirasinda seri
+  // silip eklemek kutuphanenin ic durumunu bozuyordu: "Value is null" -> cizim, yakinlastirma ve dugmeler calismiyordu.)
+  // Ayni noktaya tekrar veri yazilmaz: setData imlec olayini yeniden tetikler (sonsuz dongu olmasin)
+  let prevKey='';
+  function preview(i,price){if(!prevS)return;
+    if(!pend||i==null||!S.candle){if(prevKey){prevKey='';try{prevS.setData([])}catch(e){}}return}const i1=nearest(pend.t);if(i1<0)return;const a=Math.min(i1,i),b=Math.max(i1,i);
+    const k=a+'|'+b+'|'+(+price).toPrecision(6);if(k===prevKey)return;prevKey=k;
+    try{prevS.setData(a===b?[{time:R[a].time,value:pend.p}]:[{time:R[a].time,value:a===i1?pend.p:price},{time:R[b].time,value:b===i1?pend.p:price}])}catch(e){}}
   function placePoint(i,price){if(!tool||!R[i])return;const pt={t:R[i].time*1000,p:+snap(i,price).toFixed(decimals(price))};
     if(NEED[tool]===1||pend){const d={id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),kind:tool,a:pend||pt,b:pt};
-      if(tool==='hline')d.a=pt;DR=[...DR,d];pend=null;preview(null);const t=tool;tool=null;drawUser();
-      if(drawFn)try{drawFn(DR.slice())}catch(e){}if(toolFn)try{toolFn(null,t)}catch(e){}}
+      if(tool==='hline')d.a=pt;DR=[...DR,d];pend=null;preview(null);const t=tool;tool=null;
+      setTimeout(()=>{drawUser();if(drawFn)try{drawFn(DR.slice())}catch(e){}if(toolFn)try{toolFn(null,t)}catch(e){}},0)}
     else{pend=pt;if(toolFn)try{toolFn(tool,null,1)}catch(e){}}}
   const idxOf=new Map();
   function hoverInfo(i){const r=R[i];if(!r)return null;const pv=i?R[i-1].c:r.o;
@@ -307,9 +311,16 @@ function create(el,opts={}){
     const i=p&&p.time!=null&&idxOf.has(p.time)?idxOf.get(p.time):null;renderLegend(i);
     if(pend&&i!=null&&p.point&&S.candle){const pr=S.candle.coordinateToPrice(p.point.y);if(fin(pr))preview(i,pr)}
     if(hoverFn)try{hoverFn(i==null?null:hoverInfo(i))}catch(e){}});
+  // Cizim noktasi: tikin altindaki mum (bos alanda mantiksal indeksten en yakin mum)
+  function toolPoint(p){const i0=p.time!=null&&idxOf.has(p.time)?idxOf.get(p.time):fin(p.logical)?Math.max(0,Math.min(R.length-1,Math.round(p.logical))):null;
+    const pr=S.candle.coordinateToPrice(p.point.y);return i0!=null&&fin(pr)?[i0,pr]:null}
+  // Iki noktaya hizli tiklayinca kutuphane ikinci tiki cift tik sayip click gondermiyor: cizim modunda cift tik da nokta koyar
+  if(chart.subscribeDblClick)chart.subscribeDblClick(p=>{
+    if(!tool||!pend||!p||!p.point||!S.candle||p.paneIndex>0)return;const q=toolPoint(p);
+    if(q&&nearest(pend.t)!==q[0])placePoint(q[0],q[1])});
   chart.subscribeClick(p=>{
     if(!p||!p.point||!S.candle||p.paneIndex>0)return;const ev=p.sourceEvent||{};
-    if(tool&&!(ev.altKey||ev.metaKey)){const i=p.time!=null&&idxOf.has(p.time)?idxOf.get(p.time):null,pr=S.candle.coordinateToPrice(p.point.y);if(i!=null&&fin(pr))placePoint(i,pr);return}
+    if(tool&&!(ev.altKey||ev.metaKey)){const q=toolPoint(p);if(q)placePoint(q[0],q[1]);return}
     if(!clickFn)return;
     if(!(ev.altKey||ev.metaKey))return;          // Alt (ya da Cmd) + tik: o fiyata alarm
     const price=S.candle.coordinateToPrice(p.point.y);if(fin(price))try{clickFn(+price.toFixed(decimals(price)))}catch(e){}});
@@ -331,7 +342,15 @@ function create(el,opts={}){
       chart.applyOptions({layout:{background:{type:'solid',color:C.bg},textColor:C.text,panes:{separatorColor:C.border,separatorHoverColor:C.cross}},grid:{vertLines:{color:C.grid},horzLines:{color:C.grid}},
         rightPriceScale:{borderColor:C.border},timeScale:{borderColor:C.border},crosshair:{vertLine:{color:C.cross,labelBackgroundColor:C.cross},horzLine:{color:C.cross,labelBackgroundColor:C.cross}}});
       build()},
-    fit,resize(){try{chart.resize(el.clientWidth,el.clientHeight)}catch(e){}},
+    fit,
+    // Gorunen aralik: gun sayisi (takvim gunu degil islem gunu) ya da 'all'. Dilime gore mum sayisina cevrilir.
+    setSpan(days){if(!R.length)return;const n=R.length;
+      if(days==='all'||!fin(+days)){try{chart.timeScale().fitContent()}catch(e){}return}
+      const per={'1h':1/5,'1g':1,'1s':8,'15dk':32,'5dk':96,'1dk':480}[D.tf]||1,k=Math.max(10,Math.min(n,Math.round(days*per)));
+      try{chart.timeScale().setVisibleLogicalRange({from:n-k-0.5,to:n+3})}catch(e){}},
+    // Yakinlastir (f<1) / uzaklastir (f>1): sag kenar sabit
+    zoom(f){try{const ts=chart.timeScale(),r=ts.getVisibleLogicalRange();if(!r)return;const w=Math.max(10,Math.min(R.length+20,(r.to-r.from)*f));ts.setVisibleLogicalRange({from:r.to-w,to:r.to})}catch(e){}},
+    resize(){try{chart.resize(el.clientWidth,el.clientHeight)}catch(e){}},
     destroy(){clearAll();try{chart.remove()}catch(e){}legend.remove()},
     snapshot(){try{return chart.takeScreenshot().toDataURL('image/png')}catch(e){return null}},
     onHover(f){hoverFn=typeof f==='function'?f:null},
