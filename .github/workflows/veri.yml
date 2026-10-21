@@ -11,11 +11,13 @@ concurrency: veri-topla
 jobs:
   cek:
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    timeout-minutes: 45
+    env:
+      SURE_DK: '35'
     strategy:
       fail-fast: false
       matrix:
-        parca: [fiyat, temel, 'sermaye,kap']
+        parca: ['fiyat@0/5', 'fiyat@1/5', 'fiyat@2/5', 'fiyat@3/5', 'fiyat@4/5', 'temel@0/4', 'temel@1/4', 'temel@2/4', 'temel@3/4', 'sermaye,kap']
     steps:
       - uses: actions/checkout@v5
         with: {persist-credentials: false}
