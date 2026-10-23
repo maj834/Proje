@@ -25,7 +25,7 @@ jobs:
       # Basarisiz testlerin ayrintisi gunlugun sonunda (uzun gunlukte aramadan gorulsun)
       - run: |
           set -o pipefail
-          npm test 2>&1 | tee test.log || { echo '===== BASARISIZ TESTLER ====='; grep -n -A25 '^not ok\|^    not ok' test.log | head -150; exit 1; }
+          npm test 2>&1 | tee test.log || { echo '===== BASARISIZ TESTLER ====='; grep -n -A25 '^not ok\|^    not ok' test.log | head -150; awk '/^not ok/{print "::error::" $0}' test.log; exit 1; }
   mac:
     needs: test
     runs-on: macos-latest

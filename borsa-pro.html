@@ -1109,7 +1109,10 @@ const demoRoundQ=(x,d)=>{const f=10**d;return Math.round(x*f)/f};
 const demoFloorQ=(x,d)=>{const f=10**d;return Math.floor(x*f+1e-7)/f};
 function demoSetMarket(m){demoMarket=m;try{localStorage.setItem('bp.demo.hesap',m)}catch(e){}}
 function demoAccept(s){if(!s)return;demoSummary=s;for(const t of [demoChart,demoTab])if(t)t.estimate();if(S.tab==='demo')renderDemo();demoOverlays()}
-function demoOverlays(){if(!ch||!S.data||!demoSummary)return;const r=S.data,m=demoAcctOf(r),y=demoYahoo(r.yahoo||r.symbol,m),a=demoSummary.accounts[m];
+function demoOverlays(){if(!ch||!S.data||!demoSummary)return;
+  // Demo fiyat yenilemesi TL katmanlarini USD grafige geri eklememeli.
+  if(usdActive()){ch.setOverlays({positions:[],alarms:[]});return}
+  const r=S.data,m=demoAcctOf(r),y=demoYahoo(r.yahoo||r.symbol,m),a=demoSummary.accounts[m];
   const positions=((S.st.portfolio&&S.st.portfolio.positions)||[]).filter(p=>r.market==='BIST'&&p.symbol===r.symbol);
   const dp=a&&a.pos.find(p=>p.sym===y);if(dp)positions.push({cost:dp.avg,label:'DEMO maliyet'});
   const alarms=(S.st.alarms||[]).filter(a=>r.market==='BIST'&&a.symbol===r.symbol&&a.kind!=='verdict'&&!a.fired);
