@@ -6,7 +6,7 @@
 const fs=require('fs'),crypto=require('crypto');
 
 const TFS=['1dk','5dk','15dk','1s','1g','1h'],MKTS=['BIST','US'],KINDS=['above','below','verdict'],LABELS=['AL','SAT','BEKLE'];
-const UNIVERSES=['BIST30','BIST50','BIST100','BIST500','WATCH'],PROVIDERS=['groq','claude','grok'],PNAME={groq:'Groq',claude:'Claude',grok:'Grok'};
+const UNIVERSES=['BIST30','BIST50','BIST100','BIST500','WATCH','GLOBAL'],PROVIDERS=['groq','claude','grok'],PNAME={groq:'Groq',claude:'Claude',grok:'Grok'};
 const MAX_WATCH=60,MAX_ALARMS=100,MAX_POS=200,MAX_ROWS=800;
 const IV=60000,IV_BAT=180000,VERDICT_MS=15*60000,OV_TTL=60000,DEPTH_FRESH=5*60000,CTX_TTL=15*60000,AN_TTL=2*60000,AI_TTL=10*60000,
   PX_FRESH=3*60000,BENCH_TTL=30*60000;
@@ -40,13 +40,14 @@ function code(s){if(typeof s!=='string'||s.length>24)return null;s=upTr(s).repla
 // mkt: eklerken secili piyasa ('US' -> ".US" eklenir; 'CRYPTO' -> bp-symbols tablosu). Gecersizse null.
 let SYMS=null;try{SYMS=require('./bp-symbols')}catch(e){}
 function wcode(s,mkt){if(typeof s!=='string'||s.length>24)return null;const u=upTr(s);if(!u)return null;
+  if(SYMS&&SYMS.GLOBAL.some(x=>x.symbol===u))return u;
   if(/^[A-Z0-9]{2,15}-USD$/.test(u))return u;
   if(mkt==='CRYPTO'){const c=SYMS?SYMS.cryptoSymbol(u):null;return c&&/^[A-Z0-9]{2,15}-USD$/.test(c)?c:null}
   const us=/\.US$/.test(u)?u.slice(0,-3):mkt==='US'&&!/\.IS$/.test(u)?u:null;
   if(us!=null)return /^[A-Z][A-Z0-9-]{0,7}$/.test(us)?us+'.US':null;
   return code(u)}
 // Izleme girdisi -> {y: veri saglayici sembolu, mkt}: kripto ve ABD 'US' piyasasiyla sorulur
-const wsplit=w=>/-USD$/.test(w)?{y:w,mkt:'US'}:/\.US$/.test(w)?{y:w.slice(0,-3),mkt:'US'}:{y:w,mkt:'BIST'};
+const wsplit=w=>SYMS&&SYMS.GLOBAL.some(x=>x.symbol===w)?{y:w,mkt:'US'}:/-USD$/.test(w)?{y:w,mkt:'US'}:/\.US$/.test(w)?{y:w.slice(0,-3),mkt:'US'}:{y:w,mkt:'BIST'};
 // market.yahooSymbol yoksa ayni kural
 function ysymFallback(s,mkt){s=upTr(String(s||''));if(!s||!/^[A-Z0-9.=^-]{1,20}$/.test(s))return null;return /[.=^-]/.test(s)?s:mkt==='BIST'?s+'.IS':s}
 const disp=y=>String(y).replace(/\.IS$/,'');
@@ -148,7 +149,7 @@ function registerBorsaPro({ipcMain,app,BrowserWindow,path,screen,Notification,sh
     try{return market&&typeof market.yahooSymbol==='function'?market.yahooSymbol(s,mkt)||null:ysymFallback(s,mkt)}catch(e){return null}};
   const lib=k=>(meta&&meta[k])||(data&&data[k])||null;
   const univ=()=>{const u=obj(lib('U')),o={};for(const k of ['BIST30','BIST50','BIST100','BIST500'])o[k]=Array.isArray(u[k])?u[k]:[];return o};
-  const counts=()=>{const u=univ();return {BIST30:u.BIST30.length,BIST50:u.BIST50.length,BIST100:u.BIST100.length,BIST500:u.BIST500.length,WATCH:conf().watch.length}};
+  const counts=()=>{const u=univ();return {BIST30:u.BIST30.length,BIST50:u.BIST50.length,BIST100:u.BIST100.length,BIST500:u.BIST500.length,WATCH:conf().watch.length,GLOBAL:SYMS?SYMS.GLOBAL.length:0}};
   const providers=()=>{try{const p=analyst&&analyst.providers?analyst.providers():[];return Array.isArray(p)?p.filter(x=>PROVIDERS.includes(x)):[]}catch(e){return []}};
   const remember=(sym,q)=>{if(sym&&q&&fin(q.price)&&q.price>0&&!q.error)lastPx.set(sym,{price:q.price,prev:fin(q.prev)?q.prev:null,chgPct:fin(q.chgPct)?q.chgPct:null,stale:!!q.stale,at:now()})};
   const freshPx=sym=>{const q=lastPx.get(sym);return q&&!q.stale&&now()-q.at<PX_FRESH?q.price:null};
@@ -185,7 +186,7 @@ function registerBorsaPro({ipcMain,app,BrowserWindow,path,screen,Notification,sh
   // Derinlik (Telegram botu): yalniz ayni hisse ve 5 dk'dan tazeyse kisa ozet
   function depthSummary(sym){
     let d;try{d=ext.depthFor?ext.depthFor(sym):ext.depth?ext.depth():null}catch(e){d=null}
-    if(!d||typeof d!=='object'||d.symbol!==sym||!fin(d.at)||now()-d.at>DEPTH_FRESH)return null;
+    if(!d||typeof d!=='object'||d.symbol!==sym||!fin(d.at)||(now()-d.at>DEPTH_FRESH||d.at>now()+30000))return null;
     const top=(a,n)=>(Array.isArray(a)?a:[]).filter(x=>x&&typeof x==='object').slice(0,n);
     const lvl=x=>({price:fin(x.price)?x.price:null,qty:fin(x.qty)?x.qty:null}),inst=x=>({name:String(x.name||'').slice(0,40),net:fin(x.net)?x.net:null,cost:fin(x.cost)?x.cost:null});
     const pr=obj(d.pressure),fl=obj(d.flow),sg=d.signal&&typeof d.signal==='object'?d.signal:null;
@@ -208,7 +209,7 @@ function registerBorsaPro({ipcMain,app,BrowserWindow,path,screen,Notification,sh
   // Oncelikli canli liste: Telegram'dan sirayla taze fiyat; listedeki hisselerin fiyati/grafigi bu veriyle guncellenir
   const LIVE_FRESH=5*60000;
   function liveQuote(sym){if(!ext.depthFor)return null;let d;try{d=ext.depthFor(sym)}catch(e){return null}
-    return d&&fin(d.last)&&d.last>0&&fin(d.at)&&now()-d.at<=LIVE_FRESH?{price:d.last,time:d.at}:null}
+    return d&&fin(d.last)&&d.last>0&&fin(d.at)&&now()-d.at<=LIVE_FRESH&&d.at<=now()+30000?{price:d.last,time:d.at}:null}
   async function depthOp(o){o=obj(o);const op=['fetch','auto','state','terminal','setup','live'].includes(o.op)?o.op:'state';
     const sym=o.symbol!=null?code(o.symbol):null,info=()=>{try{return ext.depthInfo?ext.depthInfo():null}catch(e){return null}};
     if(op==='setup'){if(ext.setupTg)ext.setupTg();return {ok:true}}
@@ -221,7 +222,7 @@ function registerBorsaPro({ipcMain,app,BrowserWindow,path,screen,Notification,sh
     if(op==='fetch'){if(!sym)return err(CODE_ERR);if(!ext.fetchDepth)return err('Derinlik kaynağı yok.');
       const r=obj(await ext.fetchDepth(sym));const tg=info();
       if(r.ok===false)return {ok:false,error:r.error||'Derinlik alınamadı.',wait:!!r.wait,busy:!!r.busy,needTg:!!r.needTg||!!(tg&&!tg.connected),tg,depth:depthSummary(sym)};
-      return {ok:true,tg,depth:depthSummary(sym)}}
+      const depth=depthSummary(sym);return depth?{ok:true,tg,depth}:{ok:false,tg,depth:null,error:'Bot yanıt verdi ancak bu hisse için 5 dakikadan taze derinlik bulunamadı. Bot sembolünü ve veri zamanını kontrol et.'}}
     return {ok:true,tg:info(),depth:sym?depthSummary(sym):null}}
   // main.js yeni derinlik geldiginde cagirir: pencere aciksa ozet olayi
   function onDepth(sym){const s=code(String(sym||''));if(!s||!alive())return;const d=depthSummary(s);if(d)send({type:'depth',symbol:s,depth:d})}
@@ -236,7 +237,7 @@ function registerBorsaPro({ipcMain,app,BrowserWindow,path,screen,Notification,sh
     // Uzun gecmis (olasilik motoru) ve temel veriler yan kaynaktir: gelmezse analiz yine yapilir
     // Hisse Radar (kullanicinin GitHub botlari: cok modelli yapay zeka konsensusu, Claude beklentisi, olasilik, backtest); anahtar gerekmez
     const [mt,qt,bn,bot,yn,hist,fr,rd]=await Promise.all([market.multi(y,{tf,market:mkt}),soft(()=>market.quote&&market.quote(y,mkt),10000),
-      bist?benchRows():null,bist?soft(()=>ext.botNews&&ext.botNews(sym),8000):null,soft(()=>market.yahooNews&&market.yahooNews(y,mkt),8000),
+      bist?benchRows():null,bist?soft(()=>ext.botNews&&ext.botNews(sym),8000):null,soft(async()=>{try{return market.yahooNews?await market.yahooNews(y,mkt):null}catch(e){return {items:[],error:'Yahoo haberleri alınamadı: '+msg(e)}}},8000),
       quant&&history?soft(()=>history.get(y),15000):null,typeof market.fundamentals==='function'?soft(()=>market.fundamentals(y,mkt),12000):null,
       bist&&radar&&typeof radar.forSymbol==='function'?soft(()=>radar.forSymbol(sym),8000):null]);
     const m=obj(mt),frames={...obj(m.frames)},errors=(Array.isArray(m.errors)?m.errors:[]).map(String).slice(0,8);
@@ -262,6 +263,7 @@ function registerBorsaPro({ipcMain,app,BrowserWindow,path,screen,Notification,sh
     if(tf==='1g'&&pro.ok&&Array.isArray(frames['1g'])&&meta&&typeof meta.resampleWeekly==='function')try{
       const g=frames['1g'],sv=engine.proAnalyze({'1g':g,'1h':meta.resampleWeekly(g)},{primary:'1g',depth:es.depth||null,news:es.news||null,riskPct:riskPct(),bench:bist&&Array.isArray(bn)?bn:null});
       if(sv&&sv.ok&&sv.verdict){pro.verdict=sv.verdict;pro.plan=sv.plan}}catch(e){}
+    if(!bist&&pro.ok&&pro.verdict)delete pro.verdict.calib; // BIST kalibrasyonu diger piyasalara tasinmaz
     const daily=Array.isArray(frames['1g'])&&frames['1g'].length?frames['1g']:null;
     let stats=null;if(daily&&data&&typeof data.stats==='function')try{stats=data.stats(daily,bn||null)||null}catch(e){}
     const out=rows.length>MAX_ROWS?rows.slice(-MAX_ROWS):rows,t0=out[0].t;let signals=[];
@@ -287,12 +289,13 @@ function registerBorsaPro({ipcMain,app,BrowserWindow,path,screen,Notification,sh
     let fd=null;if(fr&&typeof fr==='object'&&!fr.error){fd={raw:fr,score:null};if(fund&&typeof fund.scoreFundamentals==='function')try{fd.score=fund.scoreFundamentals(fr,{last:price})}catch(e){}}
     const b=bot&&typeof bot==='object'?bot:null;
     const news={bot:b?{list:Array.isArray(b.list)?b.list.slice(0,12):[],calendar:Array.isArray(b.calendar)?b.calendar.slice(0,8):[],akd:b.akd||null}:null,
-      yahoo:(yn&&Array.isArray(yn.items)?yn.items:[]).slice(0,10)};
+      yahoo:(yn&&Array.isArray(yn.items)?yn.items:[]).slice(0,10),error:yn&&yn.error?String(yn.error):null};
     const depth=bist?depthSummary(sym):null,name=nameOf(sym,bist)||quote.name||sym;
     if(!pro.ok&&pro.error)errors.push('Analiz: '+pro.error);
     const res={ok:true,symbol:sym,yahoo:y,market:mkt,name,tf,currency:quote.currency,rows:out,pro,stats,quote,signals,frames:fsum,news,depth,errors,
       quant:qa,techFrames,fund:fd,radar:rd&&typeof rd==='object'?rd:null,stale:quote.stale||errors.some(e=>/eski veri|çevrimdışı/i.test(e))};
     if(qa&&typeof quant.report==='function')try{res.report=quant.report(res)}catch(e){}
+    for(const key of aiCache.keys())if(key.startsWith(mkt+'|'+sym+'|')||key.startsWith('rapor|'+mkt+'|'+sym+'|'))aiCache.delete(key);
     const k=mkt+':'+sym;ctx.delete(k);ctx.set(k,{at:now(),symbol:sym,name,tf,market:mkt,quote,pro,stats,news,depth,daily,labSum:undefined,quant:qa,fund:fd,radar:rd&&typeof rd==='object'?rd:null});
     while(ctx.size>8)ctx.delete(ctx.keys().next().value);
     return res}
@@ -300,6 +303,14 @@ function registerBorsaPro({ipcMain,app,BrowserWindow,path,screen,Notification,sh
     const y=ysym(o.symbol==null?c.symbol:o.symbol,mkt);if(!y)return err(CODE_ERR);
     const seq=++loadSeq,r=await loadCore(y,disp(y),tf,mkt);
     if(r.ok&&seq===loadSeq)put({symbol:r.symbol,tf,market:mkt});   // yalniz en son istenen sembol kalici olur
+    if(r.ok&&o.chartCurrency==='USD'&&r.quote&&r.quote.currency==='TRY'){
+      const fx=await soft(()=>market.candles('USDTRY=X',tf,'US'),12000);
+      const step={'1dk':60000,'5dk':300000,'15dk':900000,'1s':3600000,'1g':86400000,'1h':7*86400000}[tf];
+      const rates=fx&&Array.isArray(fx.rows)?fx.rows.map(x=>({...x,t:x.t+step})):[];
+      const usd=require('./bp-currency').toUSD(r.rows,rates,{maxAge:tf==='1h'?15*86400000:7*86400000});
+      r.chartUSD=usd.rows.length>=2?{...usd,approximate:true,stale:!!fx.stale}:null;
+      if(!r.chartUSD)r.chartUSDError='Tarihsel USD/TRY kuru alınamadı veya eşleşen veri yetersiz; TL grafik korunuyor.';
+    }
     return r}
 
   async function quotes(a){
@@ -307,7 +318,7 @@ function registerBorsaPro({ipcMain,app,BrowserWindow,path,screen,Notification,sh
     const list=(Array.isArray(a)?a:a&&Array.isArray(a.symbols)?a.symbols:[]).filter(s=>typeof s==='string'&&s.trim()&&s.length<=20).slice(0,MAX_WATCH);
     if(!list.length)return [];
     // Karisik izleme listesi (ABD ".US", kripto "-USD"): piyasa gruplari ayri sorulur, sira ve girdi adi korunur
-    if(mkt==='BIST'&&list.some(x=>/-USD$|\.US$/i.test(x.trim()))){
+    if(mkt==='BIST'&&list.some(x=>wsplit(upTr(x)).mkt==='US')){
       const W=list.map(x=>{const w=wcode(x)||upTr(x);return {w,...wsplit(w)}}),out=new Array(W.length);
       for(const m of MKTS){const idx=W.map((x,i)=>x.mkt===m?i:-1).filter(i=>i>=0);if(!idx.length)continue;
         const r=m==='BIST'?await quotesOf(idx.map(i=>W[i].y),'BIST'):await data.quotes(idx.map(i=>W[i].y),{market:m});
@@ -343,14 +354,22 @@ function registerBorsaPro({ipcMain,app,BrowserWindow,path,screen,Notification,sh
   async function scan(o){o=obj(o);
     if(!UNIVERSES.includes(o.universe))return err('Geçersiz tarama evreni.');
     if(scanning)return err('Tarama zaten sürüyor.');
-    const uni=o.universe,syms=uni==='WATCH'?conf().watch:univ()[uni];
+    const uni=o.universe,syms=uni==='WATCH'?conf().watch:uni==='GLOBAL'?(SYMS?SYMS.GLOBAL.map(x=>x.symbol):[]):univ()[uni];
     if(!syms.length)return err(uni==='WATCH'?'İzleme listen boş; önce hisse ekle.':'Endeks listesi bulunamadı.');
     const tf=TFS.includes(o.tf)?o.tf:'1g',ctl=new AbortController(),s=scanning={ctl,done:0,total:syms.length,universe:uni,tf};
     try{
-      const bn=await benchRows();
+      const bn=uni==='GLOBAL'?null:await benchRows();
       if(ctl.signal.aborted)return {ok:true,at:now(),tf,total:syms.length,rows:[],errors:[],cancelled:true,universe:uni};
-      const r=obj(await data.scan(syms,{tf,market:'BIST',signal:ctl.signal,concurrency:battery()?2:3,bench:bn||null,
-        onProgress:p=>{p=obj(p);if(fin(p.done))s.done=p.done;if(fin(p.total))s.total=p.total;send({type:'scan',done:s.done,total:s.total,symbol:p.symbol??null})}}));
+      const groups=uni==='WATCH'?['BIST','US'].map(m=>({m,items:syms.map(w=>({w,...wsplit(w)})).filter(x=>x.mkt===m)})).filter(g=>g.items.length)
+        :[{m:uni==='GLOBAL'?'US':'BIST',items:syms.map(w=>({w,y:w}))}];
+      let offset=0;const r={at:now(),tf,total:syms.length,rows:[],errors:[],cancelled:false};
+      for(const g of groups){if(ctl.signal.aborted)break;
+        const part=obj(await data.scan(g.items.map(x=>x.y),{tf,market:g.m,signal:ctl.signal,concurrency:battery()?2:3,bench:g.m==='BIST'?bn||null:null,
+          onProgress:p=>{p=obj(p);if(fin(p.done))s.done=offset+p.done;send({type:'scan',done:s.done,total:s.total,symbol:p.symbol??null})}}));
+        // .US is a watchlist storage suffix, never a Yahoo ticker. Preserve market on rows for opening charts.
+        r.rows.push(...(part.rows||[]).map(x=>({...x,market:g.m})));r.errors.push(...(part.errors||[]));
+        if(part.error)r.error=part.error;r.cancelled=r.cancelled||!!part.cancelled;offset+=g.items.length;
+      }
       const rows=(Array.isArray(r.rows)?r.rows:[]).filter(x=>x&&typeof x==='object').map(x=>{const ps=presetIds(x);return ps?{...x,presets:ps}:x});
       let br=null;try{br=data.breadth?data.breadth(rows):null}catch(e){}
       let sectors=null;const ss=lib('sectorStats');if(typeof ss==='function')try{sectors=ss(rows)}catch(e){}
@@ -386,10 +405,12 @@ function registerBorsaPro({ipcMain,app,BrowserWindow,path,screen,Notification,sh
         radar&&typeof radar.market==='function'?soft(()=>radar.market(),10000):null]);
       return {ok:true,fx:fx&&typeof fx==='object'?fx:null,crypto:cr&&typeof cr==='object'?cr:null,radar:rm&&typeof rm==='object'?rm:null,status:feedStatus(),at:now()}}
     if(op==='news'){const sym=code(String(o.symbol||''));if(!sym)return err(CODE_ERR);if(!apis||typeof apis.news!=='function'&&typeof apis.newsFor!=='function')return err('Haber kaynağı bu sürümde yok.');
-      if(!feedStatus().news.configured)return err('NewsAPI anahtarı kayıtlı değil: Piyasa sekmesindeki Veri kaynakları bölümünden ekle.',{needKey:true});
+      const fallback=async reason=>{const y=obj(await soft(async()=>{try{return market.yahooNews?await market.yahooNews(sym,'BIST'):null}catch(e){return null}},8000));
+        return Array.isArray(y.items)&&y.items.length?{ok:true,symbol:sym,items:y.items.map(x=>({...x,source:x.publisher||'Yahoo'})).slice(0,12),source:'Yahoo',notice:reason,left:null}:null};
+      if(!feedStatus().news.configured){const reason='NewsAPI anahtarı kayıtlı değil: Piyasa sekmesindeki Veri kaynakları bölümünden ekle.';return await fallback(reason)||err(reason,{needKey:true})}
       const nm=nameOf(sym,true)||sym;
       const r=obj(await soft(()=>typeof apis.newsFor==='function'?apis.newsFor(sym,nm):apis.news('"'+nm+'" OR '+sym,{lang:'tr',days:7,max:10}),15000));
-      if(!r.ok)return err(typeof r.error==='string'?r.error:'Haberler alınamadı.',{left:fin(r.left)?r.left:null});
+      if(!r.ok){const reason=typeof r.error==='string'?r.error:'Haberler alınamadı.';return await fallback(reason)||err(reason,{left:fin(r.left)?r.left:null})}
       return {ok:true,symbol:sym,items:(Array.isArray(r.items)?r.items:[]).slice(0,12),left:fin(r.left)?r.left:null}}
     // ABD hissesi (Finnhub): sirket haberleri + profil/oranlar/analist tavsiyesi + bilanco takvimi; kripto (-USD) ve BIST haric
     if(op==='us'){const sym=typeof o.symbol==='string'?o.symbol.trim().toUpperCase().replace(/\.US$/,''):'';
@@ -439,8 +460,8 @@ function registerBorsaPro({ipcMain,app,BrowserWindow,path,screen,Notification,sh
       if(!ps.includes(want))return {error:PNAME[want]+' API anahtarı kayıtlı değil.'};return {p:want}}
     if(!ps.length)return {error:'Yapay zekâ yorumu için Groq (ücretsiz), Claude ya da Grok API anahtarı gerekli; Neo ya da Ayarlar bölümünden ekleyebilirsin.'};
     return {p:ps[0]}}
-  async function getCtx(y,tf,mkt){const k=mkt+':'+disp(y),c=ctx.get(k);
-    if(c&&now()-c.at<CTX_TTL&&(!tf||c.tf===tf))return c;
+  async function getCtx(y,tf,mkt,force=false){const k=mkt+':'+disp(y),c=ctx.get(k);
+    if(!force&&c&&now()-c.at<CTX_TTL&&(!tf||c.tf===tf))return c;
     const r=await loadCore(y,disp(y),tf||'1g',mkt);if(!r.ok)throw new Error(r.error);return ctx.get(k)}
   function positionOf(sym){const ps=conf().positions.filter(p=>p.symbol===sym);if(!ps.length)return null;
     const qty=ps.reduce((s,p)=>s+p.qty,0),cost=ps.reduce((s,p)=>s+p.qty*p.cost,0)/qty,st=ps.map(p=>p.stop).filter(fin),tg=ps.map(p=>p.target).filter(fin);
@@ -451,14 +472,14 @@ function registerBorsaPro({ipcMain,app,BrowserWindow,path,screen,Notification,sh
     const bot=c.news&&c.news.bot,yh=c.news&&c.news.yahoo||[];
     const news=[...(bot?bot.list:[]).map(n=>({title:String(n.summary||n.title||'').slice(0,300),score:fin(n.score)?n.score:null,ts:n.ts||null})),
       ...yh.map(n=>({title:String(n.title||'').slice(0,300),score:null,ts:n.time||null}))].filter(n=>n.title).slice(0,10);
-    return {symbol:c.symbol,name:c.name,tf:c.tf,quote:c.quote,pro:c.pro&&c.pro.ok?c.pro:null,stats:c.stats,lab:c.labSum,news,akd:bot&&bot.akd||null,
+    return {symbol:c.symbol,name:c.name,market:c.market,tf:c.tf,quote:c.quote,pro:c.pro&&c.pro.ok?c.pro:null,stats:c.stats,lab:c.labSum,news,akd:bot&&bot.akd||null,
       depth:c.depth,position:positionOf(c.symbol),quant:c.quant||null,fund:c.fund?{...(c.fund.score||{}),raw:c.fund.raw}:null,radar:c.radar||null}}
   async function ai(o){o=obj(o);const mkt=MKTS.includes(o.market)?o.market:'BIST',y=ysym(o.symbol,mkt);if(!y)return err(CODE_ERR);
     const tf=TFS.includes(o.tf)?o.tf:null,pv=pickProvider(o.provider);if(pv.error)return err(pv.error);
     const key=[mkt,disp(y),tf||'',pv.p].join('|'),hit=aiCache.get(key);
     if(hit&&o.force!==true&&now()-hit.at<AI_TTL)return {...hit.v,cached:true};
     if(aiWait.has(key))return aiWait.get(key);
-    const p=(async()=>{const c=await getCtx(y,tf,mkt),r=await analyst.brief(aiCtx(c),{provider:pv.p});
+    const p=(async()=>{const c=await getCtx(y,tf,mkt,o.force===true),r=await analyst.brief(aiCtx(c),{provider:pv.p,fresh:o.force===true});
       const v=r&&typeof r==='object'?{...r,symbol:c.symbol,tf:c.tf}:err('Yapay zekâ yanıt vermedi.');
       if(v.ok)aiCache.set(key,{at:now(),v});return v})().finally(()=>aiWait.delete(key));
     aiWait.set(key,p);return p}
@@ -469,7 +490,7 @@ function registerBorsaPro({ipcMain,app,BrowserWindow,path,screen,Notification,sh
     const key=['rapor',mkt,disp(y),tf||'',pv.p].join('|'),hit=aiCache.get(key);
     if(hit&&o.force!==true&&now()-hit.at<AI_TTL)return {...hit.v,cached:true};
     if(aiWait.has(key))return aiWait.get(key);
-    const p=(async()=>{const c=await getCtx(y,tf,mkt),r=await analyst.report(aiCtx(c),{provider:pv.p});
+    const p=(async()=>{const c=await getCtx(y,tf,mkt,o.force===true),r=await analyst.report(aiCtx(c),{provider:pv.p,fresh:o.force===true});
       const v=r&&typeof r==='object'?{...r,symbol:c.symbol,tf:c.tf}:err('Yapay zekâ yanıt vermedi.');
       if(v.ok)aiCache.set(key,{at:now(),v});return v})().finally(()=>aiWait.delete(key));
     aiWait.set(key,p);return p}

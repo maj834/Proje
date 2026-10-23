@@ -278,7 +278,7 @@ test('bp:state: varsayilanlar, evren sayilari, son tarama dosyasi, saglayicilar,
   assert.deepEqual(s.alarms, []); assert.deepEqual(s.portfolio, { positions: [], summary: BP.summarize([], () => null, '') });
   assert.equal(s.capital, null); assert.equal(s.riskPct, 1); assert.deepEqual(s.prefs, {}); assert.deepEqual(s.providers, ['groq', 'claude']);
   assert.equal(s.lastScan.rows[0].symbol, 'THYAO'); assert.deepEqual(s.marketStatus, { open: true, reason: null });
-  assert.deepEqual(s.universes, { BIST30: 30, BIST50: 50, BIST100: 100, BIST500: 0, WATCH: BP.DEF_WATCH.length });
+  assert.deepEqual(s.universes, { BIST30: 30, BIST50: 50, BIST100: 100, BIST500: 0, WATCH: BP.DEF_WATCH.length, GLOBAL: require('../bp-symbols').GLOBAL.length });
   assert.equal(s.scanning, null); assert.deepEqual(s.presets, PRESETS); assert.ok(s.tags['kirilim-yukari']); assert.equal(s.strategies[0].id, 'ema');
   assert.equal(h.data.calls.quotes.length, 0, 'pozisyon yokken fiyat istenmez');
   // bozuk dosya / evren listesi yok / analist bozuk
@@ -287,7 +287,7 @@ test('bp:state: varsayilanlar, evren sayilari, son tarama dosyasi, saglayicilar,
   h2.ui.open();
   const s2 = await h2.call('bp:state');
   assert.equal(s2.lastScan, null); assert.deepEqual(s2.providers, []); assert.deepEqual(s2.presets, []);
-  assert.deepEqual(s2.universes, { BIST30: 0, BIST50: 0, BIST100: 0, BIST500: 0, WATCH: BP.DEF_WATCH.length });
+  assert.deepEqual(s2.universes, { BIST30: 0, BIST50: 0, BIST100: 0, BIST500: 0, WATCH: BP.DEF_WATCH.length, GLOBAL: require('../bp-symbols').GLOBAL.length });
 });
 
 // --- bp:load -----------------------------------------------------------------------------------
@@ -509,8 +509,8 @@ test('bp:ai: baglam son yuklemeden (yeniden veri cekmez), lab ozeti, pozisyon, s
   assert.equal(r.ok, true); assert.equal(r.provider, 'groq'); assert.equal(r.symbol, 'THYAO'); assert.equal(r.tf, '1g');
   assert.equal(h.market.calls.multi.length, nm, 'son yukleme kullanilir');
   const { ctx, o } = h.analyst.calls.brief[0];
-  assert.deepEqual(o, { provider: 'groq' });
-  assert.deepEqual(Object.keys(ctx).sort(), ['akd', 'depth', 'fund', 'lab', 'name', 'news', 'position', 'pro', 'quant', 'quote', 'radar', 'stats', 'symbol', 'tf']);
+  assert.deepEqual(o, { provider: 'groq', fresh: false });
+  assert.deepEqual(Object.keys(ctx).sort(), ['akd', 'depth', 'fund', 'lab', 'market', 'name', 'news', 'position', 'pro', 'quant', 'quote', 'radar', 'stats', 'symbol', 'tf']);
   assert.equal(ctx.pro.ok, true); assert.equal(ctx.name, 'Türk Hava Yolları'); assert.deepEqual(ctx.akd, { days: 5, top: [] });
   assert.deepEqual(ctx.lab, { best: 'ema', results: [{ id: 'ema', name: 'EMA', stats: { trades: 6, totalRet: 12 } }] });
   assert.deepEqual(ctx.news.map(n => n.title), ['Bot özeti', 'Yahoo haberi']); assert.equal(ctx.news[0].score, 3);
@@ -519,7 +519,7 @@ test('bp:ai: baglam son yuklemeden (yeniden veri cekmez), lab ozeti, pozisyon, s
   const again = await h.call('bp:ai', { symbol: 'THYAO', tf: '1g' });
   assert.equal(again.cached, true); assert.equal(h.analyst.calls.brief.length, 1);
   await h.call('bp:ai', { symbol: 'THYAO', tf: '1g', force: true }); assert.equal(h.analyst.calls.brief.length, 2);
-  assert.equal(h.lab.calls.length, 1, 'lab ozeti bir kez hesaplanir');
+  assert.equal(h.lab.calls.length, 2, 'force yeni baglam ve lab ozeti hesaplar');
   await h.call('bp:ai', { symbol: 'THYAO', tf: '1g', provider: 'claude' }); assert.equal(h.analyst.calls.brief.at(-1).o.provider, 'claude');
   assert.deepEqual(await h.call('bp:ai', { symbol: 'THYAO', provider: 'grok' }), { ok: false, error: 'Grok API anahtarı kayıtlı değil.' });
   assert.deepEqual(await h.call('bp:ai', { symbol: 'THYAO', provider: 'openai' }), { ok: false, error: 'Geçersiz yapay zekâ sağlayıcısı.' });
@@ -1038,6 +1038,8 @@ test('bp:feeds: durum, anahtar kaydi + dogrulama, piyasa (doviz/kripto/radar), h
   assert.equal((await h.call('bp:feeds', { op: 'news', symbol: '!!' })).ok, false);
   // anahtar silme
   r = await h.call('bp:feeds', { op: 'key', provider: 'news', key: '' }); assert.equal(r.ok, true); assert.equal(keys.news, undefined);
+  r = await h.call('bp:feeds', { op: 'news', symbol: 'THYAO' }); assert.equal(r.ok, true); assert.equal(r.source, 'Yahoo'); assert.match(r.notice, /anahtarı kayıtlı değil/);
+  h.market.yahooNews = async () => ({items:[]});
   r = await h.call('bp:feeds', { op: 'news', symbol: 'THYAO' }); assert.equal(r.ok, false); assert.equal(r.needKey, true);
   assert.equal((await h.call('bp:feeds', { op: 'nope' })).ok, false);
   // modul yoksa zarif
@@ -1136,4 +1138,47 @@ test('bp:mcp: izinli islemler, sembol denetimi, adres kaydi, KAP yalniz BIST', a
   assert.equal((await h.call('bp:mcp', { op: 'url', url: 'ftp://x' })).ok, false);
   r = await h.call('bp:mcp', { op: 'url', url: 'https://yeni.onrender.com/' }); assert.equal(r.ok, true); assert.equal(r.status.url, 'https://yeni.onrender.com');
   assert.equal((await h.call('bp:mcp', { op: 'test' })).ok, true);
+});
+
+test('mixed WATCH scan uses US provider codes and markets, without .US suffix or BIST benchmark',async t=>{
+ const h=harness(t);h.ui.open();h.store.c.borsaPro={...h.store.c.borsaPro,watch:['THYAO','AAPL.US','BTC-USD']};
+ const r=await h.call('bp:scan',{universe:'WATCH'});assert.equal(r.ok,true);
+ assert.deepEqual(h.data.calls.scan.map(c=>[c.syms,c.opt.market]),[[['THYAO'],'BIST'],[['AAPL','BTC-USD'],'US']]);
+ assert.equal(h.data.calls.scan[1].opt.bench,null);assert.equal(r.rows.find(x=>x.symbol==='AAPL').market,'US');
+ const ev=h.evts('scan');assert.equal(ev.at(-1).done,3);assert.equal(ev.at(-1).total,3);
+});
+test('GLOBAL scan uses provider instruments and no BIST benchmark',async t=>{
+ const h=harness(t);h.ui.open();const r=await h.call('bp:scan',{universe:'GLOBAL'});
+ assert.equal(r.ok,true);assert.ok(r.rows.some(x=>x.symbol==='GC=F'));assert.equal(h.data.calls.scan[0].opt.market,'US');assert.equal(h.data.calls.scan[0].opt.bench,null);
+});
+test('depth success without fresh matching data is not reported as usable',async t=>{
+ const h=harness(t);h.ui.open();h.deps.ext.fetchDepth=async()=>({ok:true});
+ let r=await h.call('bp:depth',{op:'fetch',symbol:'THYAO'});assert.equal(r.ok,false);assert.match(r.error,/taze derinlik/);
+ h.depthBox.d={symbol:'THYAO',at:T0+60000,last:100};r=await h.call('bp:load',{symbol:'THYAO'});assert.equal(r.depth,null);
+});
+test('USD chart is separate from TRY analysis and does not use future FX candles',async t=>{
+ const h=harness(t);h.ui.open();const orig=h.market.candles;
+ h.market.candles=async(s,tf,m)=>s==='USDTRY=X'?{rows:DAILY.map(x=>({...x,c:10})),stale:false}:orig(s,tf,m);
+ const normal=await h.call('bp:load',{symbol:'THYAO'});const r=await h.call('bp:load',{symbol:'THYAO',chartCurrency:'USD'});
+ assert.ok(r.chartUSD.rows.length>2);assert.equal(r.chartUSD.approximate,true);assert.deepEqual(r.rows,normal.rows);assert.deepEqual(r.pro.verdict,normal.pro.verdict);
+ assert.equal(r.chartUSD.rows.at(-1).c,r.rows.at(-1).c/10);assert.ok(r.chartUSD.dropped>=1);
+ h.market.candles=async()=>({rows:[]});const no=await h.call('bp:load',{symbol:'THYAO',chartCurrency:'USD'});
+ assert.equal(no.chartUSD,null);assert.match(no.chartUSDError,/TL grafik korunuyor/);
+});
+test('Yahoo news failure is visible while chart remains usable',async t=>{
+ const h=harness(t);h.ui.open();h.market.yahooNews=async()=>{throw Error('HTTP 429')};const r=await h.call('bp:load',{symbol:'THYAO'});
+ assert.equal(r.ok,true);assert.match(r.news.error,/HTTP 429/);assert.deepEqual(r.news.yahoo,[]);
+});
+test('Global instruments persist in watchlist, quote as US and scan without .US mangling',async t=>{
+ const h=harness(t);h.ui.open();const r=await h.call('bp:watch',{op:'add',symbol:'GC=F',market:'US'});
+ assert.equal(r.ok,true);assert.ok(r.watch.includes('GC=F'));
+ const q=await h.call('bp:quotes',{symbols:['THYAO','GC=F'],market:'BIST'});assert.equal(q[1].symbol,'GC=F');assert.equal(q[1].market,'US');
+ assert.equal(h.data.calls.quotes.at(-1).opt.market,'US');
+});
+test('Reload invalidates AI snapshot; force reaches inner AI cache with fresh context',async t=>{
+ const h=harness(t);h.ui.open();await h.call('bp:load',{symbol:'THYAO'});
+ await h.call('bp:ai',{symbol:'THYAO'});await h.call('bp:ai',{symbol:'THYAO'});assert.equal(h.analyst.calls.brief.length,1);
+ await h.call('bp:load',{symbol:'THYAO'});await h.call('bp:ai',{symbol:'THYAO'});assert.equal(h.analyst.calls.brief.length,2);
+ await h.call('bp:ai',{symbol:'THYAO',force:true});assert.equal(h.analyst.calls.brief.at(-1).o.fresh,true);
+ const us=await h.call('bp:load',{symbol:'AAPL',market:'US'});assert.equal(us.pro.verdict.calib,undefined,'BIST historical calibration is not claimed for US');
 });

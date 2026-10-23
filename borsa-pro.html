@@ -218,6 +218,9 @@ td.dm-act .btn{height:22px;padding:0 7px;font-size:11px;margin-left:3px}
 .dm-note{display:flex;gap:6px;align-items:flex-start;margin-top:8px;padding:6px 4px 6px 9px;border-left:3px solid var(--acc);background:var(--acc-soft);font-size:11.5px;border-radius:0 4px 4px 0}.dm-note span{flex:1}.dm-note .ib{width:18px;height:18px;font-size:13px}
 @media(max-width:1180px){.dm-top{grid-template-columns:repeat(2,minmax(0,1fr))}.dm-grid{grid-template-columns:minmax(0,1fr)}.dm-side-col{order:-1;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:start}
   .dm-setg{grid-template-columns:1fr}}
+.top{min-width:0}.tabs{min-width:0;overflow-x:auto;scrollbar-width:thin}.srch{max-width:25vw}.app .top .badge{flex:none}
+@media(max-width:1250px){.body{grid-template-columns:175px minmax(0,1fr)}#v-grafik{grid-template-columns:minmax(0,1fr) 300px}.top{gap:6px}.tabs button{padding:0 7px}.brand{display:none}}
+@media(max-width:900px){.body{grid-template-columns:135px minmax(0,1fr)}#v-grafik{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(300px,55%) minmax(0,1fr)}#ap{border-top:1px solid var(--line)}.top .badge{display:none}.app{grid-template-rows:48px minmax(0,1fr) 26px}}
 </style>
 <script src="node_modules/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
 <script src="bp-model-agac.js"></script>
@@ -225,6 +228,7 @@ td.dm-act .btn{height:22px;padding:0 7px;font-size:11px;margin-left:3px}
 <script src="engine.js"></script>
 <script src="bp-chart.js"></script>
 <script src="bp-symbols.js"></script>
+<script src="bp-glossary.js"></script>
 <script src="bp-okul.js"></script>
 </head><body><div class="app">
 <header class="top">
@@ -286,7 +290,7 @@ const sgnc=v=>fin(v)?(v>0?'up':v<0?'dn':''):'';
 const big=v=>{if(!fin(v))return '—';const a=Math.abs(v);return a>=1e9?nf(v/1e9,2)+' Mr':a>=1e6?nf(v/1e6,2)+' Mn':a>=1e3?nf(v/1e3,1)+' B':nf(v,0)};
 const tl=v=>fin(v)?nf(v,2)+' ₺':'—';
 // Grafikteki sembolun para birimi (ABD hisseleri ve kripto USD)
-const curOf=r=>r&&(r.currency==='USD'||r.market==='US')?'$':'₺';
+const curOf=r=>{const c=r&&(r.quote&&r.quote.currency||r.currency);return c==='TRY'?'₺':c==='USD'?'$':c||(r&&r.market==='US'?'$':'₺')};
 const money=(v,r)=>fin(v)?nf(v,2)+' '+curOf(r):'—';
 const TFN={'1dk':'1 dk','5dk':'5 dk','15dk':'15 dk','1s':'Saatlik','1g':'Günlük','1h':'Haftalık'};
 const TFS=['5dk','15dk','1s','1g','1h'];
@@ -306,16 +310,16 @@ async function call(f,...a){try{const r=await f(...a);if(r&&r.ok===false&&r.erro
 // --- durum -------------------------------------------------------------------------------
 const S={st:null,sym:null,tf:'1g',mkt:'BIST',data:null,q:new Map(),scan:null,preset:null,sort:{k:'score',d:-1},lab:null,labSel:null,ai:null,chat:[],tab:'grafik',
   show:{},loading:0,trades:null,provider:'auto'};
-const verdictOf=sym=>{const r=S.scan&&S.scan.rows&&S.scan.rows.find(x=>x.symbol===sym);return r&&r.verdict||null};
+const verdictOf=sym=>{const r=S.scan&&S.scan.rows&&S.scan.rows.find(x=>x.symbol===sym&&(!x.market||x.market===S.mkt));return r&&r.verdict||null};
 let ch=null;
 const dark=()=>matchMedia('(prefers-color-scheme: dark)').matches;
 function chartInit(){
   if(ch)return ch;
   if(!window.BPChart||!window.LightweightCharts){ovl('Grafik bileşeni yüklenemedi','Uygulamayı yeniden başlatmayı dene.');return null}
   try{ch=BPChart.create($('chart'),{theme:dark()?'dark':'light',show:S.show});
-    if(ch.onDrawings){ch.onDrawings(list=>{if(S.data)drawSave(S.data.symbol,list);renderHead()});ch.onTool(()=>renderHead());
+    if(ch.onDrawings){ch.onDrawings(list=>{if(S.data)drawSave(chartDrawSymbol(S.data),list);renderHead()});ch.onTool(()=>renderHead());
       document.addEventListener('keydown',e=>{if(e.key==='Escape'&&ch&&ch.getTool())ch.setTool(null)})}
-    ch.onClickPrice(p=>{if(!S.data)return;const last=S.data.quote&&S.data.quote.price;addAlarm(S.data.symbol,fin(last)&&p<last?'below':'above',p)});
+    ch.onClickPrice(p=>{if(!S.data)return;if(usdActive()){toast('USD karşılaştırma görünümünde TL alarmı kurulmaz. Önce TL görünümüne geç.');return;}const last=S.data.quote&&S.data.quote.price;addAlarm(S.data.symbol,fin(last)&&p<last?'below':'above',p)});
     matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>ch&&ch.setTheme(dark()?'dark':'light'));
   }catch(e){ovl('Grafik açılamadı',String(e.message||e));ch=null}
   return ch}
@@ -334,7 +338,7 @@ async function doSearch(){const v=q.value.trim();if(!v){closeDD();return}
   let r=[];try{r=await bp.search(v)}catch(e){}
   // BIST (bp.search) + populer ABD hisse/ETF ve kripto (bp-symbols); tam kod eslesmesi one alinir
   const B=(Array.isArray(r)?r:[]).map(x=>({...x,market:'BIST'})),Y=window.BPSymbols,V=v.toLocaleUpperCase('tr-TR').replace(/-USD$/,'');
-  const X=Y?[...Y.search('US',v,4).map(x=>({symbol:x.symbol,code:x.code,name:x.name,market:'US',tag:'ABD'})),...Y.search('CRYPTO',v,4).map(x=>({symbol:x.symbol,code:x.code,name:x.name,market:'CRYPTO',tag:'Kripto'}))]:[];
+  const X=Y?[...Y.search('GLOBAL',v,4).map(x=>({symbol:x.symbol,code:x.code,name:x.name,market:'US',tag:'Emtia / Döviz'})),...Y.search('US',v,4).map(x=>({symbol:x.symbol,code:x.code,name:x.name,market:'US',tag:'ABD'})),...Y.search('CRYPTO',v,4).map(x=>({symbol:x.symbol,code:x.code,name:x.name,market:'CRYPTO',tag:'Kripto'}))]:[];
   ddItems=[...B.slice(0,X.length?8:12),...X].map((x,i)=>[(x.code||x.symbol)===V?0:1,i,x]).sort((a,b)=>a[0]-b[0]||a[1]-b[1]).map(a=>a[2]);
   if(!ddItems.length&&/^[a-zçğıöşü0-9]{2,8}$/i.test(v))ddItems=[{symbol:v.toLocaleUpperCase('tr-TR'),name:'Kodu doğrudan aç ('+(S.mkt==='US'?'ABD':'BIST')+')',market:S.mkt}];ddSel=0;drawDD()}
 // Arama sonucu: BIST kodu, ABD kodu ya da kripto Yahoo cifti (BTC-USD; grafik 'US' veri yoluyla acilir)
@@ -362,11 +366,12 @@ function tab(v){S.tab=v;for(const b of $('tabs').children)b.classList.toggle('on
 // --- izleme listesi -------------------------------------------------------------------------
 $('wlp').onclick=()=>{$('wla').classList.toggle('on');if($('wla').classList.contains('on'))$('wli').focus()};
 // Izleme girdisi: BIST "THYAO", ABD "AAPL.US", kripto "BTC-USD" (ana surec wcode ile ayni kural)
-const wEntry=(sym,mkt)=>/-USD$/.test(sym)?sym:mkt==='US'?sym+'.US':sym;
+const wGlobal=s=>!!(window.BPSymbols&&BPSymbols.GLOBAL.some(x=>x.symbol===s));
+const wEntry=(sym,mkt)=>wGlobal(sym)||/-USD$/.test(sym)?sym:mkt==='US'?sym+'.US':sym;
 const wCur=()=>S.sym?wEntry(S.sym,S.mkt):null;
 const wDisp=w=>/-USD$/.test(w)&&window.BPSymbols?BPSymbols.display(w):String(w).replace(/\.US$/,'');
-const wTag=w=>/-USD$/.test(w)?'Kripto':/\.US$/.test(w)?'ABD':null;
-function wOpen(w){return /-USD$/.test(w)?go(w,'US'):/\.US$/.test(w)?go(w.slice(0,-3),'US'):go(w,'BIST')}
+const wTag=w=>wGlobal(w)?'Emtia / Döviz':/-USD$/.test(w)?'Kripto':/\.US$/.test(w)?'ABD':null;
+function wOpen(w){return wGlobal(w)?go(w,'US'):/-USD$/.test(w)?go(w,'US'):/\.US$/.test(w)?go(w.slice(0,-3),'US'):go(w,'BIST')}
 // Elle ekleme: kripto/ABD listesindeyse o piyasa; BIST aramasinda tam kod varsa BIST; yoksa secili piyasa
 async function wMarketOf(v){const Y=window.BPSymbols,m=Y&&Y.marketOf(v);if(m==='CRYPTO'||/-USD$/i.test(v))return 'CRYPTO';
   let r=[];try{r=await bp.search(v)}catch(e){}if(Array.isArray(r)&&r.some(x=>x&&x.symbol===v.toLocaleUpperCase('tr-TR')))return 'BIST';return m==='US'?'US':S.mkt}
@@ -407,7 +412,7 @@ async function refreshQuotes(){
 
 // --- grafik + analiz -------------------------------------------------------------------------
 // mkt verilmezse: "-USD" / ".US" sonekli kodlar ABD veri yolu, digerleri BIST (tarayici, plan, okul vb. BIST kodlari)
-function go(sym,mkt){sym=String(sym||'');S.mkt=mkt||(/-USD$|\.US$/i.test(sym)?'US':'BIST');if(S.tab!=='grafik')tab('grafik');return load(sym.replace(/\.US$/i,''))}
+function go(sym,mkt){sym=String(sym||'');S.mkt=mkt||(/-USD$|\.US$|=|\^/i.test(sym)||window.BPSymbols&&BPSymbols.marketOf(sym)==='US'?'US':'BIST');if(S.tab!=='grafik')tab('grafik');return load(sym.replace(/\.US$/i,''))}
 function setTf(tf){if(!TFS.includes(tf)||tf===S.tf&&S.data)return;S.tf=tf;S.span=null;renderWatch();if(S.sym)load(S.sym)}
 // Gorunen aralik: gunluk veri ~2 yil; 5Y (ve gun ici dilimlerde 52H) icin haftalik dilime gecilir
 const SPANS=[['1A',21],['3A',63],['6A',126],['1Y',252],['5Y',1260],['Tümü','all']];
@@ -419,20 +424,24 @@ async function load(sym,o={}){
   if(!sym)return;const seq=++S.loading;S.sym=String(sym).toLocaleUpperCase('tr-TR');renderWatch();renderHead();
   if(chartInit()&&!o.quiet)ovl(S.sym+' yükleniyor…',TFN[S.tf]+' veri ve analiz',true);
   const keepScroll=o.quiet?$('ap').scrollTop:0;
-  let r;try{r=await bp.load({symbol:S.sym,tf:S.tf,market:S.mkt})}catch(e){r={ok:false,error:String(e.message||e)}}
+  let r;try{r=await bp.load({symbol:S.sym,tf:S.tf,market:S.mkt,chartCurrency:S.chartCurrency||'TRY'})}catch(e){r={ok:false,error:String(e.message||e)}}
   if(seq!==S.loading)return;
   if(!r||!r.ok){S.data=null;ovl('Veri alınamadı',(r&&r.error)||'Bağlantıyı kontrol et.');renderHead();renderAnalysis();return}
-  S.data=r;S.sym=r.symbol;S.ai=null;S.chat=[];if(!o.keepTrades)S.trades=null;
+  S.data=r;if(r.chartUSDError){S.chartCurrency='TRY';toast(r.chartUSDError)}S.sym=r.symbol;S.ai=null;S.chat=[];if(!o.keepTrades)S.trades=null;
   ovl(null);renderHead();renderWatch();drawChart();if(!o.quiet)applySpan();renderAnalysis();if(keepScroll)$('ap').scrollTop=keepScroll;if(S.tab==='analist')renderAnalyst();
   $('sbl').textContent='Veri: Yahoo Finance'+(r.market==='BIST'?' · BIST ~15 dk gecikmeli':/-USD$/.test(r.symbol)?' · Kripto 7/24 · USD':' · ABD · USD')+(r.stale?' · çevrimdışı, eski veri':'')+(r.errors&&r.errors.length?' · '+r.errors.length+' uyarı':'')}
+function usdActive(){return !!(S.chartCurrency==='USD'&&S.data&&S.data.chartUSD)}
+const chartDrawSymbol=r=>r.symbol+(usdActive()?':USD':'');
 function drawChart(){
   const r=S.data;if(!r||!chartInit())return;
   const alarms=(S.st.alarms||[]).filter(a=>a.symbol===r.symbol&&a.kind!=='verdict'&&!a.fired);
   const positions=((S.st.portfolio&&S.st.portfolio.positions)||[]).filter(p=>p.symbol===r.symbol);
-  ch.setData({rows:r.rows,tf:r.tf,pro:r.pro,signals:r.signals,symbol:r.symbol,alarms,positions,trades:S.trades,show:{...S.show,trades:!!S.trades}});
-  if(ch.setDrawings){ch.setDrawings(drawLoad(r.symbol));renderHead()}}
+  const usd=usdActive();
+  ch.setData({rows:usd?r.chartUSD.rows:r.rows,tf:r.tf,pro:usd?null:r.pro,signals:usd?[]:r.signals,symbol:r.symbol+(usd?' · USD (yaklaşık)':''),alarms:usd?[]:alarms,positions:usd?[]:positions,trades:usd?null:S.trades,show:{...S.show,trades:!usd&&!!S.trades}});
+  if(ch.setDrawings){ch.setDrawings(drawLoad(chartDrawSymbol(r)));renderHead()}}
 const IND=[['ema','EMA 20/50','var(--acc)'],['ema200','EMA 200','#a77cf0'],['bb','Bollinger','#8c9bb4'],['vwap','VWAP','#f0894b'],['volume','Hacim',null],['rsi','RSI',null],['macd','MACD',null],
   ['levels','Seviyeler',null],['plan','Plan',null],['signals','AL/SAT',null],['trendlines','Trend çizgileri',null],['profile','Hacim profili',null]];
+const INDTIP={ema:'20 ve 50 mumluk üstel ortalamalar: kısa ve orta vadeli eğilim.',ema200:'200 mumluk üstel ortalama: uzun vadeli eğilim.',bb:'20 mumluk ortalama çevresinde oynaklık bantları; tek başına AL/SAT değildir.',vwap:'Hacim ağırlıklı ortalama fiyat; gün içinde seans başında sıfırlanır.',volume:'Her mumdaki işlem hacmi; fiyat yönüyle birlikte değerlendir.',rsi:'14 mumluk göreli güç; 30/70 aşırı bölgeleri dönüş garantisi değildir.',macd:'12/26 üstel ortalama farkı ve 9 mumluk sinyal; momentum göstergesi.',levels:'Geçmiş temaslardan hesaplanan destek ve direnç bölgeleri.',plan:'Koşullu giriş, stop ve hedefler; gerçekleşme garantisi yoktur.',signals:'Geçmiş trend/momentum kuralı sinyalleri; karar kartı ile aynı şey değildir.',trendlines:'En az iki dip veya tepeden hesaplanan otomatik trend çizgileri.',profile:'Fiyat bölgelerine göre yaklaşık hacim dağılımı; emir defteri değildir.'};
 // Secili araliktaki degisim: veriden dogrudan (gorunen alana bagli degil)
 function spanChg(){const rs=S.data&&Array.isArray(S.data.rows)?S.data.rows:[],d=(SPANS.find(x=>x[0]===S.span)||[])[1];if(!S.span||rs.length<2||d==null)return null;
   const per={'1h':1/5,'1g':1,'1s':8,'15dk':32,'5dk':96,'1dk':480}[S.tf]||1,k=d==='all'?rs.length-1:Math.min(rs.length-1,Math.max(1,Math.round(d*per)));
@@ -451,10 +460,11 @@ function renderHead(){
     /-USD$/.test(S.sym||'')?el('span',{class:'chip sm',title:'Kripto para: 7/24 işlem, USD'},'Kripto · USD · 7/24'):
     el('div',{class:'seg'},...['BIST','US'].map(m=>el('button',{class:m===S.mkt?'on':'',onclick:()=>{if(m!==S.mkt){S.mkt=m;bp.prefs({market:m}).catch(()=>{});if(S.sym)load(S.sym)}}},m==='US'?'ABD':m))),
     el('button',{class:'btn',title:'Bu sembolü izleme listesine ekle',onclick:async()=>{const x=await call(bp.watch,{op:'add',symbol:S.sym,market:/-USD$/.test(S.sym||'')?'CRYPTO':S.mkt});if(okr(x)){S.st.watch=x.watch;renderWatch();refreshQuotes();toast(S.sym+' izleme listesinde')}}},'+ Liste'),
+    r&&r.quote&&r.quote.currency==='TRY'?el('button',{class:'btn',title:'USD görünümü tarihsel tamamlanmış kur mumlarıyla yaklaşık dönüşümdür. Analiz ve emirler TL kalır; TL seviye/planları USD grafiğe çizilmez.',onclick:()=>{S.chartCurrency=usdActive()?'TRY':'USD';load(S.sym,{keepTrades:true})}},usdActive()?'Grafik: USD ≈':'Grafik: TL → USD'):null,
     el('button',{class:'btn',title:'Grafiği yenile',onclick:()=>S.sym&&load(S.sym,{keepTrades:true})},'Yenile'));
   const sh=ch?ch.getShow():S.show;
   $('tb').replaceChildren(...IND.map(([k,n,c])=>{const on=k==='vwap'?sh.vwap===true||(sh.vwap==='auto'&&['5dk','15dk','1dk'].includes(S.tf)):!!sh[k];
-    return el('button',{class:'chip'+(on?' on':''),onclick:()=>toggleShow(k,on)},c?el('i',{style:'background:'+c}):null,n)}),
+    return el('button',{class:'chip'+(on?' on':''),title:INDTIP[k],onclick:()=>toggleShow(k,on)},c?el('i',{style:'background:'+c}):null,n)}),
     S.trades?el('button',{class:'chip on',onclick:()=>{S.trades=null;drawChart();renderHead()}},'Strateji işlemleri ×'):null,
     ch&&ch.setTool?drawBar():null,
     el('span',{class:'sp',style:'flex:1'}),
@@ -481,14 +491,16 @@ function renderAnalysis(){
   const ap=$('ap'),r=S.data;
   if(!r){ap.replaceChildren(el('div',{class:'empty'},el('b',{},S.sym?'Analiz yok':'Hisse seç'),S.sym?'Veri alınamadı; bağlantını kontrol edip Yenile\'ye bas.':'Soldaki listeden ya da üstteki aramadan bir hisse aç.'));return}
   const P=r.pro&&r.pro.ok?r.pro:null,out=[];
+  if(usdActive())out.push(el('div',{class:'warn'},'Grafik: yaklaşık USD (geçmiş tamamlanmış kur mumları). Analiz, fiyat başlığı ve emirler TL. TL seviyeleri USD grafikte gizli. Eksik kur nedeniyle '+r.chartUSD.dropped+' mum gösterilmiyor.'+(r.chartUSD.stale?' Kur verisi eski.':'')));
   if(!P){out.push(el('div',{class:'err'},'Gelişmiş analiz yapılamadı: '+((r.pro&&r.pro.error)||'yeterli veri yok')+'. Daha uzun bir zaman dilimi dene (Günlük).'))}
   else{
     const V=P.verdict;
     out.push(CARD(['Karar',el('span',{class:'sp'}),el('span',{class:'mu',style:'text-transform:none;letter-spacing:0;font-weight:500'},TFN[r.tf]+' · '+P.n+' mum')],
       el('div',{class:'vc'},el('div',{class:'vl '+V.label},el('b',{},V.label),el('small',{},(V.score>0?'+':'')+V.score)),
         el('div',{style:'flex:1;min-width:0'},el('div',{class:'kv'},el('span',{},'Skor'),el('b',{class:sgnc(V.score)},(V.score>0?'+':'')+V.score+' / 100'),
-          el('span',{},'Güven'),el('b',{},'%'+V.confidence)),
+          el('span',{title:'Bileşenlerin kararla uyumu; kazanç veya isabet olasılığı değildir. SAT skoru negatiftir.'},'Bileşen uyumu'),el('b',{},'%'+V.confidence)),
           el('div',{class:'gauge'},el('i',{style:'left:'+((V.score+100)/2)+'%'})),el('div',{class:'gl'},el('span',{},'SAT −100'),el('span',{},'0'),el('span',{},'+100 AL')))),
+      el('div',{class:'disc'},'Skor −100…+100: negatif SAT, pozitif AL. Uyum oranı başarı garantisi değildir. Günlük ve haftalık farklı vadeleri ölçer; karşıt sinyaller birlikte görülebilir. Açık mum kapanana kadar sinyal değişebilir.'),
       V.reasons&&V.reasons.length?el('ul',{class:'why'},...V.reasons.map(t=>el('li',{},t))):null,
       // Tarayici ile fark: tarayici gunluk mumlarla ve tarama anindaki veriyle karar verir
       (sv=>sv&&(sv.label!==V.label||Math.abs((sv.score||0)-V.score)>=15)?el('div',{class:'warn',style:'margin-top:6px'},
@@ -608,14 +620,14 @@ function newsCard(r){
     n.summary||n.title,el('small',{},[n.general?'Piyasa geneli':null,n.source,dt(n.ts),n.effect].filter(Boolean).join(' · ')))));
   if(y.length)kids.push(...y.slice(0,6).map(n=>el('a',{onclick:()=>n.url&&bp.open({url:n.url})},n.title,el('small',{},[n.publisher,dt(n.time)].filter(Boolean).join(' · ')))));
   const cal=b&&b.calendar||[],akd=b&&b.akd,NX=S.newsx&&S.newsx.symbol===r.symbol?S.newsx:null,bist=r.market==='BIST';
-  if(NX&&NX.items&&NX.items.length)kids.push(...NX.items.slice(0,8).map(n=>el('a',{onclick:()=>n.url&&bp.open({url:n.url})},n.title,el('small',{},['NewsAPI',n.source,dt(n.time)].filter(Boolean).join(' · ')))));
-  if(!kids.length&&!cal.length&&!akd&&!bist)return null;
+  if(NX&&NX.items&&NX.items.length)kids.push(...NX.items.slice(0,8).map(n=>el('a',{onclick:()=>n.url&&bp.open({url:n.url})},n.title,el('small',{},[NX.source||'NewsAPI',n.source,dt(n.time)].filter(Boolean).join(' · ')))));
+  if(!kids.length&&!cal.length&&!akd&&!bist&&!(r.news&&r.news.error))return null;
   const more=bist?el('div',{class:'row',style:'margin-top:8px'},el('button',{class:'btn',disabled:!!(NX&&NX.busy),onclick:()=>moreNews(r.symbol)},NX&&NX.busy?'Aranıyor…':NX&&NX.items?'Basın haberlerini yenile':'Basında ara (NewsAPI)'),
-    NX&&NX.error?el('span',{class:'mu',style:'font-size:11px'},NX.error):NX&&fin(NX.left)?el('span',{class:'mu',style:'font-size:11px'},'Bugün kalan: '+NX.left):null):null;
+    NX&&(NX.error||NX.notice)?el('span',{class:'mu',style:'font-size:11px'},NX.error||NX.notice):NX&&fin(NX.left)?el('span',{class:'mu',style:'font-size:11px'},'Bugün kalan: '+NX.left):null):null;
   return CARD('Haberler ve gündem',
     cal.length?el('div',{style:'margin-bottom:8px'},...cal.map(c=>el('div',{class:'kv'},el('span',{},c.kind+': '+c.title),el('b',{},c.day)))):null,
     akd&&akd.top&&akd.top.length?el('div',{class:'warn',style:'background:var(--sunk);margin:0 0 8px'},'Son '+akd.days+' gün kurum birikimi: ',...akd.top.map((x,i)=>[i?', ':'',el('b',{},x.name.split(' ')[0]),' '+big(x.net)+' lot'])):null,
-    kids.length?el('div',{class:'news'},...kids):el('div',{class:'mu'},'Bu hisse için bot haberi yok.'),more)}
+    kids.length?el('div',{class:'news'},...kids):el('div',{class:'mu'},r.news&&r.news.error||'Bu sembol için kaynaklardan haber dönmedi; bu, haber olmadığı anlamına gelmez.'),more)}
 // --- ABD hissesi (Finnhub): profil, oranlar, analist tavsiyesi, bilanco takvimi, sirket haberleri ---
 const usdBig=v=>{const a=Math.abs(v);return '$'+(a>=1e12?nf(v/1e12,2)+' Tn':a>=1e9?nf(v/1e9,1)+' Mr':a>=1e6?nf(v/1e6,0)+' Mn':nf(v,0))};
 const isUsStock=r=>r&&r.market==='US'&&!/-USD$/.test(String(r.symbol||''));
@@ -693,7 +705,7 @@ async function mcpMarket(k,a){S.mcpm={k,busy:true};redrawMcpm();
 function redrawNews(){const c=$('nwc');if(c&&S.data){const n=newsCard(S.data);c.replaceChildren(...(n?[n]:[]))}}
 async function moreNews(sym){S.newsx={symbol:sym,busy:true,items:S.newsx&&S.newsx.symbol===sym?S.newsx.items:null};redrawNews();
   const r=await bp.feeds({op:'news',symbol:sym}).catch(e=>({ok:false,error:String(e.message||e)}));
-  S.newsx=r&&r.ok?{symbol:sym,items:r.items||[],left:r.left}:{symbol:sym,items:null,error:(r&&r.error)||'Haberler alınamadı.',needKey:!!(r&&r.needKey)};
+  S.newsx=r&&r.ok?{symbol:sym,items:r.items||[],left:r.left,source:r.source||'NewsAPI',notice:r.notice}:{symbol:sym,items:null,error:(r&&r.error)||'Haberler alınamadı.',needKey:!!(r&&r.needKey)};
   if(r&&r.ok&&!(r.items||[]).length)S.newsx.error='Son 7 günde haber bulunamadı.';if(S.newsx.needKey)toast(S.newsx.error);redrawNews()}
 
 function depthCard(d){
@@ -707,7 +719,7 @@ function depthCard(d){
 
 // --- derinlik (Telegram botu) ----------------------------------------------------------------------
 const AUTO=[[0,'Otomatik kapalı'],[30,'30 sn'],[60,'60 sn'],[120,'2 dk']];
-function curDepth(r){return S.depthLive&&S.depthLive.symbol===r.symbol?S.depthLive.depth:r.depth}
+function curDepth(r){const d=S.depthLive&&S.depthLive.symbol===r.symbol?S.depthLive.depth:r.depth;return d&&fin(d.at)&&Date.now()-d.at<=300000&&d.at<=Date.now()+30000?d:null}
 function depthCard2(r){
   const D=curDepth(r),tg=S.tg||{},busy=S.depthBusy===r.symbol;
   const sel=el('select',{class:'inp',style:'height:26px',title:'Seans açıkken otomatik yenileme (güvenli sınırlar: dakikada en fazla 1-3 istek)'},
@@ -986,13 +998,13 @@ function renderAlarms(){
 
 // --- tarayici ----------------------------------------------------------------------------------------
 let scanning=false;
-const COLS=[['symbol','Hisse'],['price','Fiyat'],['chgPct','Gün'],['verdict','Karar'],['score','Skor'],['conf','Güven'],['rr','R/Ö'],['rsi','RSI'],['adx','ADX'],
+const COLS=[['symbol','Hisse'],['price','Fiyat'],['chgPct','Gün'],['verdict','Karar'],['score','Skor'],['conf','Uyum'],['rr','R/Ö'],['rsi','RSI'],['adx','ADX'],
   ['d20','1 ay'],['rs20','XU100\'e göre'],['hi52Dist','Zirveye'],['tags','Etiketler']];
 const colVal=(r,k)=>k==='verdict'?(r.verdict?r.verdict.dir:0):k==='score'?(r.verdict?r.verdict.score:null):k==='conf'?(r.verdict?r.verdict.confidence:null):k==='d20'?(r.perf?r.perf.d20:null):k==='tags'?(r.tags||[]).length:r[k];
 function renderScan(){
   const v=$('v-tarama'),st=S.st,sc=S.scan,uni=(st.prefs&&st.prefs.universe)||'BIST30',U=st.universes||{};
-  const useg=el('div',{class:'seg'},...['BIST30','BIST50','BIST100','BIST500','WATCH'].map(u=>el('button',{class:u===uni?'on':'',onclick:()=>{st.prefs={...st.prefs,universe:u};bp.prefs({universe:u}).catch(()=>{});renderScan()}},
-    (u==='WATCH'?'İzleme':u)+(U[u]?' ('+U[u]+')':''))));
+  const useg=el('div',{class:'seg'},...['BIST30','BIST50','BIST100','BIST500','WATCH','GLOBAL'].map(u=>el('button',{class:u===uni?'on':'',onclick:()=>{st.prefs={...st.prefs,universe:u};bp.prefs({universe:u}).catch(()=>{});renderScan()}},
+    (u==='WATCH'?'İzleme':u==='GLOBAL'?'Emtia / Döviz':u)+(U[u]?' ('+U[u]+')':''))));
   const prog=el('div',{class:'prog'},el('i',{id:'sprog'}));
   const go_=el('button',{class:'btn pri',disabled:scanning,onclick:startScan},scanning?'Taranıyor…':'Tara');
   const head=el('div',{class:'ph'},el('h2',{},'Tarayıcı'),useg,go_,scanning?el('button',{class:'btn',onclick:()=>bp.scanCancel()},'İptal'):null,scanning?prog:null,el('span',{class:'mu',id:'sinfo'},
@@ -1007,7 +1019,7 @@ function renderScan(){
   const {k,d}=S.sort;rows.sort((a,b)=>{const x=colVal(a,k),y=colVal(b,k);if(k==='symbol')return d*String(x).localeCompare(String(y));return d*((fin(x)?x:-1e9)-(fin(y)?y:-1e9))});
   const B=sc.breadth;
   const tbl=el('table',{class:'t'},el('thead',{},el('tr',{},...COLS.map(([ck,n])=>el('th',{class:ck===k?'s':'',onclick:()=>{S.sort={k:ck,d:ck===k?-d:(ck==='symbol'?1:-1)};renderScan()}},n+(ck===k?(d>0?' ▲':' ▼'):''))))),
-    el('tbody',{},...rows.map(r=>{const V=r.verdict||{};return el('tr',{onclick:()=>go(r.symbol),title:(r.reasons||[]).join(' · ')},
+    el('tbody',{},...rows.map(r=>{const V=r.verdict||{};return el('tr',{onclick:()=>go(r.symbol,r.market),title:(r.reasons||[]).join(' · ')},
       el('td',{},el('b',{},r.symbol),' ',el('span',{class:'mu',style:'font-family:var(--font);font-size:11px'},(r.name||'').slice(0,22))),
       el('td',{},fp(r.price)),el('td',{class:sgnc(r.chgPct)},pct(r.chgPct)),el('td',{},el('span',{class:'vb '+(V.label||'BEKLE')},V.label||'—')),
       el('td',{class:sgnc(V.score)},fin(V.score)?(V.score>0?'+':'')+V.score:'—'),el('td',{},fin(V.confidence)?'%'+V.confidence:'—'),el('td',{},fin(r.rr)?nf(r.rr,2):'—'),
@@ -1444,6 +1456,7 @@ async function init(){
   load(st.symbol||st.watch[0]||'THYAO');refreshQuotes();
   if(st.prefs&&st.prefs.tab&&st.prefs.tab!=='grafik')tab(st.prefs.tab);
   setInterval(refreshQuotes,60000);
+  setInterval(()=>{if(S.data&&S.tab==='grafik'&&!document.hidden)redrawDepth()},30000);
   setInterval(()=>{if(document.hidden)return;if(S.tab==='portfoy')loadPort();if(S.tab==='demo'&&!$('v-demo').contains(document.activeElement))loadDemo();if(S.tab==='grafik'&&!demoBusy&&demoChart&&demoChart.symbol)demoChart.refresh()},60000);
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)refreshQuotes()});
   setTimeout(()=>{window.__ready=true},1200)}
