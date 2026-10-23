@@ -22,7 +22,7 @@ function root(t) {
   const d = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cemapp-mac-')));
   t.after(() => {
     try { execFileSync('/usr/bin/chflags', ['-R', 'nouchg', d]); } catch (e) {}
-    fs.rmSync(d, { recursive: true, force: true });
+    fs.rmSync(d, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
   });
   return d;
 }
@@ -107,6 +107,25 @@ test('kilit: kaydet ve yeniden kilitle gercek uchg ile yedegi yeni inode\'a tasi
   const u = await V.unlockFile(r.path);
   assert.equal(fs.readFileSync(u.path, 'utf8'), 'ikinci surum, daha uzun');
   assert.deepEqual(fs.readdirSync(bdir), []);
+});
+
+test('kilit: relock yer degistirip yedegi yenilemeden kesilirse repair gercek uchg ile yedegi yeni dosyaya tasir', { skip }, async (t) => {
+  const { V, L, home, dir, bdir, write } = await vault(t);
+  const r = await V.lockFile(write('not.txt', 'ilk surum'));
+  const b = path.join(bdir, r.id + '.kilitli');
+  // rename'den hemen sonra kesinti (ayni durumu birakir: kayit isaretli, yedek eski inode'da)
+  await assert.rejects(V.relock(r.path, write('yeni.txt', 'ikinci surum'), { beforeBackup: () => { throw new Error('kesinti'); } }), /kesinti/);
+  assert.notEqual(fs.statSync(r.path).ino, fs.statSync(b).ino);
+  V.lock();
+  const V2 = L.createVault({ dir, home, chflags }); t.after(() => V2.lock());
+  const res = await V2.repair();
+  assert.deepEqual(res.restored, []); assert.equal(res.linked, 1);
+  assert.equal(fs.statSync(r.path).ino, fs.statSync(b).ino);
+  assert.ok(hasUchg(r.path)); assert.ok(hasUchg(b));
+  assert.deepEqual(fs.readdirSync(home).filter(n => n.endsWith('.kilitli')), ['not.txt.kilitli']);
+  await V2.unlockWithPassword(PW);
+  const out = path.join(home, 'o.txt'); await V2.decryptTo(r.path, out);
+  assert.equal(fs.readFileSync(out, 'utf8'), 'ikinci surum');
 });
 
 // Temizlik: cleaner-main.js Cop Sepeti icin Electron shell.trashItem kullanir; burada Electron'suz kisim (guard,

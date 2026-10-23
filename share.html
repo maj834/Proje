@@ -53,7 +53,8 @@ function fail(m){$('err').textContent=m;$('err').style.display='block'}
 async function start(){const r=await share.start();if(!r.ok){S={running:false};render();fail(r.msg);return}S=r;render();countdown()}
 share.on(e=>{
   if(e.type==='stop'){S.running=false;render();$('ttl').textContent=e.reason==='time'?'Süre doldu, kapandı':'Kapalı';clearInterval(tick);return}
-  if(['visit','download','upload-progress','upload-start'].includes(e.type))left=600;
+  // Sunucu bosta kalma sayacini yalnizca gercek islemde sifirlar ve 'activity' bildirir: geri sayim onunla ayni kalir
+  if(e.type==='activity'){left=Math.max(1,Math.round((e.ttl||600000)/1000));return}
   if(e.type==='upload-progress'||e.type==='upload-start'){let p=document.getElementById('p-'+e.name);
     if(!p){p=el('div','it');p.id='p-'+e.name;p.append(el('span','n',e.name),el('span','s',''));const b=el('div','bar');b.append(el('i'));p.append(b);$('prog').append(p)}
     p.querySelector('.s').textContent=e.bytes?human(e.bytes):'';if(e.total)p.querySelector('.bar i').style.width=Math.round(e.bytes/e.total*100)+'%';render()}

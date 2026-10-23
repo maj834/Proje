@@ -1,0 +1,24 @@
+name: ag-tani
+# Veri kaynaklarina erisim tanisi (durum kodu, sure, boyut). Yalniz okuma.
+on:
+  workflow_dispatch:
+  push:
+    paths: ['.github/workflows/tani.yml']
+permissions:
+  contents: read
+jobs:
+  tani:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - run: |
+          set +e
+          UA='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36'
+          t() { curl -s -o /tmp/o -w "%{http_code} %{time_total}s %{size_download}B" --max-time 100 -A "$UA" -H 'X-Requested-With: XMLHttpRequest' -H 'Referer: https://www.isyatirim.com.tr/tr-tr/analiz/hisse/Sayfalar/sirket-karti.aspx' "$@"; echo "  <- $*" | cut -c1-200; head -c 300 /tmp/o | tr -d '\n'; echo; }
+          HT='https://www.isyatirim.com.tr/_layouts/15/Isyatirim.Website/Common/Data.aspx/HisseTekil'
+          t "$HT?hisse=ASELS&startdate=01-01-2024&enddate=31-12-2024"
+          python3 -c "import json;d=json.load(open('/tmp/o'));v=d.get('value') or [];print('satir',len(v));print(json.dumps(v[100:101],ensure_ascii=False))"
+          t "$HT?hisse=THYAO&startdate=01-01-2016&enddate=31-12-2018"
+          python3 -c "import json;d=json.load(open('/tmp/o'));v=d.get('value') or [];print('satir',len(v));print(json.dumps(v[:1],ensure_ascii=False))"
+          t "$HT?hisse=THYAO&startdate=01-10-2016&enddate=21-10-2026"
+          python3 -c "import json;d=json.load(open('/tmp/o'));v=d.get('value') or [];print('satir',len(v))"

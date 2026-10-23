@@ -11,15 +11,18 @@ async function connect({apiId,apiHash,session,ask,onSession}){
   await disconnect();
   client=new TelegramClient(new StringSession(session||''),Number(apiId),String(apiHash),{connectionRetries:3,useWSS:false,floodSleepThreshold:0});
   client.setLogLevel&&client.setLogLevel('error');
-  // ask(step,hint) arayuzden telefon / kod / 2FA sifresini ister.
-  await client.start({
-    phoneNumber:()=>ask('phone'),
-    phoneCode:()=>ask('code'),
-    password:hint=>ask('password',hint),
-    onError:err=>{throw err}
-  });
-  onSession&&onSession(client.session.save());
-  me=await client.getMe();
+  // Basarisiz girisde yari acik istemci baglantida kalmasin: kapat ve hatayi ilet.
+  try{
+    // ask(step,hint) arayuzden telefon / kod / 2FA sifresini ister.
+    await client.start({
+      phoneNumber:()=>ask('phone'),
+      phoneCode:()=>ask('code'),
+      password:hint=>ask('password',hint),
+      onError:err=>{throw err}
+    });
+    onSession&&onSession(client.session.save());
+    me=await client.getMe();
+  }catch(e){await disconnect();throw e}
   return {name:[me.firstName,me.lastName].filter(Boolean).join(' '),username:me.username||null};
 }
 
@@ -28,9 +31,11 @@ async function restore({apiId,apiHash,session}){
   await disconnect();
   client=new TelegramClient(new StringSession(session),Number(apiId),String(apiHash),{connectionRetries:3,floodSleepThreshold:0});
   client.setLogLevel&&client.setLogLevel('error');
-  await client.connect();
-  if(!(await client.checkAuthorization())){await disconnect();return null}
-  me=await client.getMe();
+  try{
+    await client.connect();
+    if(!(await client.checkAuthorization())){await disconnect();return null}
+    me=await client.getMe();
+  }catch(e){await disconnect();throw e}
   return {name:[me.firstName,me.lastName].filter(Boolean).join(' '),username:me.username||null};
 }
 
@@ -65,13 +70,22 @@ async function query(bot,text,{timeoutMs=20000,quietMs=2500}={}){
     if(!got.has(m.id))got.set(m.id,{id:m.id,date:m.date,text:m.message||'',buttons:buttonsOf(m),photo:null});
     const p=pack(m).then(o=>{got.set(m.id,o);last=Date.now()}).catch(()=>{}).finally(()=>pend.delete(p));pend.add(p)};
   const ev1=new NewMessage({chats:[entity]}),ev2=new EditedMessage({chats:[entity]});
-  client.addEventHandler(onMsg,ev1);client.addEventHandler(onMsg,ev2);
-  const sent=await client.sendMessage(entity,{message:text});
-  const start=Date.now();
-  const tick=setInterval(()=>{const now=Date.now();if((got.size&&now-last>quietMs)||now-start>timeoutMs)done()},300);
-  await fin;clearInterval(tick);
-  client.removeEventHandler(onMsg,ev1);client.removeEventHandler(onMsg,ev2);
-  await Promise.race([Promise.all([...pend]),new Promise(s=>setTimeout(s,15000))]);
+  const c=client;let tick=null,sent;
+  c.addEventHandler(onMsg,ev1);c.addEventHandler(onMsg,ev2);
+  // Gonderim (ör. FLOOD_WAIT) ya da bekleme hata verirse dinleyiciler ve zamanlayici kalmasin.
+  try{
+    sent=await c.sendMessage(entity,{message:text});
+    const start=Date.now();
+    tick=setInterval(()=>{const now=Date.now();if((got.size&&now-last>quietMs)||now-start>timeoutMs)done()},300);
+    await fin;
+  }finally{
+    clearInterval(tick);
+    try{c.removeEventHandler(onMsg,ev1)}catch(e){}
+    try{c.removeEventHandler(onMsg,ev2)}catch(e){}
+  }
+  let guard;
+  await Promise.race([Promise.all([...pend]),new Promise(s=>{guard=setTimeout(s,15000)})]);
+  clearTimeout(guard);
   // Olaylar kacmis olabilir: gonderilenden sonraki son mesajlari da oku.
   if(!got.size){const hist=await client.getMessages(entity,{limit:5,minId:sent.id});for(const m of hist)if(String(m.senderId)===String(entity.id))got.set(m.id,await pack(m))}
   return [...got.values()].sort((a,b)=>a.id-b.id);

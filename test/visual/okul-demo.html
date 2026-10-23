@@ -1,0 +1,157 @@
+<!doctype html><html lang="tr"><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; script-src 'self' 'unsafe-inline'">
+<title>Borsa Okulu demo</title>
+<link rel="stylesheet" href="../../theme.css">
+<style>
+/* borsa-pro.html'den kopya: okul gorunumunun kullandigi temel siniflar (degisken ve fontlar theme.css'ten) */
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font:400 12.5px/1.45 var(--font);-webkit-font-smoothing:antialiased;overflow:hidden}
+button,input,select{font:inherit;color:inherit}
+.mono,.num{font-family:var(--mono);font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+.up{color:var(--up)}.dn{color:var(--dn)}.mu{color:var(--fg-3)}.m2{color:var(--fg-2)}
+.sp{flex:1}
+.seg{display:inline-flex;border:1px solid var(--line-2);border-radius:var(--r2);overflow:hidden;flex:none}
+.seg button{height:26px;padding:0 9px;border:0;background:none;color:var(--fg-2);cursor:pointer;font:500 11.5px var(--mono)}
+.seg button+button{border-left:1px solid var(--line)}.seg button.on{background:var(--acc);color:var(--acc-ink)}
+.seg button:hover:not(.on){background:var(--sunk);color:var(--fg)}
+.chip{display:inline-flex;align-items:center;gap:5px;height:24px;padding:0 9px;border:1px solid var(--line-2);border-radius:12px;background:none;color:var(--fg-2);cursor:pointer;font:500 11px var(--font);white-space:nowrap}
+.chip.on{color:var(--fg);border-color:var(--fg-3);background:var(--sunk)}.chip:hover{color:var(--fg)}
+.chip.sm{height:20px;padding:0 7px;font-size:10.5px;cursor:default}
+.spin{width:22px;height:22px;border:2px solid var(--line-2);border-top-color:var(--acc);border-radius:50%;animation:sp .8s linear infinite;margin:0 auto 10px}
+@keyframes sp{to{transform:rotate(360deg)}}
+.card{border:1px solid var(--line);border-radius:var(--r2);padding:12px;margin-bottom:10px;background:var(--bg)}
+.card h3{margin:0 0 8px;font:600 11px var(--font);letter-spacing:.06em;text-transform:uppercase;color:var(--fg-3);display:flex;align-items:center;gap:6px}
+.card h3 .sp{flex:1}.card h3 a{font:500 11px var(--font);text-transform:none;letter-spacing:0;color:var(--acc);cursor:pointer}
+.disc{font-size:10.5px;color:var(--fg-3);margin-top:8px}
+.kv{display:grid;grid-template-columns:1fr auto;gap:2px 10px;align-items:baseline}
+.kv>span{color:var(--fg-2);font-size:12px}.kv>b{font:500 12px var(--mono);text-align:right}
+.inp{height:28px;padding:0 8px;border:1px solid var(--line-2);border-radius:var(--r1);background:var(--surface);outline:none;min-width:0}
+.inp:focus{border-color:var(--acc)}
+.btn{height:28px;padding:0 12px;border:1px solid var(--line-2);border-radius:var(--r1);background:var(--surface);cursor:pointer;white-space:nowrap;font-weight:500}
+.btn:hover{border-color:var(--fg-3)}.btn.pri{background:var(--acc);border-color:var(--acc);color:var(--acc-ink)}.btn.pri:hover{filter:brightness(1.05)}
+.btn:disabled{opacity:.5;cursor:default}
+.warn{margin-top:8px;padding:7px 9px;border-radius:5px;background:var(--acc-soft);color:var(--fg);font-size:11.5px}
+.err{padding:8px 10px;border-radius:5px;background:var(--dn-soft);color:var(--fg);font-size:12px}
+.row{display:flex;gap:6px;align-items:center}
+.pg{overflow:auto;padding:14px 18px 30px;min-height:0;height:100vh}
+.ph{display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap}
+.ph h2{margin:0;font:600 16px var(--font);margin-right:8px}
+.prog{flex:1;min-width:120px;max-width:320px;height:6px;border-radius:3px;background:var(--sunk);overflow:hidden}.prog i{display:block;height:100%;background:var(--acc);width:0;transition:width .2s}
+.empty{padding:40px 20px;text-align:center;color:var(--fg-2)}.empty b{display:block;color:var(--fg);font-size:14px;margin-bottom:4px}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px}
+.mc{border:1px solid var(--line);border-radius:var(--r2);padding:12px;background:var(--surface)}
+.mc>span{color:var(--fg-2);font-size:12px}.mc b{display:block;font:600 18px var(--mono);margin:2px 0}
+.split{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.toast{position:fixed;left:50%;top:56px;transform:translateX(-50%) translateY(-8px);opacity:0;pointer-events:none;transition:.15s;z-index:99;padding:9px 14px;border-radius:var(--r2);background:var(--fg);color:var(--bg);font-weight:500;max-width:60vw}
+.toast.on{opacity:1;transform:translateX(-50%)}
+</style></head>
+<body><div class="pg" id="v"></div><div class="toast" id="toast"></div>
+<script src="../../bp-okul.js"></script>
+<script>
+'use strict';
+// Taklit api: okul-client.js call() bicimini taklit eder. Gorunum secimi (shot.js loadFile ile acar; adres parametresi yok):
+//   SHOT_JS="demo('dersler')"  demo(sekme, {durum:'bos'|'hata'|'cevrimdisi', cevap, quiz, sohbet, ara})
+let durum='';
+const BUGUN='2026-10-20';
+const ANALIZ={
+  'analiz-2026-10-20-sabah':{slug:'analiz-2026-10-20-sabah',tur:'analiz',tarih:BUGUN,baslik:'Güne başlarken: Asya karışık, gözler PPK tutanaklarında',ozet:'ABD vadeli endeksleri hafif artıda, Asya karışık seyrediyor. Yurt içinde TCMB PPK toplantı özeti ve sanayi üretimi verisi takip edilecek.',
+    model:'gpt-oss-120b · denetim: llama-3.3-70b',konu:'genel',
+    govde:{piyasa:{xu100:{son:10482.37,degisim:0.84},xu030:{son:11391.2,degisim:1.12},usdtry:{son:41.86,degisim:0.11},altin:{son:5612,degisim:-0.42},brent:{son:63.4,degisim:-0.9}},
+      bolumler:[{baslik:'Gece neler oldu?',metin:'ABD borsaları güne bilanço iyimserliğiyle başladı; S&P 500 vadelileri yüzde 0,3 artıda. Japonya’da Nikkei rekor tazelerken Çin borsaları emlak kaygılarıyla ekside.\n\nPetrol fiyatlarındaki gerileme, enerji ithalatçısı Türkiye için cari açık tarafında olumlu okunuyor.'},
+        {baslik:'Bugünün takvimi',metin:'- 10:00 Sanayi üretimi (Ağustos)\n- 14:00 TCMB PPK toplantı özeti\n- 17:30 ABD konut başlangıçları'}],
+      yarin_izle:['PPK özetinde faiz indirim patikasına dair ifadeler','Bankacılık endeksinde 2.100 puan direnci','Yabancı payındaki değişim'],
+      uyari:'Yatırım tavsiyesi değildir. Bilgilendirme ve eğitim amaçlıdır.'},kaynaklar:[{ad:'KAP',url:'https://www.kap.org.tr'},{ad:'TCMB',url:'https://www.tcmb.gov.tr'}]},
+  'analiz-2026-10-20-aksam':{slug:'analiz-2026-10-20-aksam',tur:'analiz',tarih:BUGUN,baslik:'Bankalar taşıdı, BIST 100 günü %0,84 artıyla tamamladı',ozet:'Endeks, bankacılık hisselerinin öncülüğünde günün zirvesine yakın kapandı. İşlem hacmi 20 günlük ortalamanın yüzde 18 üzerinde gerçekleşti.',
+    model:'gpt-oss-120b · denetim: llama-3.3-70b',konu:'genel',
+    govde:{piyasa:{xu100:{son:10482.37,degisim:0.84},xu030:{son:11391.2,degisim:1.12},xbank:{son:14210.5,degisim:2.36},usdtry:{son:41.86,degisim:0.11},altin:{son:5612,degisim:-0.42},brent:{son:63.4,degisim:-0.9}},
+      bolumler:[{baslik:'Kapanış',metin:'BIST 100 günü **10.482** puandan, yüzde 0,84 artıyla kapattı. Gün içinde 10.350 desteğinden gelen alımlar, öğleden sonra bankacılık endeksindeki yüzde 2,4’lük yükselişle hızlandı.\n\nSanayi endeksi yatay kalırken holdingler sınırlı artıda. Yükselen hisse sayısı düşenlerin yaklaşık iki katı oldu; bu da yükselişin geniş tabanlı olduğunu gösteriyor.'},
+        {baslik:'Yapay zekâ konsensüsü',metin:'Takip edilen 6 modelden 4’ü bankacılıkta kısa vadeli olumlu, 2’si nötr görüşte. Modellerin son 30 gündeki isabet oranı yüzde 58. Konsensüs bir tahmin değil, farklı görüşlerin özetidir.'}],
+      one_cikanlar:[{sembol:'AKBNK',yon:'yukari',neden:'Hacimli yükseliş; 20 günlük ortalamanın 2,1 katı işlem.'},{sembol:'YKBNK',yon:'yukari',neden:'Bankacılık endeksiyle birlikte güçlü kapanış.'},
+        {sembol:'PGSUS',yon:'asagi',neden:'Petrol düşüşüne rağmen kâr satışı; 50 günlük ortalama test ediliyor.'},{sembol:'ASELS',yon:'izle',neden:'Yeni sözleşme açıklaması KAP’ta; tepki yarın netleşebilir.'}],
+      yarin_izle:['10.350 desteği ve 10.600 direnci','Bankacılıktaki hacmin sürüp sürmediği','ABD 10 yıllık tahvil faizi'],
+      ders_notu:{baslik:'Hacim, fiyat hareketini onaylar',metin:'Bir yükselişin “sağlam” sayılması için işlem hacminin de artması beklenir. Bugün bankalardaki yükseliş ortalamanın belirgin üzerinde hacimle geldi. Düşük hacimli yükselişler ise kolayca geri verilebilir.'},
+      terimler:[{terim:'Hacim',aciklama:'Belirli sürede el değiştiren hisse tutarı.'},{terim:'Destek',aciklama:'Alıcıların yoğunlaştığı fiyat bölgesi.'},{terim:'Konsensüs',aciklama:'Görüşlerin ortak paydası.'}],
+      uyari:'Yatırım tavsiyesi değildir. Bilgilendirme ve eğitim amaçlıdır.'},kaynaklar:[{ad:'Borsa İstanbul',url:'https://www.borsaistanbul.com'},{ad:'KAP',url:'https://www.kap.org.tr'}]}
+};
+const BASLIK=[['Borsa nedir, hisse senedi neyi temsil eder?','baslangic','temel-kavramlar'],['BIST seansları: açılış, sürekli işlem ve kapanış','baslangic','bist-kurallari'],
+  ['Emir türleri: limit, piyasa ve şartlı emirler','baslangic','bist-kurallari'],['T+2 takas: paran ve hissen ne zaman el değiştirir?','baslangic','bist-kurallari'],
+  ['Fiyat adımları ve taban/tavan sınırları','baslangic','bist-kurallari'],['Devre kesici ve VBTS tedbirleri','orta','bist-kurallari'],['Hacim neden önemlidir?','baslangic','teknik'],
+  ['Destek ve direnç nasıl okunur?','orta','teknik'],['Hareketli ortalamalar','orta','teknik'],['F/K ve PD/DD oranları','orta','temel'],['Enflasyon ortamında reel getiri','orta','makro'],
+  ['Pozisyon büyüklüğü ve zarar-kes','orta','risk'],['Kayıptan kaçınma ve intikam işlemi','orta','psikoloji'],['Komisyon, BSMV ve stopaj','baslangic','vergi-maliyet'],
+  ['Bedelli ve bedelsiz sermaye artırımı','orta','temel'],['Çoklu zaman dilimi analizi','ileri','strateji'],['Kredili işlem ve açığa satışın riskleri','ileri','risk'],['TMS 29 enflasyon muhasebesi','ileri','temel']];
+const DERSLER=BASLIK.map(([b,sv,k],i)=>({slug:'ders-'+String(i+1).padStart(3,'0')+'-d'+(i+1),tur:'ders',baslik:b,ozet:null,seviye:sv,konu:k,etiketler:[],semboller:[],tarih:'2026-10-'+String(Math.min(20,3+i)).padStart(2,'0'),sira:i+1,
+  video_url:[0,3,6,11].includes(i)?'https://www.youtube.com/watch?v=ornek'+i:null}));
+DERSLER[3].ozet='Hisse aldığında hesabında hemen görürsün ama mülkiyet iki iş günü sonra kesinleşir. Bu dersle takasın mantığını, “bakiye” ile “kullanılabilir bakiye” farkını ve tatillerin etkisini öğreneceksin.';
+const DERS_GOVDE={hedefler:['T+2 takasın ne olduğunu ve neden var olduğunu açıklamak','Satıştan gelen paranın ne zaman çekilebileceğini hesaplamak','Resmî tatillerin takas tarihine etkisini bilmek'],
+  bolumler:[{baslik:'Önce bir soru',metin:'Pazartesi THYAO aldın ve ekranda hemen gördün. Peki o hisse **gerçekten** ne zaman senin oldu? Cevap: Çarşamba. Aradaki iki güne “takas süreci” denir.'},
+    {baslik:'Takas neden iki gün sürer?',metin:'Borsada yapılan her işlemde alıcı ve satıcı birbirini tanımaz. Aradaki güveni Takasbank sağlar: tüm işlemleri toplar, netleştirir ve iki iş günü sonunda parayı ve hisseyi el değiştirir. MKK ise hisselerin kimde olduğunun kaydını tutar.\n\n- **T** işlem günüdür.\n- **T+1** bir iş günü sonrası.\n- **T+2** paranın ve hissenin kesin olarak el değiştirdiği gündür.',ornek:'Cuma günü sattığın hissenin parası, hafta sonu iş günü sayılmadığı için Salı günü çekilebilir hâle gelir.'},
+    {baslik:'Bakiye ile kullanılabilir bakiye',metin:'Sattığın hissenin parasıyla aynı gün başka hisse alabilirsin; ama o parayı bankana aktarmak için T+2’yi beklemen gerekir. Aracı kurumların ekranındaki “T+2 bakiye” bu yüzden vardır.'}],
+  ornek:{sembol:'THYAO',aciklama:'Salı günü 100 adet THYAO sattın. Perşembe (T+2) para hesabına geçer. Arada Çarşamba resmî tatil olsaydı takas Cuma’ya kayardı.'},
+  ozet_maddeler:['Takas, işlemin kesinleşmesi demektir ve BIST’te iki iş günü sürer.','Hafta sonu ve resmî tatiller iş günü sayılmaz.','Satıştan gelen parayla hemen alım yapılabilir; çekmek için T+2 beklenir.'],
+  terimler:[{terim:'Takasbank',aciklama:'İşlemlerin takasını ve teminatını yöneten merkezî kuruluş.'},{terim:'MKK',aciklama:'Hisse kayıtlarını tutan Merkezi Kayıt Kuruluşu.'}],
+  alistirmalar:[{soru:'Perşembe sattığın hissenin parasını hangi gün bankana aktarabilirsin?',cevap:'Pazartesi. Cuma T+1, hafta sonu sayılmaz, Pazartesi T+2’dir.'},{soru:'Takas süresi içinde aldığın hisseyi satabilir misin?',cevap:'Evet. Satış emri verebilirsin; takas zinciri her iki işlem için ayrı ayrı işler.'}],
+  sure_dk:7};
+const SORULAR=[
+  {slug:'soru-2026-10-20-01',konu:'bist-kurallari',zorluk:1,soru:'Pazartesi günü satılan bir hissenin parası, araya tatil girmezse hangi gün çekilebilir?',secenekler:['Pazartesi','Salı','Çarşamba','Perşembe'],dogru:2,aciklama:'BIST’te takas T+2’dir: Pazartesi (T) + 2 iş günü = Çarşamba.',ders_slug:'ders-004-d4'},
+  {slug:'soru-2026-10-20-02',konu:'teknik',zorluk:2,soru:'Bir hissenin fiyatı yükselirken işlem hacmi belirgin şekilde düşüyorsa bu genellikle neye işaret eder?',secenekler:['Yükselişin güçlü olduğuna','Yükselişin zayıf katılımla geldiğine','Hissenin kesin düşeceğine','Takasın geciktiğine'],dogru:1,aciklama:'Düşük hacimli yükselişler daha az katılımcıyla gerçekleşir; trendin gücü sorgulanmalıdır. Bu tek başına düşüş sinyali değildir.',ders_slug:'ders-007-d7'},
+  {slug:'soru-2026-10-20-03',konu:'risk',zorluk:2,soru:'10.000 TL’lik portföyde işlem başına en fazla %2 risk almak isteyen biri, zarar-kesi alış fiyatının %5 altına koyuyorsa pozisyon büyüklüğü en fazla ne olmalıdır?',secenekler:['2.000 TL','4.000 TL','5.000 TL','10.000 TL'],dogru:1,aciklama:'Risk tutarı 10.000 × %2 = 200 TL. 200 / %5 = 4.000 TL’lik pozisyon.',ders_slug:'ders-012-d12'},
+  {slug:'soru-2026-10-20-04',konu:'temel',zorluk:1,soru:'F/K oranı neyi gösterir?',secenekler:['Hissenin günlük getirisini','Piyasa değerinin yıllık net kâra oranını','Borcun özkaynağa oranını','Temettü verimini'],dogru:1,aciklama:'F/K = Piyasa değeri / Net kâr. Yatırımcının 1 TL kâr için kaç TL ödediğini gösterir.',ders_slug:'ders-010-d10'},
+  {slug:'soru-2026-10-20-05',konu:'makro',zorluk:2,soru:'Yıllık enflasyon %30 iken portföyü %20 artan bir yatırımcının reel getirisi yaklaşık kaçtır?',secenekler:['+%10','−%7,7','0','+%50'],dogru:1,aciklama:'Reel getiri = (1,20 / 1,30) − 1 ≈ −%7,7. Nominal kazanç, satın alma gücünde kayıp olabilir.',ders_slug:'ders-011-d11'},
+  {slug:'soru-2026-10-20-06',konu:'psikoloji',zorluk:1,soru:'Büyük bir zarardan hemen sonra “kaybı hemen geri almak” için daha büyük pozisyon açmaya ne denir?',secenekler:['Ortalama düşürme','İntikam işlemi','Arbitraj','Hedge'],dogru:1,aciklama:'İntikam işlemi duygusal bir tepkidir ve riskleri katlar. Zarardan sonra mola vermek en sağlıklı adımdır.',ders_slug:'ders-013-d13'}];
+const SOZLUK=[['Açığa satış','Sahip olunmayan bir hissenin ödünç alınarak satılması; fiyat düşerse daha ucuza geri alınıp kâr edilir.','VBTS tedbiri altındaki hisselerde açığa satış yasaklanabilir.','risk'],
+  ['Bedelsiz sermaye artırımı','Şirketin iç kaynaklarını sermayeye ekleyip ortaklarına ücretsiz yeni pay dağıtması. Şirketin toplam değeri değişmez.','%100 bedelside 100 payın 200 olur, fiyat yaklaşık yarıya iner.','temel'],
+  ['Brüt takas','İşlemlerin netleştirilmeden, her alımın tam ödenerek takas edilmesi; VBTS tedbiridir.','Aynı gün al-sat yapılan pozisyonlar mahsuplaşmaz.','bist-kurallari'],
+  ['Devre kesici','Fiyat belirli bir eşiği aştığında hissede işlemlerin geçici olarak durdurulması.','Sert düşüşte işlemler durur, ardından tek fiyat emir toplamayla yeniden başlar.','bist-kurallari'],
+  ['F/K oranı','Piyasa değerinin son 12 aylık net kâra oranı.','F/K 8 ise yatırımcı 1 TL kâr için 8 TL ödüyor demektir.','temel'],
+  ['Fiyat adımı','Bir hissenin fiyatının değişebileceği en küçük birim (kademe); fiyat aralığına göre değişir.',null,'bist-kurallari'],
+  ['Hacim','Belirli bir sürede el değiştiren hisse miktarı veya tutarı.','Hacimli kırılımlar daha güvenilir kabul edilir.','teknik'],
+  ['PD/DD','Piyasa değerinin defter (öz kaynak) değerine oranı.',null,'temel'],
+  ['Stopaj','Kazanç üzerinden kaynakta kesilen vergi.','Oranlar değişebilir; güncel oranı aracı kurumundan teyit et.','vergi-maliyet'],
+  ['Takas','İşlemin kesinleşmesi: paranın ve hissenin el değiştirmesi. BIST’te T+2.',null,'bist-kurallari'],
+  ['Taban / tavan','Bir hissenin bir günde düşebileceği ve yükselebileceği sınır fiyatlar.',null,'bist-kurallari'],
+  ['Zarar-kes (stop-loss)','Önceden belirlenen zarar seviyesinde pozisyonu kapatma emri ya da kuralı.','Alış 100 TL, zarar-kes 94 TL: en fazla %6 kayıp.','risk']]
+  .map(([t,d,o,k])=>({slug:'sozluk-'+t.toLowerCase().replace(/[^a-z]+/g,'-'),terim:t,tanim:d,ornek:o,konu:k}));
+const prog={okunan:['ders-001-d1','ders-002-d2','ders-003-d3'],quiz:{toplam:23,dogru:17,seri:4,enIyi:7,oran:74,
+  konular:{'bist-kurallari':{n:9,dogru:8,oran:89},teknik:{n:6,dogru:4,oran:67},risk:{n:5,dogru:3,oran:60},temel:{n:3,dogru:2,oran:67}}},gun:{seri:5,son:BUGUN},son:null};
+const pub=x=>({slug:x.slug,soru:x.soru,secenekler:x.secenekler,zorluk:x.zorluk,konu:x.konu,ders_slug:x.ders_slug,tarih:BUGUN});
+const wait=ms=>new Promise(r=>setTimeout(r,ms));
+const api={async okul(op,a){
+  await wait(60);
+  const stale=durum==='cevrimdisi'?{stale:true,at:Date.UTC(2026,9,20,15,52)}:{};
+  if(durum==='hata'&&op!=='progress')return {ok:false,error:'Borsa Okulu’na ulaşılamadı. İnternet bağlantını kontrol et.'};
+  const bos=durum==='bos';
+  switch(op){
+    case 'today':return {ok:true,tarih:BUGUN,...(bos?{}:{sabah:ANALIZ['analiz-2026-10-20-sabah'],aksam:ANALIZ['analiz-2026-10-20-aksam'],ders:DERSLER[3]}),sorular:bos?[]:SORULAR.slice(0,3).map(pub),dersToplam:bos?0:DERSLER.length,dersOkunan:3,...stale};
+    case 'list':return {ok:true,items:bos?[]:DERSLER,...stale};
+    case 'get':{const d=DERSLER.find(x=>x.slug===a.slug);if(!d)return {ok:false,error:'İçerik bulunamadı.'};
+      return {ok:true,item:{...d,ozet:d.ozet||d.baslik+' konusunu sade bir dille, BIST’ten örneklerle ele alıyoruz.',govde:DERS_GOVDE,video_meta:d.video_url?{platform:'YouTube',sure_sn:412}:null,kaynaklar:[{ad:'Takasbank',url:'https://www.takasbank.com.tr'},{ad:'Borsa İstanbul',url:'https://www.borsaistanbul.com'}]},...stale}}
+    case 'quiz':return {ok:true,sorular:SORULAR.slice(0,a.n||10).map(pub)};
+    case 'answer':{const x=SORULAR.find(s=>s.slug===a.slug),d=a.secim===x.dogru;const Q=prog.quiz;Q.toplam++;if(d){Q.dogru++;Q.seri++;Q.enIyi=Math.max(Q.enIyi,Q.seri)}else Q.seri=0;Q.oran=Math.round(Q.dogru/Q.toplam*100);
+      const k=Q.konular[x.konu]||(Q.konular[x.konu]={n:0,dogru:0});k.n++;if(d)k.dogru++;k.oran=Math.round(k.dogru/k.n*100);
+      return {ok:true,dogru:d,cevap:x.dogru,aciklama:x.aciklama,ders_slug:x.ders_slug,istatistik:JSON.parse(JSON.stringify(Q))}}
+    case 'progress':return {ok:true,...JSON.parse(JSON.stringify(prog))};
+    case 'markRead':if(!prog.okunan.includes(a.slug))prog.okunan.push(a.slug);return {ok:true,okunan:[...prog.okunan]};
+    case 'sozluk':return {ok:true,items:bos?[]:SOZLUK,...stale};
+    case 'ask':await wait(300);return {ok:true,cevap:'Çok yerinde bir soru, çünkü takas süresini bilmemek nakit planını bozabilir.\n\nŞöyle düşün: borsada alıcıyla satıcı birbirini tanımaz. Aradaki güveni **Takasbank** sağlar ve işlemi iki iş günü içinde kesinleştirir. Buna **T+2 takas** denir.\n\n- **T:** işlemi yaptığın gün\n- **T+2:** paranın ve hissenin kesin olarak el değiştirdiği gün\n\nÖrneğin Cuma günü sattığın bir hissenin parası, hafta sonu iş günü sayılmadığı için Salı günü çekilebilir.\n\nSence Çarşamba günü sattığın hissenin parası, Cuma resmî tatil olsaydı hangi gün hesabına geçerdi?'};
+    case 'open':console.log('ac',a.url);return {ok:true};
+  }
+  return {ok:false,error:'Bilinmeyen işlem.'};
+}};
+let tT;function toast(t){const e=document.getElementById('toast');e.textContent=t;e.className='toast on';clearTimeout(tT);tT=setTimeout(()=>e.className='toast',2400)}
+try{localStorage.removeItem('bp.okul.tab')}catch{}
+const v=document.getElementById('v');
+let ui=BPOkul.render(v,api,{toast,go:s=>toast(s+' grafiği açılır'),sembol:()=>'THYAO'});
+async function demo(tab,o={}){
+  window.__ready=false;durum=o.durum||'';
+  ui=BPOkul.render(v,api,{toast,go:s=>toast(s+' grafiği açılır'),sembol:()=>'THYAO'});
+  await ui.show(tab);await wait(150);
+  if(tab==='sor'&&o.sohbet!==false){const ta=document.querySelector('.ok-ta');ta.value='T+2 takas tam olarak ne demek? Sattığım hissenin parasını neden hemen çekemiyorum?';document.querySelector('.ok-compose .btn.pri').click();await wait(700)}
+  if(tab==='sorular'&&o.quiz){document.querySelector('.ok-col .btn.pri').click();await wait(250);document.querySelectorAll('.ok-opt')[o.yanlis?0:2].click();await wait(250)}
+  if(tab==='bugun'&&o.cevap){const o1=document.querySelectorAll('.ok-q')[0].querySelectorAll('.ok-opt');o1[2].click();await wait(150);const o2=document.querySelectorAll('.ok-q')[1].querySelectorAll('.ok-opt');o2[0].click();await wait(150)}
+  if(tab==='dersler'&&o.ders){ui.openDers(o.ders);await wait(250)}
+  if(tab==='sozluk'&&o.ara){const i=document.querySelector('.ok-srch input');i.value=o.ara;i.dispatchEvent(new Event('input'));await wait(250)}
+  await painted();window.__ready=true;
+}
+const painted=()=>document.fonts.ready.then(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(()=>setTimeout(r,200)))));
+ui.show('bugun').then(painted).then(()=>{window.__ready=true});
+</script></body></html>

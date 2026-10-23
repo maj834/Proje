@@ -1,0 +1,60 @@
+[
+ {
+  "u": "https://www.kap.org.tr/tr/api/company/generic/excel/IGS/A",
+  "m": "GET",
+  "s": 200,
+  "ct": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "n": 30244,
+  "bas": "PK\u0003\u0004\u0014\u0000\b\b\b\u0000\t�U]\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0013\u0000\u0000\u0000[Content_Types].xml�S�n�0\u0010����*6�PU\u0015�C\u001f�\u0016��\u0003\\{�X�%����]\u00078�R�\nq�cfgfW�d�q�ZCB\u0013|��|�*�*h㻆},^�{Va�^K\u001b<4�\u00076�N\u0016�\bXQ�ǆ�9�\u0007!P��$�\u0010�\u0013҆�d�c�D�j);\u0010��ѝP�g��E�M'O�ʕ����H7L�h���R���G��^�'�\u0003\u0007{\u0013�\b�zސʮ\u001bB��3\u001c�\u000b˙��h.�h�W�жF�\u000ej娄CQՠ똈���}ιL�U:\u0012\u0014D�\u0013����%އ����,�B���[�\t��\u001e ;˱�\t�{N��~��X�p�\u001cykO"
+ },
+ {
+  "u": "https://www.kap.org.tr/tr/bildirim-sorgu",
+  "m": "GET",
+  "s": 200,
+  "ct": "text/html; charset=utf-8",
+  "n": 1149098,
+  "bas": "<!DOCTYPE html><html lang=\"tr\" class=\"overflow-x-hidden scroll-smooth show:overflow-y-hidden show:pr-1.5\"><head><meta charSet=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/><link rel=\"stylesheet\" href=\"/_next/static/chunks/1bajbr1gk54yk.css\" data-precedence=\"next\"/><li"
+ },
+ {
+  "u": "https://www.kap.org.tr/tr/api/memberDisclosureQuery",
+  "m": "POST",
+  "hata": "The operation was aborted due to timeout"
+ },
+ {
+  "u": "https://www.kap.org.tr/tr/api/disclosure/members/byCriteria",
+  "m": "POST",
+  "s": 500,
+  "ct": "application/json",
+  "n": 46,
+  "bas": "{\"success\":false,\"errorMessage\":\"HTTP 500 - \"}"
+ },
+ {
+  "u": "https://www.kap.org.tr/tr/api/disclosure/list/main?fromDate=2025-01-02&toDate=2025-01-03",
+  "m": "GET",
+  "s": 405,
+  "ct": null,
+  "n": 0,
+  "bas": ""
+ },
+ {
+  "u": "https://www.kap.org.tr/tr/api/disclosures?fromDate=2025-01-02&toDate=2025-01-03",
+  "m": "GET",
+  "hata": "The operation was aborted due to timeout"
+ },
+ {
+  "u": "https://www.kap.org.tr/tr/api/company/info/THYAO",
+  "m": "GET",
+  "s": 404,
+  "ct": "text/html; charset=utf-8",
+  "n": 12970,
+  "bas": "<!DOCTYPE html><html id=\"__next_error__\"><head><meta charSet=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/><link rel=\"preload\" as=\"script\" fetchPriority=\"low\" href=\"/_next/static/chunks/3ivcc6t1s04dh.js\"/><script src=\"/_next/static/chunks/00murl_11ua63.js\" async=\"\"></"
+ },
+ {
+  "u": "https://www.kap.org.tr/tr/sirket-bilgileri/ozet/1218-turk-hava-yollari-a-o",
+  "m": "GET",
+  "s": 200,
+  "ct": "text/html; charset=utf-8",
+  "n": 69439,
+  "bas": "<!DOCTYPE html><html lang=\"tr\" class=\"overflow-x-hidden scroll-smooth show:overflow-y-hidden show:pr-1.5\"><head><meta charSet=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/><link rel=\"stylesheet\" href=\"/_next/static/chunks/1bajbr1gk54yk.css\" data-precedence=\"next\"/><li"
+ }
+]

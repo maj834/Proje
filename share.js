@@ -3,7 +3,7 @@
 // Guvenlik: her oturumda tahmin edilemeyen anahtar (adreste), yalnizca yerel ag adresleri, sure dolunca kapanir,
 // telefondan gelen dosyalar icin Mac'te onay istenir. Dosyalar diskten akitilir: boyut siniri yoktur, yalnizca bos alan.
 // Onay bir "bilet"tir: yalnizca beyan edilen ad/boyuttaki dosyalar, her biri bir kez yuklenebilir.
-const http=require('http'),fs=require('fs'),fsp=fs.promises,path=require('path'),os=require('os'),crypto=require('crypto');
+const http=require('http'),fs=require('fs'),fsp=fs.promises,path=require('path'),os=require('os'),crypto=require('crypto'),{pipeline}=require('stream');
 
 const TTL=10*60*1000;               // islem yoksa 10 dk sonra kapanir
 const MAXLIFE=2*60*60*1000;         // ne olursa olsun en fazla 2 saat acik kalir
@@ -31,7 +31,11 @@ function cutBytes(s,max){let o='',b=0;for(const ch of s){const n=Buffer.byteLeng
 function safeName(n){
   n=path.basename(String(n||'').slice(0,4096).replace(/\\/g,'/')).replace(/\p{Cf}/gu,'').replace(/[\p{Cc}\p{Cs}<>:"|?*]/gu,'_').replace(/^\.+/,'').trim();
   if(!n)n='dosya';
+  // Ayrilmis yarim dosya eki ile biten ad, sonraki oturumda artik sanilip silinmesin
+  const isPart=x=>x.toLowerCase().endsWith(PART);
+  if(isPart(n))n+='_';
   if(Buffer.byteLength(n)>NAMEMAX){let ext=path.extname(n);if(Buffer.byteLength(ext)>20)ext='';n=cutBytes(n.slice(0,n.length-ext.length),NAMEMAX-Buffer.byteLength(ext)).trim()+ext}
+  if(isPart(n))n=n.slice(0,-1)+'_';
   return n;
 }
 const variant=(name,i)=>{if(i<2)return name;const ext=path.extname(name);return `${name.slice(0,name.length-ext.length)} (${i})${ext}`};
@@ -73,7 +77,15 @@ function createShare(opts={}){
   const received=[];
   let server=null,timer=null,life=null,url=null,active=0,closed=false;
   const ev=e=>{try{opts.onEvent&&opts.onEvent(e)}catch(_){}};
-  const touch=()=>{clearTimeout(timer);if(closed)return;timer=setTimeout(()=>{if(active)return touch();stop('time')},opts.ttl||TTL)};
+  const readers=new Set();               // acik indirme okuma akislari (stop() hepsini kapatir)
+  // Bosta kalma sayaci yalnizca gercek islemle (sayfa acma, indirme, onay/yukleme, Mac'te dosya ekleme) sifirlanir;
+  // 'list' yoklamasi, HEAD vb. sifirlamaz. Her sifirlamada 'activity' olayi: Mac'teki geri sayim ayni kalir.
+  const touch=()=>{clearTimeout(timer);if(closed)return;const ttl=opts.ttl||TTL;timer=setTimeout(()=>{if(active)return touch();stop('time')},ttl);ev({type:'activity',ttl})};
+  // macOS: telefondan gelen dosyaya karantina isareti (Gatekeeper uyarisi). Hata yok sayilir; en fazla 5 sn beklenir.
+  const quarantine=dest=>new Promise(ok=>{if((opts.platform||process.platform)!=='darwin')return ok();
+    const exec=opts.execFile||require('child_process').execFile,t=setTimeout(ok,5000);
+    try{exec('/usr/bin/xattr',['-w','com.apple.quarantine','0081;'+Math.floor(Date.now()/1000).toString(16)+';Cem App;',dest],{timeout:5000},()=>{clearTimeout(t);ok()})}
+    catch(e){clearTimeout(t);ok()}});
 
   function add(paths){
     for(const p of paths){try{const st=fs.statSync(p);if(!st.isFile())continue;
@@ -122,16 +134,23 @@ document.getElementById('u').onchange=async e=>{const fs=[...e.target.files];if(
 
   function sendFile(req,res,f){
     let st;try{st=fs.statSync(f.path)}catch(e){res.writeHead(404);return res.end('Dosya artık yok')}
+    if(!st.isFile()){res.writeHead(404);return res.end('Dosya yok')}
     const size=st.size,range=/^bytes=(\d*)-(\d*)$/.exec(req.headers.range||'');
     let start=0,end=size-1,code=200;
-    if(range&&size){start=range[1]?+range[1]:Math.max(0,size-(+range[2]||0));end=range[1]&&range[2]?Math.min(+range[2],size-1):size-1;
+    // 'bytes=-' gecersiz: yok sayilir, tam dosya (200)
+    if(range&&size&&(range[1]||range[2])){start=range[1]?+range[1]:Math.max(0,size-(+range[2]||0));end=range[1]&&range[2]?Math.min(+range[2],size-1):size-1;
       if(start>end||start>=size){res.writeHead(416,{'content-range':`bytes */${size}`});return res.end()}code=206}
     res.writeHead(code,{'content-type':'application/octet-stream','content-length':end-start+1,'accept-ranges':'bytes',
       'content-disposition':contentDisposition(f.name),...(code===206?{'content-range':`bytes ${start}-${end}/${size}`}:{}),'cache-control':'no-store'});
     if(req.method==='HEAD')return res.end();
-    active++;touch();ev({type:'download',name:f.name,ip:req.socket.remoteAddress});
-    const s=fs.createReadStream(f.path,{start,end});s.pipe(res);
-    const done=()=>{active=Math.max(0,active-1);touch()};res.on('close',done);s.on('error',()=>res.destroy());
+    touch();ev({type:'download',name:f.name,ip:req.socket.remoteAddress});
+    if(!size)return res.end();   // bos dosya: akis yok (createReadStream end:-1 hata verir)
+    // 'close' dinleyicisi, hata verebilecek her seyden once baglanir: sayac her durumda geri iner
+    active++;let fin=false;const done=()=>{if(fin)return;fin=true;active=Math.max(0,active-1);touch()};res.on('close',done);
+    let s;try{s=fs.createReadStream(f.path,{start,end})}catch(e){res.destroy();return}
+    readers.add(s);
+    // pipeline: indirme yarida kesilirse okuma akisi (fd) da kapanir
+    pipeline(s,res,()=>{readers.delete(s);s.destroy()});
   }
 
   function readJson(req,max=256*1024){return new Promise((ok,no)=>{const b=[];let n=0;
@@ -185,7 +204,8 @@ document.getElementById('u').onchange=async e=>{const fs=[...e.target.files];if(
     req.pipe(out);
     out.on('finish',()=>{if(failed)return;
       if(n!==len)return fail('Dosya eksik geldi.');
-      place(tmp,opts.downloadsDir,name).then(dest=>{if(failed)return;done=true;inflight.delete(tmp);active=Math.max(0,active-1);touch();
+      place(tmp,opts.downloadsDir,name).then(async dest=>{if(failed)return;done=true;inflight.delete(tmp);
+        await quarantine(dest);active=Math.max(0,active-1);touch();
         const item={name:path.basename(dest),path:dest,size:n,at:Date.now()};received.push(item);ev({type:'received',...item});
         text(res,200,'ok')},e=>fail('Dosya kaydedilemedi.',e.message))});
   }
@@ -202,8 +222,8 @@ document.getElementById('u').onchange=async e=>{const fs=[...e.target.files];if(
     res.setHeader('x-content-type-options','nosniff');res.setHeader('referrer-policy','no-referrer');
     if(!ok){res.writeHead(404);return res.end('Bulunamadı')}
     if(!u.pathname.endsWith('/')&&parts.length===2){res.writeHead(302,{location:u.pathname+'/'});return res.end()}
-    const rest=parts.slice(2);touch();
-    if(!rest.length&&(req.method==='GET'||req.method==='HEAD')){res.writeHead(200,{'content-type':'text/html; charset=utf-8','cache-control':'no-store',
+    const rest=parts.slice(2);
+    if(!rest.length&&(req.method==='GET'||req.method==='HEAD')){if(req.method==='GET')touch();res.writeHead(200,{'content-type':'text/html; charset=utf-8','cache-control':'no-store',
       'content-security-policy':"default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; form-action 'none'"});
       ev({type:'visit',ip:req.socket.remoteAddress});return res.end(req.method==='HEAD'?undefined:page())}
     if(rest[0]==='f'&&rest[1]&&(req.method==='GET'||req.method==='HEAD')){const f=files.get(rest[1]);if(!f){res.writeHead(404);return res.end('Dosya yok')}return sendFile(req,res,f)}
@@ -231,6 +251,7 @@ document.getElementById('u').onchange=async e=>{const fs=[...e.target.files];if(
     if(closed)return;closed=true;clearTimeout(timer);clearTimeout(life);tickets.clear();
     // suren yuklemelerin yarim dosyalari hemen (senkron) silinir: uygulama hemen kapansa da artik kalmasin
     for(const t of inflight){try{fs.rmSync(t,{force:true})}catch(e){}}inflight.clear();
+    for(const s of readers){try{s.destroy()}catch(e){}}readers.clear();
     if(server){server.closeAllConnections&&server.closeAllConnections();server.close();server=null}
     ev({type:'stop',reason});
   }

@@ -1,32 +1,73 @@
 name: build
 on:
   push:
+    # Yalniz arastirma/olcum dosyalari degistiyse surum cikarma (uygulamaya girmezler)
+    paths-ignore: ['tools/**', '.github/workflows/eval.yml', '.github/workflows/veri.yml', '.github/workflows/tani.yml']
   pull_request:
   workflow_dispatch:
+# Varsayilan: yalniz okuma. Yazma izni yalniz Release olusturan mac isinde.
+permissions:
+  contents: read
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     env:
       # Electron ikili dosyasi testlerde gerekmez (zaten ilk calistirmada indirilir).
       ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: {node-version: 20, cache: npm}
+      - uses: actions/checkout@v5
+        with: {persist-credentials: false}
+      - uses: actions/setup-node@v5
+        with: {node-version: 22, cache: npm}
       - run: npm ci
       - run: for f in *.js; do node --check "$f"; done
-      - run: npm test
+      # Basarisiz testlerin ayrintisi gunlugun sonunda (uzun gunlukte aramadan gorulsun)
+      - run: |
+          set -o pipefail
+          npm test 2>&1 | tee test.log || { echo '===== BASARISIZ TESTLER ====='; grep -n -A25 '^not ok\|^    not ok' test.log | head -150; awk '/^not ok/{print "::error::" $0}' test.log; exit 1; }
   mac:
     needs: test
     runs-on: macos-latest
+    timeout-minutes: 60
+    # GitHub Release olusturmak / eskileri silmek icin (yalniz push'ta kullanilir)
+    permissions:
+      contents: write
+    # Release'ler sirayla: ayni anda iki calisma "latest" isaretlemesin / eskileri silmesin. Kilit yalnizca yayin yapan
+    # calismalarda (diger itmeler/PR'lar kendi grubunda, birbirini iptal etmez). GitHub bekleyen en fazla bir calisma tutar;
+    # hizli ard arda itmelerde aradaki bekleyen yayin atlanabilir, en yenisi yine yayinlanir (latest surum karsilastirmasi korur).
+    concurrency:
+      group: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/ccr-f251748e-ir45zy') && format('release-{0}', github.repository) || format('mac-{0}', github.run_id) }}
+      cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with: {node-version: 20, cache: npm}
+      # fetch-depth 0: surum notlari icin onceki etiketler ve gecmis. git push yok -> kimlik bilgisi .git/config'e yazilmaz (gh GH_TOKEN kullanir)
+      - uses: actions/checkout@v5
+        with: {fetch-depth: 0, persist-credentials: false}
+      - uses: actions/setup-node@v5
+        with: {node-version: 22, cache: npm}
       - run: npm ci
+      # Surum yalniz CI'da: 2.0.<calisma no>. Depodaki package.json 2.0.0 kalir. Guncelleyici bu numarayi karsilastirir.
+      - name: Surum numarasi
+        run: |
+          npm version --no-git-tag-version --allow-same-version "2.0.${{ github.run_number }}"
+          node -p "require('./package.json').version"
       - run: for f in *.js; do node --check "$f"; done
       # Birim testleri macOS'ta da (APFS, gercek tmp yollari /private/var/...)
-      - run: npm test
+      - name: macOS birim testleri
+        shell: bash
+        run: |
+          set -o pipefail
+          npm test 2>&1 | tee mac-test.log || {
+            node <<'NODE'
+          const fs=require('fs');
+          const lines=fs.readFileSync('mac-test.log','utf8').split('\n');
+          const esc=s=>s.replace(/%/g,'%25').replace(/\r/g,'%0D').replace(/\n/g,'%0A');
+          const failed=lines.map((s,i)=>/^not ok |^\s+not ok |^✖ /.test(s)?i:-1).filter(i=>i>=0).slice(0,10);
+          for(const i of failed)console.log('::error title=macOS unit test failure::'+esc(lines.slice(i,i+36).join('\n').slice(0,6500)));
+          if(!failed.length)console.log('::error title=macOS unit tests::'+esc(lines.slice(-40).join('\n').slice(0,6500)));
+          NODE
+            exit 1
+          }
       # macOS entegrasyon testleri: gercek chflags uchg, sert bag yedegi + onarim, ~/.Trash, 127.0.0.1 paylasim sunucusu.
       # GUI/Touch ID/Anahtar Zinciri istemi yok. npm test'in test/*.test.js deseni bu klasoru kapsamaz.
       - name: macOS entegrasyon testleri
@@ -35,6 +76,156 @@ jobs:
       - run: npm run ses
       - run: ./build/bin/ses-yardimcisi --version && lipo -info build/bin/ses-yardimcisi
       - run: '{ echo ''{"cmd":"list"}''; sleep 3; } | ./build/bin/ses-yardimcisi | head -5 || true'
+      # Sistem yardimcisi (CPU/GPU sicakligi, FPS, fan, pil...; Swift, arm64 + x64 tek dosya)
+      - run: npm run sistem
+      - run: ./build/bin/sistem-yardimcisi --version && lipo -info build/bin/sistem-yardimcisi
+      # Duman testi: cokme ya da bozuk JSON adimi dusurur. CI sanal makinesinde sensor yok: null degerler normal.
+      - name: sistem-yardimcisi duman testi
+        timeout-minutes: 2
+        shell: bash
+        run: |
+          set -o pipefail
+          { echo '{"cmd":"fps","on":true}'; echo '{"cmd":"once"}'; sleep 3; echo '{"cmd":"interval","ms":250}'; sleep 1; echo '{"cmd":"fps","on":false}'; echo '{"cmd":"quit"}'; } | ./build/bin/sistem-yardimcisi > sistem-cikti.txt
+          head -4 sistem-cikti.txt
+          node - <<'JS'
+          const fs = require("fs");
+          const fail = (m) => { console.error("HATA: " + m); process.exit(1); };
+          const lines = fs.readFileSync("sistem-cikti.txt", "utf8").split("\n").filter(Boolean);
+          const msgs = lines.map((l, i) => { try { return JSON.parse(l); } catch (e) { fail("bozuk JSON, satir " + (i + 1) + ": " + l); } });
+          const h = msgs[0];
+          if (!h || h.type !== "hello") fail("ilk satir hello degil");
+          if (h.version !== 1 || !["arm64", "x86_64"].includes(h.arch) || !(h.cores > 0) || !(h.memTotal > 0)) fail("hello alanlari: " + lines[0]);
+          for (const k of ["model", "chip"]) if (!(k in h)) fail("hello." + k + " yok");
+          const bad = msgs.filter(m => !["hello", "stats", "error"].includes(m.type));
+          if (bad.length) fail("bilinmeyen satir: " + JSON.stringify(bad[0]));
+          const stats = msgs.filter(m => m.type === "stats");
+          if (stats.length < 3) fail("stats satiri az: " + stats.length);
+          const has = (o, keys, where) => { if (!o || typeof o !== "object") fail(where + " nesne degil"); for (const k of keys) if (!(k in o)) fail(where + "." + k + " yok"); };
+          const isNum = (v) => typeof v === "number" && Number.isFinite(v);
+          const numOrNull = (v, where) => { if (v !== null && !isNum(v)) fail(where + " sayi/null degil: " + v); };
+          for (const s of stats) {
+            has(s, ["t", "cpu", "gpu", "mem", "fps", "fans", "battery", "net", "disk", "power", "thermal"], "stats");
+            if (!isNum(s.t)) fail("stats.t");
+            has(s.cpu, ["usage", "cores", "temp", "tempMax"], "cpu");
+            if (!isNum(s.cpu.usage) || s.cpu.usage < 0 || s.cpu.usage > 100) fail("cpu.usage: " + s.cpu.usage);
+            if (!Array.isArray(s.cpu.cores) || s.cpu.cores.length !== h.cores || !s.cpu.cores.every(isNum)) fail("cpu.cores");
+            numOrNull(s.cpu.temp, "cpu.temp"); numOrNull(s.cpu.tempMax, "cpu.tempMax");
+            has(s.gpu, ["usage", "temp"], "gpu"); numOrNull(s.gpu.usage, "gpu.usage"); numOrNull(s.gpu.temp, "gpu.temp");
+            has(s.mem, ["used", "total", "pressure", "swap"], "mem");
+            if (!(s.mem.total > 0) || !isNum(s.mem.swap)) fail("mem");
+            numOrNull(s.mem.used, "mem.used");
+            if (![null, "normal", "warn", "critical"].includes(s.mem.pressure)) fail("mem.pressure: " + s.mem.pressure);
+            has(s.fps, ["display", "screen"], "fps"); numOrNull(s.fps.display, "fps.display"); numOrNull(s.fps.screen, "fps.screen");
+            if (!Array.isArray(s.fans) || !s.fans.every(isNum)) fail("fans");
+            if (s.battery !== null) { has(s.battery, ["pct", "charging", "temp", "cycles", "watts"], "battery"); if (typeof s.battery.charging !== "boolean") fail("battery.charging"); }
+            has(s.net, ["down", "up"], "net"); if (!isNum(s.net.down) || !isNum(s.net.up)) fail("net");
+            has(s.disk, ["read", "write", "free"], "disk"); if (!isNum(s.disk.read) || !isNum(s.disk.write)) fail("disk"); numOrNull(s.disk.free, "disk.free");
+            numOrNull(s.power, "power");
+            if (!["nominal", "fair", "serious", "critical"].includes(s.thermal)) fail("thermal: " + s.thermal);
+          }
+          console.log("sistem-yardimcisi tamam: " + stats.length + " stats, " + msgs.filter(m => m.type === "error").length + " error satiri");
+          console.log(JSON.stringify(stats[stats.length - 1]));
+          JS
+      # Neo yardimcisi (sesli asistan: "Hey Neo" + komut tanima + TTS; Swift, arm64 + x64, Info.plist gomulu)
+      - run: plutil -lint native/neo-Info.plist
+      - run: npm run neo
+      - run: ./build/bin/neo-yardimcisi --version && lipo -info build/bin/neo-yardimcisi
+      # TCC (mikrofon / konusma tanima) kullanim aciklamalari ikiliye gomulu olmali, iki mimaride de
+      - name: neo-yardimcisi gomulu Info.plist
+        shell: bash
+        run: |
+          set -e
+          for a in arm64 x86_64; do
+            otool -arch "$a" -l build/bin/neo-yardimcisi | grep -q 'sectname __info_plist' || { echo "__info_plist yok: $a"; exit 1; }
+          done
+          otool -arch arm64 -s __TEXT __info_plist build/bin/neo-yardimcisi | head -3
+          for k in com.cem.app.neo NSMicrophoneUsageDescription NSSpeechRecognitionUsageDescription; do
+            n=$(grep -ao "$k" build/bin/neo-yardimcisi | wc -l | tr -d ' ')
+            test "$n" -ge 2 || { echo "gomulu plist'te $k eksik ($n)"; exit 1; }
+          done
+          echo "gomulu Info.plist tamam"
+      # Uyandirma sozcugu eslestiricisi (ses/izin gerekmez): --wake-test stdin satirlarini degerlendirir
+      - name: neo-yardimcisi uyandirma eslesmesi
+        shell: bash
+        run: |
+          set -o pipefail
+          printf '%s\n' "Hey Neo, sesi aç" "hey nio" "Heyneo müziği durdur" "bugün hava nasıl" "hey ne oldu" "hey no" "Hey Neo." "HEY NİYO ışığı kapat" "tamam hey neo ekranı kilitle" "hey net olarak söyle" "Hey ne o" "selam neo" "hey nea sesi kapat" "hai neo" "hey nedir bu" \
+            "neo neo sesi aç" "A Neo" "a new day" "Hey Neil" "neo" "ey neo telefonu bul" "new new" \
+            "heyne sesi aç" "hey ne sesi aç" "hayne müziği durdur" "neo ekranı kilitle" "hey sesi kapat" "Hey Neo, ne zaman yağmur yağacak" "spotify sesini yüzde 50 yap" "o ne" "hayır kapat" \
+            | ./build/bin/neo-yardimcisi --wake-test > neo-wake.txt
+          cat neo-wake.txt
+          node - <<'JS'
+          const fs = require("fs");
+          const fail = (m) => { console.error("HATA: " + m); process.exit(1); };
+          const rows = fs.readFileSync("neo-wake.txt", "utf8").split("\n").filter(Boolean).map(l => JSON.parse(l));
+          const want = [
+            ["Hey Neo, sesi aç", "sesi aç"], ["hey nio", ""], ["Heyneo müziği durdur", "müziği durdur"], ["bugün hava nasıl", null],
+            ["hey ne oldu", null], ["hey no", null], ["Hey Neo.", ""], ["HEY NİYO ışığı kapat", "ışığı kapat"],
+            ["tamam hey neo ekranı kilitle", "ekranı kilitle"], ["hey net olarak söyle", null], ["Hey ne o", ""], ["selam neo", null],
+            ["hey nea sesi kapat", "sesi kapat"], ["hai neo", ""], ["hey nedir bu", null],
+            ["neo neo sesi aç", "sesi aç"], ["A Neo", ""], ["a new day", null], ["Hey Neil", ""], ["neo", null], ["ey neo telefonu bul", "telefonu bul"], ["new new", null],
+            // uyandirmaz; ama uyandirmadan sonraki komut metni bu olsaydi (3. sutun: beyne giden) bozuk "hey neo" atilir
+            ["heyne sesi aç", null, "sesi aç"], ["hey ne sesi aç", null, "sesi aç"], ["hayne müziği durdur", null, "müziği durdur"],
+            ["neo ekranı kilitle", null, "ekranı kilitle"], ["hey sesi kapat", null, "sesi kapat"],
+            ["Hey Neo, ne zaman yağmur yağacak", "ne zaman yağmur yağacak", "ne zaman yağmur yağacak"],
+            ["spotify sesini yüzde 50 yap", null, "spotify sesini yüzde 50 yap"], ["o ne", null, "o ne"], ["hayır kapat", null, "hayır kapat"],
+          ];
+          if (rows.length !== want.length) fail("satir sayisi " + rows.length);
+          want.forEach(([text, cmd, loose], i) => {
+            const r = rows[i];
+            if (r.text !== text) fail("sira/metin: " + JSON.stringify(r));
+            if (cmd === null ? r.wake !== false : (r.wake !== true || r.command !== cmd)) fail("beklenen " + JSON.stringify(cmd) + ": " + JSON.stringify(r));
+            if (loose !== undefined && r.loose !== loose) fail("komut kirpma beklenen " + JSON.stringify(loose) + ": " + JSON.stringify(r));
+          });
+          console.log("uyandirma eslesmesi tamam: " + rows.length + " ornek");
+          JS
+      # Duman testi: yalnizca config/say/stopSay/thinking/idle (CI'da mikrofon izni istenemez: start/listen gonderilmez).
+      # Ses ya da ses cikisi yoksa "tts" hata satiri normal; cokme, takilma ya da bozuk JSON adimi dusurur.
+      - name: neo-yardimcisi duman testi
+        timeout-minutes: 2
+        shell: bash
+        run: |
+          set -o pipefail
+          uzun="Bu uzun bir deneme cümlesidir; durdurma komutu gelene kadar okunmaya devam etmesi gerekir. Bir, iki, üç, dört, beş, altı, yedi, sekiz, dokuz, on."
+          { echo '{"cmd":"config","locale":"tr-TR","silenceMs":1700,"maxMs":15000,"followUpMs":6000,"voice":"","rate":0.5}'
+            echo '{"cmd":"say","id":"t","text":"Merhaba"}'; sleep 3
+            echo "{\"cmd\":\"say\",\"id\":\"u\",\"text\":\"$uzun\"}"; sleep 1
+            echo '{"cmd":"stopSay"}'; echo '{"cmd":"cancel"}'; echo '{"cmd":"thinking"}'; sleep 0.5
+            echo '{"cmd":"idle"}'; sleep 0.5; echo '{"cmd":"quit"}'; } | ./build/bin/neo-yardimcisi > neo-cikti.txt &
+          pid=$!
+          ( sleep 45; kill -9 "$pid" 2>/dev/null && echo "ZAMAN ASIMI: neo-yardimcisi kapanmadi" ) & wd=$!
+          rc=0; wait "$pid" || rc=$?
+          pkill -P "$wd" 2>/dev/null || true; kill "$wd" 2>/dev/null || true
+          cat neo-cikti.txt
+          test "$rc" -eq 0 || { echo "neo-yardimcisi cikis kodu $rc"; exit 1; }
+          node - <<'JS'
+          const fs = require("fs");
+          const fail = (m) => { console.error("HATA: " + m); process.exit(1); };
+          const lines = fs.readFileSync("neo-cikti.txt", "utf8").split("\n").filter(Boolean);
+          const msgs = lines.map((l, i) => { try { return JSON.parse(l); } catch (e) { fail("bozuk JSON, satir " + (i + 1) + ": " + l); } });
+          const h = msgs[0];
+          if (!h || h.type !== "hello") fail("ilk satir hello degil");
+          if (h.version !== 1 || typeof h.wakeOnDevice !== "boolean" || typeof h.cmdOnDevice !== "boolean" || h.locale !== "tr-TR" || !Array.isArray(h.voices)) fail("hello alanlari: " + lines[0]);
+          for (const v of h.voices) {
+            if (typeof v.id !== "string" || typeof v.name !== "string" || !/^tr/i.test(v.lang) || !["default", "enhanced", "premium"].includes(v.quality)) fail("ses: " + JSON.stringify(v));
+          }
+          const known = ["hello", "state", "wake", "partial", "command", "nocommand", "level", "spoken", "error", "heard"];
+          const bad = msgs.filter(m => !known.includes(m.type));
+          if (bad.length) fail("bilinmeyen satir: " + JSON.stringify(bad[0]));
+          const states = msgs.filter(m => m.type === "state").map(m => m.state);
+          if (!states.every(s => ["off", "idle", "listening", "thinking", "speaking"].includes(s))) fail("durum: " + states);
+          if (states[0] !== "off") fail("ilk durum off degil: " + states[0]);
+          if (!states.includes("thinking") || states[states.length - 1] !== "off") fail("thinking/idle durumlari: " + states);
+          if (states.includes("listening") || msgs.some(m => ["wake", "partial", "command", "nocommand"].includes(m.type))) fail("mikrofon kullanilmamaliydi");
+          for (const e of msgs.filter(m => m.type === "error")) {
+            if (!["mic_denied", "speech_denied", "no_recognizer", "engine", "tts"].includes(e.code) || typeof e.msg !== "string") fail("error: " + JSON.stringify(e));
+          }
+          const spoken = msgs.filter(m => m.type === "spoken");
+          for (const id of ["t", "u"]) if (!spoken.some(s => s.id === id)) fail("spoken yok: " + id);
+          if (spoken.length !== 2) fail("spoken sayisi: " + spoken.length);
+          for (const m of msgs.filter(m => m.type === "level")) if (typeof m.db !== "number" || !Number.isFinite(m.db)) fail("level: " + JSON.stringify(m));
+          console.log("neo-yardimcisi tamam: " + h.voices.length + " Turkce ses, durumlar " + states.join(">") + ", spoken " + JSON.stringify(spoken));
+          JS
       # Secret tanimli degilse bos gelir -> imzasiz derleme. Tanimlanirsa electron-builder imzalar ve notarize eder.
       - name: electron-builder
         env:
@@ -47,6 +238,128 @@ jobs:
           for v in CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do [ -n "${!v}" ] || unset "$v"; done
           if [ -z "${CSC_LINK:-}" ]; then export CSC_IDENTITY_AUTO_DISCOVERY=false; fi
           npx electron-builder --mac --publish never
-      - run: ls -la dist/mac-arm64/*.app/Contents/Resources/bin/ && plutil -p dist/mac-arm64/*.app/Contents/Info.plist | grep -E 'NSAudioCapture|LSUIElement' || true
-      - uses: actions/upload-artifact@v4
+      # Paketlenmis uygulama gercekten aciliyor mu (arm64; runner Apple Silicon). CEM_SMOKE=1: main.js en basta smoke.js'i cagirir;
+      # uygulama hazir olup birkac saniye hatasiz calisinca "CEM_SMOKE_OK" yazip 0 ile cikar. 60 sn icinde cikmazsa, 0 disi kodla
+      # cikarsa ya da isaret yoksa adim (ve dolayisiyla Release) duser.
+      - name: Paketlenmis uygulama acilis testi
+        timeout-minutes: 12
+        shell: bash
+        run: |
+          set -u
+          # Intel (x64) paketi Apple Silicon calistiricida Rosetta 2 ile acilir; yoksa kurulur
+          /usr/bin/pgrep -q oahd || sudo softwareupdate --install-rosetta --agree-to-license >/dev/null 2>&1 || true
+          fail=0
+          for app in dist/mac-arm64/*.app dist/mac/*.app; do
+            APP="$app/Contents/MacOS/Cem App"
+            echo "::group::acilis testi: $app ($(lipo -archs "$APP" 2>/dev/null))"
+            test -x "$APP" || { echo "yok: $APP"; ls -la dist; fail=1; echo "::endgroup::"; continue; }
+            out="smoke-$(basename "$(dirname "$app")").txt"
+            # Rosetta ilk acilista tum Electron'u cevirir (CI'de 70-90 sn olculdu): x64 icin uzun sure
+            lim=90; case "$app" in dist/mac/*) lim=300 ;; esac
+            CEM_SMOKE=1 ELECTRON_ENABLE_LOGGING=1 "$APP" > "$out" 2>&1 &
+            pid=$!
+            ( sleep "$lim"; kill -9 "$pid" 2>/dev/null && echo "ZAMAN ASIMI: uygulama $lim sn icinde cikmadi" >> "$out" ) & wd=$!
+            rc=0; wait "$pid" || rc=$?
+            pkill -P "$wd" 2>/dev/null || true; kill "$wd" 2>/dev/null || true
+            cat "$out"
+            echo "::endgroup::"
+            if [ "$rc" -ne 0 ]; then echo "::error::$app cikis kodu $rc"; fail=1
+            elif ! grep -q '^CEM_SMOKE_OK' "$out"; then echo "::error::$app CEM_SMOKE_OK isareti yok"; fail=1
+            else echo "$app acilis testi tamam"; fi
+          done
+          exit "$fail"
+      - run: ls -la dist/mac-arm64/*.app/Contents/Resources/bin/ && plutil -p dist/mac-arm64/*.app/Contents/Info.plist | grep -E 'NSAudioCapture|NSMicrophone|NSSpeechRecognition|LSUIElement' || true
+      # Paketlenmis uygulamalarda (arm64 + x64) tum yardimcilar ve Neo izin aciklamalari var mi
+      - name: Paket icerigi (yardimcilar)
+        shell: bash
+        run: |
+          set -e
+          n=0
+          for app in dist/mac*/*.app; do
+            for b in ses-yardimcisi sistem-yardimcisi neo-yardimcisi; do
+              test -x "$app/Contents/Resources/bin/$b" || { echo "eksik: $app/Contents/Resources/bin/$b"; exit 1; }
+              lipo -info "$app/Contents/Resources/bin/$b"
+            done
+            for k in NSMicrophoneUsageDescription NSSpeechRecognitionUsageDescription; do
+              plutil -p "$app/Contents/Info.plist" | grep -q "$k" || { echo "Info.plist'te $k yok: $app"; exit 1; }
+            done
+            n=$((n+1))
+          done
+          test "$n" -ge 1
+      # Guncelleme bilgisi: latest.json (surum, tarih, notlar, zip'lerin SHA-256 ve boyutu). Uygulama bunu
+      # https://github.com/maj834/Proje/releases/latest/download/latest.json adresinden okur.
+      - name: latest.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          V=$(node -p "require('./package.json').version")
+          for a in arm64 x64; do
+            for e in zip dmg; do test -f "dist/CemApp-$V-$a.$e" || { echo "eksik: dist/CemApp-$V-$a.$e"; ls dist; exit 1; }; done
+            # Guncelleyicinin yapacagi denetimin aynisi: ditto ile ac, tek .app, kimlik + surum
+            T=$(mktemp -d); /usr/bin/ditto -x -k "dist/CemApp-$V-$a.zip" "$T"
+            n=$(find "$T" -maxdepth 1 -name '*.app' -type d | wc -l | tr -d ' '); test "$n" -eq 1 || { echo "zip'te $n .app var"; exit 1; }
+            P=$(find "$T" -maxdepth 1 -name '*.app' -type d)/Contents/Info.plist
+            test "$(/usr/bin/plutil -extract CFBundleIdentifier raw -o - "$P")" = com.cem.app
+            test "$(/usr/bin/plutil -extract CFBundleShortVersionString raw -o - "$P")" = "$V"
+            rm -rf "$T"
+          done
+          PREV=$(git tag --list 'v2.0.*' --sort=-v:refname | grep -E '^v2\.0\.[0-9]+$' | grep -vx "v$V" | head -1 || true)
+          if [ -n "$PREV" ]; then git log --no-merges --format=%s -n 20 "$PREV..HEAD" > notes.txt; else git log --no-merges --format=%s -n 20 > notes.txt; fi
+          [ -s notes.txt ] || git log --format=%s -n 1 > notes.txt
+          V="$V" node - <<'JS'
+          const fs = require("fs"), crypto = require("crypto");
+          const v = process.env.V, repo = "maj834/Proje";
+          const notes = fs.readFileSync("notes.txt", "utf8").split("\n").map(s => s.trim()).filter(Boolean).slice(0, 20);
+          const info = (arch, ext) => {
+            const name = `CemApp-${v}-${arch}.${ext}`, buf = fs.readFileSync("dist/" + name);
+            return { arch, name, url: `https://github.com/${repo}/releases/download/v${v}/${name}`,
+              sha256: crypto.createHash("sha256").update(buf).digest("hex"), size: buf.length };
+          };
+          const m = { version: v, date: new Date().toISOString(), notes, files: ["arm64", "x64"].map(a => info(a, "zip")), dmg: ["arm64", "x64"].map(a => info(a, "dmg")) };
+          fs.writeFileSync("dist/latest.json", JSON.stringify(m, null, 2) + "\n");
+          // Uygulamadaki dogrulayicidan gecmeli
+          require("./updater.js").validateManifest(m);
+          const md = `Cem App ${v}\n\n` + notes.map(n => "- " + n).join("\n") + "\n\nİlk kurulum: DMG. Sonraki sürümler uygulama içinden otomatik güncellenir.\n";
+          fs.writeFileSync("release-notes.md", md);
+          JS
+          cat dist/latest.json
+      # Yalniz calisma dalina push (tek kod hatti: surum numarasi run_number'dan; main ayri hat olarak Release yayinlamaz).
+      # "latest" yalniz yeni surum mevcut en son v2.0.N'den buyukse: eski bir calisma sonradan biterse latest geri gitmez.
+      # Ayni calisma yeniden calisirsa atlanir.
+      - name: GitHub Release
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/ccr-f251748e-ir45zy'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          V=$(node -p "require('./package.json').version")
+          if gh release view "v$V" >/dev/null 2>&1; then echo "v$V zaten var; atlaniyor"; exit 0; fi
+          N=${V##*.}
+          # Mevcut "latest" Release'in etiketi (yoksa bos). Sayisal karsilastirma: v2.0.10 > v2.0.9
+          CUR=$(gh api "repos/$GH_REPO/releases/latest" --jq .tag_name 2>/dev/null || true)
+          LATEST=true
+          if [[ "$CUR" =~ ^v2\.0\.([0-9]+)$ ]] && [ "${BASH_REMATCH[1]}" -ge "$N" ]; then LATEST=false; fi
+          echo "mevcut latest: ${CUR:-yok}; v$V latest=$LATEST"
+          gh release create "v$V" --target "$GITHUB_SHA" --title "Cem App $V" --notes-file release-notes.md --latest="$LATEST" \
+            "dist/CemApp-$V-arm64.zip" "dist/CemApp-$V-x64.zip" "dist/CemApp-$V-arm64.dmg" "dist/CemApp-$V-x64.dmg" dist/latest.json
+      # Eski surumleri temizle: en yeni 10 surum kalir. Yalniz ^v2.0.N$ etiketlerine dokunulur.
+      - name: Eski surumleri sil
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/ccr-f251748e-ir45zy'
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh release list --limit 200 --json tagName --jq '.[].tagName' \
+            | grep -E '^v2\.0\.[0-9]+$' | sort -t. -k3,3nr | tail -n +11 > eski.txt || true
+          while IFS= read -r t; do
+            [[ "$t" =~ ^v2\.0\.[0-9]+$ ]] || continue
+            echo "siliniyor: $t"
+            gh release delete "$t" --cleanup-tag --yes
+          done < eski.txt
+      - uses: actions/upload-artifact@v6
         with: {name: CemApp-dmg, path: dist/*.dmg}

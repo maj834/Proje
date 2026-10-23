@@ -58,7 +58,8 @@ function registerLock({ipcMain,dialog,shell,app,BrowserWindow,path,systemPrefere
     backup:e.backup!==false,recoverable:!!e.recoverable});
   function state(extra){
     const unlocked=vault.isUnlocked();
-    return {ok:true,setup:vault.hasPassword(),unlocked,touchId:canBio()&&keyOk()&&vault.hasBiometric(),canTouchId:canBio(),
+    const st=vault.status();
+    return {ok:true,setup:st==='ok',corrupt:st==='corrupt',unlocked,touchId:canBio()&&keyOk()&&vault.hasBiometric(),canTouchId:canBio(),
       remainingMs:vault.remainingMs(),idleMs:vault.idleMs,files:unlocked?vault.files().map(view):[],mac,...takeNotice(),...extra};
   }
   // Kurtarma bildirimi pencereye bir kez gider
@@ -149,7 +150,8 @@ function registerLock({ipcMain,dialog,shell,app,BrowserWindow,path,systemPrefere
   h('kl:reveal',id=>{const e=ent(id);if(!e.missing)shell.showItemInFolder(e.path)});
 
   app.on('will-quit',()=>vault.lock('quit'));
-  return {open,lock:()=>vault.lock('user'),vault,ready};
+  const close=()=>{if(win&&!win.isDestroyed())win.close()};
+  return {open,close,lock:()=>vault.lock('user'),vault,ready};
 }
 
 module.exports={registerLock};

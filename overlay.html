@@ -31,13 +31,14 @@ body.draw #badge{display:none!important}
 #dcard .tr{margin-top:6px;font-weight:500}#dcard .up{color:oklch(74% 0.15 155)}#dcard .dn{color:oklch(68% 0.18 25)}#dcard b{font:500 12px var(--mono)}
 #dcard svg{position:static;width:100%;height:30px;margin-top:4px}
 #dcard .ws{margin-top:7px;display:flex;flex-direction:column;gap:3px}
-#dcard .tt{margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,.08);opacity:.85;font:400 11px var(--mono)}
+#dcard .tt{overflow:hidden;text-overflow:ellipsis;overflow-wrap:anywhere;margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,.08);opacity:.85;font:400 11px var(--mono)}
 #dcard .sig{display:flex;align-items:center;gap:10px;margin:10px 0 2px;padding:8px 10px;border-radius:5px;background:rgba(255,255,255,.05);border-left:3px solid #7d838c}
 #dcard .sig b{font:700 18px var(--mono);letter-spacing:.04em;min-width:58px}#dcard .sig.up{border-color:#33b37b}#dcard .sig.dn{border-color:#e5534b}
 #dcard .sig.up b{color:#33b37b}#dcard .sig.dn b{color:#ff6b6f}#dcard .sig .rs{display:flex;flex-direction:column;gap:2px;font:400 10.5px var(--font);opacity:.85}
 #dcard .sig.new{animation:sigin .6s ease}@keyframes sigin{0%{transform:scale(.96);background:rgba(255,255,255,.18)}100%{transform:none}}
 #dcard .tp{margin-top:6px;font:400 11px var(--mono)}
 body.draw #dcard{display:none!important}
+#dcard .x{margin-left:6px;width:20px;height:20px;border:0;border-radius:4px;background:rgba(255,255,255,.08);color:#eef0f2;font:600 13px/20px var(--font);cursor:pointer;padding:0}#dcard .x:hover{background:rgba(255,255,255,.2)}
 
 /* cizim */
 body.draw #dr .d{cursor:move}body.draw #dr .d *{pointer-events:stroke}body.draw #dr .d text,body.draw #dr .d .fill{pointer-events:all}
@@ -58,6 +59,17 @@ body.draw #tb{display:flex}
 #tb .done{all:unset;padding:0 12px;height:30px;line-height:30px;border-radius:4px;background:oklch(80% 0.14 75);color:oklch(22% 0.04 75);font:600 12px var(--font);cursor:pointer;margin-left:4px}
 #hint{position:absolute;bottom:20px;left:50%;transform:translateX(-50%);display:none;padding:6px 12px;border-radius:4px;background:rgb(24,26,31);border:1px solid rgba(255,255,255,.1);color:#b9bec7;font:400 11.5px var(--font)}#hint b{font:500 11px var(--mono);color:#e8eaed}
 body.draw #hint{display:block}
+/* grafik alani secimi */
+body.region{cursor:crosshair;background:rgba(8,10,16,.28)}
+body.region #an,body.region #dp,body.region #dr,body.region #dcard,body.region #badge{display:none!important}
+#rg{position:absolute;display:none;border:2px solid oklch(80% 0.14 75);background:rgba(232,176,74,.08);box-shadow:0 0 0 9999px rgba(8,10,16,.35);pointer-events:none}
+#rg span{position:absolute;left:0;top:-24px;font:600 11.5px var(--mono);color:#16181d;background:oklch(80% 0.14 75);padding:2px 6px;border-radius:3px;white-space:nowrap}
+#rgbar{position:absolute;top:44px;left:50%;transform:translateX(-50%);display:none;align-items:center;gap:10px;padding:8px 12px;border-radius:6px;background:rgb(24,26,31);border:1px solid rgba(255,255,255,.1);color:#d6d9de;font:500 12.5px var(--font);z-index:6;cursor:default}
+body.region #rgbar{display:flex}
+#rgbar button{all:unset;padding:4px 10px;border-radius:4px;cursor:pointer;font:600 12px var(--font);background:rgba(255,255,255,.08);color:#e8eaed}
+#rgbar button.pri{background:oklch(80% 0.14 75);color:oklch(22% 0.04 75)}
+#an .zone text{font:600 10.5px var(--mono);fill:#fff;paint-order:stroke;stroke:rgba(0,0,0,.55);stroke-width:3px}
+#an .plan text{font:600 11px var(--mono);fill:#fff}
 #noteIn{position:absolute;display:none;font:500 13px var(--font);padding:4px 8px;border-radius:4px;border:1px solid oklch(80% 0.14 75);outline:none;background:rgba(20,22,30,.92);color:#fff;min-width:140px}
 </style></head><body>
 <svg id="an" class="layer"></svg>
@@ -68,6 +80,8 @@ body.draw #hint{display:block}
 <div id="tb"></div>
 <div id="hint">Sürükleyerek çiz · <b>A</b> alarm çizgisi · <b>Esc</b> bitir · <b>⌘Z</b> geri al · <b>Sil</b> seçileni kaldır</div>
 <input id="noteIn" placeholder="Not yaz, Enter">
+<div id="rg"><span></span></div>
+<div id="rgbar"><span>Grafiğin mum alanını (fiyat ekseni dahil) sürükleyerek seç</span><button id="rgall">Tüm ekran</button><button id="rgno">İptal (Esc)</button></div>
 <script>
 const NS='http://www.w3.org/2000/svg';
 const S=(tag,attrs={},parent)=>{const e=document.createElementNS(NS,tag);for(const k in attrs)e.setAttribute(k,attrs[k]);parent&&parent.append(e);return e};
@@ -103,6 +117,18 @@ function drawAnalysis(a){
   (a.trendlines||[]).forEach((t,i)=>{const col=t.type==='destek'?'#5aa9ff':'#e8a33d',g=S('g',{class:'tl',style:'animation-delay:'+(i*90+250)+'ms'},an);
     S('line',{x1:t.x1*W,y1:t.y1*H,x2:t.x2*W,y2:t.y2*H,stroke:col,'stroke-width':2,'stroke-linecap':'round'},g);
     tag(g,t.x1*W+8,t.y1*H+(t.type==='destek'?16:-16),t.type==='destek'?'DESTEK TRENDİ':'DİRENÇ TRENDİ',col)});
+  // Gelismis analiz: destek/direnc bolgeleri (bant), giris bolgesi, stop ve hedefler (gercek fiyat, ekran olcegiyle)
+  const ps=a.proScreen;
+  if(ps){const zx1=(ps.x1||bx.x1)*W,zx2=Math.min(W,(ps.x2||bx.x2)*W+W*0.02);
+    for(const z of ps.zones||[]){const g=S('g',{class:'zone lv'},an),col=z.type==='R'?'229,83,75':'51,179,123',y1=Math.min(z.y1,z.y2)*H,y2=Math.max(z.y1,z.y2)*H;
+      S('rect',{x:zx1,y:y1,width:zx2-zx1,height:Math.max(3,y2-y1),fill:'rgba('+col+',.13)',stroke:'rgba('+col+',.55)','stroke-width':1},g);
+      const t=S('text',{x:zx2-6,y:y1-4,'text-anchor':'end'},g);t.textContent=(z.type==='R'?'Direnç ':'Destek ')+fmt(z.lo)+'–'+fmt(z.hi)+' · '+z.touches+' temas'}
+    const pl=ps.plan,hl=(y,txt,col,dash)=>{if(y==null||y<0||y>1)return;const g=S('g',{class:'plan lv'},an),yy=y*H;
+      S('line',{x1:zx1,x2:zx2,y1:yy,y2:yy,stroke:col,'stroke-width':1.6,'stroke-dasharray':dash||''},g);tag(g,zx2-150,yy,txt,col)};
+    if(pl){const [e1,e2]=pl.entry;if(e1!=null&&e2!=null){const g=S('g',{class:'plan lv'},an);S('rect',{x:zx1,y:Math.min(e1,e2)*H,width:zx2-zx1,height:Math.max(3,Math.abs(e2-e1)*H),fill:'rgba(90,169,255,.16)',stroke:'rgba(90,169,255,.7)','stroke-width':1},g);
+        tag(g,zx1+6,Math.min(e1,e2)*H-12,'GİRİŞ '+fmt(pl.p.entry[0])+'–'+fmt(pl.p.entry[1]),'#3b82d6')}
+      hl(pl.stop,'STOP '+fmt(pl.p.stop),'#e5534b','4 3');hl(pl.t1,'H1 '+fmt(pl.p.t1),'#33b37b','8 4');hl(pl.t2,'H2 '+fmt(pl.p.t2),'#2a9466','8 4')}
+    else if(ps.triggers){hl(ps.triggers.up,'AL TETİĞİ '+fmt(ps.triggers.p.up),'#33b37b','2 4');hl(ps.triggers.down,'SAT TETİĞİ '+fmt(ps.triggers.p.down),'#e5534b','2 4')}}
   const sh=a.show||{},Lp=a.lines||{},pts2=arr=>arr.map(p=>(p[0]*W).toFixed(1)+','+(p[1]*H).toFixed(1)).join(' ');
   const endTag=(arr,text,col,dy=0)=>{if(arr&&arr.length){const p=arr[arr.length-1];tag(an,p[0]*W+8,p[1]*H+dy,text,col)}};
   if(sh.bb&&Lp.bbU&&Lp.bbU.length>1){const g=S('g',{class:'tl'},an);
@@ -138,9 +164,10 @@ function drawAnalysis(a){
   }
   if(a.last){const cx=a.last.x*W,cy=a.last.y*H,c=(BIAS[a.bias]||BIAS.notr)[1];
     S('circle',{cx,cy,r:5,fill:c,class:'pulse'},an);S('circle',{cx,cy,r:4,fill:c,stroke:'#fff','stroke-width':1.5},an)}
-  const [bl,c,ar]=BIAS[a.bias]||BIAS.notr;
+  let [bl,c,ar]=BIAS[a.bias]||BIAS.notr;
+  const vd=a.verdict;if(vd&&vd.label){bl=vd.label+' · '+(vd.score>0?'+':'')+vd.score;c=vd.dir>0?'#33b37b':vd.dir<0?'#e5534b':'#7d838c';ar=vd.dir>0?'▲':vd.dir<0?'▼':'●'}
   b.replaceChildren();const eng=document.createElement('span');eng.className='eng';eng.textContent={claude:'CLAUDE',grok:'GROK',piyasa:'PİYASA'}[a.engine]||'YEREL';
-  const sm=document.createElement('small');sm.textContent='Güven %'+a.confidence+(a.patterns&&a.patterns.length?' · '+a.patterns[0]:'');
+  const sm=document.createElement('small');sm.textContent='Güven %'+(vd&&vd.confidence!=null?vd.confidence:a.confidence)+(a.patterns&&a.patterns.length?' · '+a.patterns[0]:'');
   b.append(eng,(a.symbol?a.symbol+'  ':'')+ar+' '+bl,sm);b.style.setProperty('--bc',c);b.style.display='flex';
   if(a.anim){b.classList.remove('in');void b.offsetWidth;b.classList.add('in')}
   render();
@@ -266,7 +293,9 @@ addEventListener('resize',()=>{if(A)drawAnalysis({...A,anim:false});else render(
 
 
 // --- derinlik katmani -----------------------------------------------------
-const kfmt=n=>n==null?'—':Math.abs(n)>=1e6?(n/1e6).toLocaleString('tr-TR',{maximumFractionDigits:1})+'M':Math.abs(n)>=1e3?Math.round(n/1e3).toLocaleString('tr-TR')+'K':n.toLocaleString('tr-TR');
+// main.js bistCode ile ayni: Turkce harfler ASCII'ye, .IS ve diger isaretler atilir
+const bc=s=>String(s||'').toLocaleUpperCase('tr-TR').replace(/\.IS$/,'').replace(/[ŞÇĞÖÜİ]/g,c=>({Ş:'S',Ç:'C',Ğ:'G',Ö:'O',Ü:'U',İ:'I'})[c]).replace(/[^A-Z0-9]/g,'');
+const kfmt=n=>n==null?'—':Math.abs(n)>=1e6?(n/1e6).toLocaleString('tr-TR',{maximumFractionDigits:1})+'M':Math.abs(n)>=1e4?Math.round(n/1e3).toLocaleString('tr-TR')+'K':n.toLocaleString('tr-TR');
 let lastWallsKey='',DD=null,lastLiveDir=null,BNO=null;
 function drawDepth(d){
   DD=d;const dp=$('dp'),card=$('dcard');dp.replaceChildren();
@@ -292,7 +321,7 @@ function drawDepth(d){
   // Kose karti: baski, trend, mini grafik, duvarlar (konumlanamadiysa), son islemler
   const pr=d.pressure,tr=d.trend||{},h=d.history||[];
   const parts=[];const e=(tag,cls,txt)=>{const x=document.createElement(tag);if(cls)x.className=cls;if(txt!=null)x.textContent=txt;return x};
-  const hd=e('div','hd');hd.append(e('span',null,(d.symbol||'')+(d.last!=null?'  '+fmt(d.last):'')+(d.change!=null?'  '+(d.change>0?'+':'')+fmt(d.change)+'%':'')),e('small',null,(d.source==='telegram'?'Telegram':'Ekran')+' · '+new Date(d.at).toLocaleTimeString('tr-TR')));parts.push(hd);
+  const hd=e('div','hd');hd.append(e('span',null,(d.symbol||'')+(d.last!=null?'  '+fmt(d.last):'')+(d.change!=null?'  '+(d.change>0?'+':d.change<0?'-':'')+'%'+fmt(Math.abs(d.change)):'')),e('small',null,(d.source==='telegram'?'Telegram':'Ekran')+' · '+new Date(d.at).toLocaleTimeString('tr-TR')));parts.push(hd);
   // Canli AL/SAT: islem akisi + baski + kurum akisi (+ grafik skoru)
   const lv=d.live;
   if(lv){const k=lv.dir>0?'up':lv.dir<0?'dn':'',box=e('div','sig '+k+(lv.dir!==lastLiveDir?' new':''));lastLiveDir=lv.dir;
@@ -318,14 +347,19 @@ function drawDepth(d){
   if(b0||s0){const r=e('div','row');r.append(e('span','up',b0?'▲ '+b0.name.slice(0,14)+' '+kfmt(b0.net):''),e('span','dn',s0?'▼ '+s0.name.slice(0,14)+' '+kfmt(s0.net):''));parts.push(r)}
   if((d.trades||[]).length){const t=d.trades.slice(0,3).map(x=>fmt(x.price)+' × '+kfmt(x.qty)+(x.buyer?' '+x.buyer+'→'+(x.seller||''):'')).join('\n');const tt=e('div','tt');tt.style.whiteSpace='pre';tt.textContent=t;parts.push(tt)}
   // Haber botundan bu hisse icin son 24 saatin en onemli haberi
-  const nw=BNO&&BNO.symbol===String(d.symbol||'').replace(/\W/g,'')?BNO.list.find(n=>!n.general&&(n.importance||Math.abs(n.score||0))>=3&&Date.now()-new Date(n.ts).getTime()<86400000):null;
+  const sc=bc(d.symbol);
+  const nw=BNO&&BNO.symbol===sc?BNO.list.find(n=>!n.general&&(n.importance||Math.abs(n.score||0))>=3&&Date.now()-new Date(n.ts).getTime()<86400000):null;
   if(nw)parts.push(e('div','tt '+(nw.score>0?'up':nw.score<0?'dn':''),'Haber: '+(nw.summary||nw.title).slice(0,90)));
-  const mine=BNO&&BNO.symbol===String(d.symbol||'').replace(/\W/g,'');
+  const mine=BNO&&BNO.symbol===sc;
   const acc=mine&&BNO.akd&&BNO.akd.top[0];
   if(acc&&BNO.akd.days>=2)parts.push(e('div','tt up',BNO.akd.days+' günlük birikim: '+acc.name.slice(0,18)+' +'+kfmt(acc.net)+' ('+acc.buyDays+'/'+BNO.akd.days+' gün alıcı)'));
   const ev=mine&&(BNO.calendar||[])[0];
   if(ev)parts.push(e('div','tt','Yaklaşan: '+new Date(ev.day+'T12:00:00').toLocaleDateString('tr-TR',{day:'2-digit',month:'short'})+' '+ev.kind));
+  // Kapat: derinlik katmanini kapatir (menuden yeniden acilir). Kart uzerinde fare -> overlay tiklama alir.
+  const x=e('button','x','×');x.title='Derinlik kartını kapat (menüden yeniden açılır)';x.onclick=()=>{card.style.display='none';try{api.ovMouse(false);api.depthSet({overlay:false})}catch(err){}};
+  if(parts[0]&&parts[0].className==='hd')parts[0].append(x);else parts.unshift(x);
   card.replaceChildren(...parts);card.style.display='block';
+  if(!card._hov){card._hov=1;card.addEventListener('mouseenter',()=>{try{api.ovMouse(true)}catch(err){}});card.addEventListener('mouseleave',()=>{try{api.ovMouse(false)}catch(err){}})}
 }
 api.on('botNews',n=>{BNO=n;if(DD)drawDepth(DD)});
 // Derinlik sinyali yalniz ayni hissenin grafigine yazilir; baska hisseninki eski sinyali de siler
@@ -334,5 +368,20 @@ api.on('depth',d=>{drawDepth(d);if(A&&d&&d.signal!==undefined){const same=!!A.sy
 api.on('draw',a=>drawAnalysis(a));
 api.on('drawings',l=>{D=Array.isArray(l)?l:[];undo=[];sel=-1;render()});
 api.on('mode',on=>{mode=on;document.body.classList.toggle('draw',on);sel=-1;$('noteIn').style.display='none';toolbar();render()});
+// --- grafik alani secimi ---
+let RG=null,rgDrag=null;
+function rgShow(r){const e=$('rg');if(!r){e.style.display='none';return}
+  e.style.display='block';e.style.left=r.x*VW()+'px';e.style.top=r.y*VH()+'px';e.style.width=r.w*VW()+'px';e.style.height=r.h*VH()+'px';
+  e.firstChild.textContent=Math.round(r.w*VW())+' × '+Math.round(r.h*VH())}
+api.on('region',o=>{RG=!!(o&&o.on);rgDrag=null;document.body.classList.toggle('region',RG);rgShow(RG&&o.rect?o.rect:null)});
+$('rgall').onclick=e=>{e.stopPropagation();api.setRegion(null)};
+$('rgno').onclick=e=>{e.stopPropagation();api.regionMode(false)};
+addEventListener('mousedown',e=>{if(!RG||e.button!==0||e.target.closest('#rgbar'))return;rgDrag={x:e.clientX,y:e.clientY};rgShow(null)},true);
+addEventListener('mousemove',e=>{if(!RG||!rgDrag)return;const x=Math.min(rgDrag.x,e.clientX),y=Math.min(rgDrag.y,e.clientY);
+  rgShow({x:x/VW(),y:y/VH(),w:Math.abs(e.clientX-rgDrag.x)/VW(),h:Math.abs(e.clientY-rgDrag.y)/VH()})},true);
+addEventListener('mouseup',e=>{if(!RG||!rgDrag)return;const w=Math.abs(e.clientX-rgDrag.x),h=Math.abs(e.clientY-rgDrag.y);
+  const r={x:Math.min(rgDrag.x,e.clientX)/VW(),y:Math.min(rgDrag.y,e.clientY)/VH(),w:w/VW(),h:h/VH()};rgDrag=null;
+  if(w<80||h<60){rgShow(null);return}api.setRegion(r)},true);
+addEventListener('keydown',e=>{if(RG&&e.key==='Escape'){e.stopPropagation();api.regionMode(false)}},true);
 toolbar();
 </script></body></html>

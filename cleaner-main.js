@@ -127,7 +127,9 @@ function registerCleaner({ipcMain,dialog,shell,app,BrowserWindow,path}){
     const err=await shell.openPath(f);if(err)shell.showItemInFolder(f);
     return {ok:true};
   });
-  return {open};
+  // Merkez'den kapatilinca: pencere kapanir (kapanis taramayi da iptal eder)
+  const close=()=>{if(ctl)ctl.abort();if(win&&!win.isDestroyed())win.close()};
+  return {open,close};
 }
 
 module.exports={registerCleaner,runningBundleIds};

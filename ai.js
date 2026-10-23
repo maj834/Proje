@@ -11,15 +11,23 @@ const SYS='Sen deneyimli bir teknik analiz uzmanisin. Goruntudeki fiyat grafigin
   'Tum x ve y degerleri goruntunun sol ust kosesine gore 0-1 araligindadir (x: 0 sol, 1 sag; y: 0 ust, 1 alt). '+
   'chart_box mumlarin cizildigi alanin sinirlaridir (eksenler haric). last_price son mumun kapanis fiyatidir. axis: fiyat eksenindeki 3-4 etiketin degeri ve dikey konumu (olcek icin). Fiyat eksenini oku; okuyamayip tahmin ettiysen price null birak. '+
   'En fazla 3 destek, 3 direnc ve 2 trend cizgisi ver; trend cizgisi en az iki tepe/dibe degen gecerli bir cizgi olmali. '+
-  'confidence 0-100 arasi tam sayidir. comment Turkce, kisa, net ve gerekceli olsun. Ekranda grafik yoksa chart_found false dondur.';
+  'confidence 0-100 arasi tam sayidir. comment Turkce, kisa, net ve gerekceli olsun. Ekranda grafik yoksa chart_found false dondur. '+
+  'symbol: grafik basligindaki/filigrandaki hisse kodu (Borsa Istanbul icin yalniz kod, ornek THYAO; BIST: ve .IS ekleme); gormuyorsan null. '+
+  'timeframe su kodlardan biri olsun: 1dk, 5dk, 15dk, 1s (saatlik), 1g (gunluk), 1h (haftalik); emin degilsen null. platform: TradingView, Matriks, Ideal, araci kurum vb. ya da null. '+
+  'visible_indicators: grafikte gorunen gostergeler (ornek EMA 50, RSI 14, MACD, hacim) ve ekranda yaziyorsa son degeri; deger yazmiyorsa value null. '+
+  'drawn_levels: kullanicinin elle cizdigi yatay cizgiler (varsa). Sayilari asla uydurma: okuyamadigin her sayiyi null birak; '+
+  'fiyatlar uygulama tarafinda gercek piyasa verisiyle karsilastirilir.';
 const LEVEL={type:'object',properties:{price:{type:['number','null']},y:{type:'number'}},required:['price','y'],additionalProperties:false};
 const BOX={type:'object',properties:{x1:{type:'number'},y1:{type:'number'},x2:{type:'number'},y2:{type:'number'}},required:['x1','y1','x2','y2'],additionalProperties:false};
 const TICK={type:'object',properties:{price:{type:'number'},y:{type:'number'}},required:['price','y'],additionalProperties:false};
 const TLINE={type:'object',properties:{type:{type:'string',enum:['destek','direnc']},x1:{type:'number'},y1:{type:'number'},x2:{type:'number'},y2:{type:'number'}},
   required:['type','x1','y1','x2','y2'],additionalProperties:false};
 const SCHEMA={type:'object',additionalProperties:false,
-  required:['chart_found','symbol','timeframe','last_price','axis','bias','confidence','trend','chart_box','resistances','supports','trendlines','breakout','patterns','comment'],
+  required:['chart_found','symbol','timeframe','platform','last_price','axis','bias','confidence','trend','chart_box','resistances','supports','trendlines','breakout','patterns','visible_indicators','drawn_levels','comment'],
   properties:{
+    platform:{type:['string','null']},
+    visible_indicators:{type:'array',items:{type:'object',properties:{name:{type:'string'},value:{type:['number','null']}},required:['name','value'],additionalProperties:false}},
+    drawn_levels:{type:'array',items:LEVEL},
     chart_found:{type:'boolean'},symbol:{type:['string','null']},timeframe:{type:['string','null']},last_price:{type:['number','null']},axis:{type:'array',items:TICK},
     bias:{type:'string',enum:['yukselis','dusus','notr']},confidence:{type:'integer'},trend:{type:'string'},chart_box:BOX,
     resistances:{type:'array',items:LEVEL},supports:{type:'array',items:LEVEL},trendlines:{type:'array',items:TLINE},
@@ -27,7 +35,16 @@ const SCHEMA={type:'object',additionalProperties:false,
   }};
 
 const modelInfo=id=>MODELS.find(m=>m.id===id)||MODELS[0];
-const cost=(id,u)=>{const m=modelInfo(id);return((u.input_tokens||0)*m.inM+(u.output_tokens||0)*m.outM)/1e6};
+const price=(m,u)=>((u.input_tokens||0)*m.inM+(u.output_tokens||0)*m.outM)/1e6;
+// Tarihli kanonik adlar da (claude-sonnet-5-5-2026...) taninir; bilinmeyen model null.
+const knownModel=id=>{id=String(id||'');return MODELS.find(m=>id===m.id||id.startsWith(m.id+'-'))||null};
+// Sunucu tarafi yedek model cevapladiysa (usage.iterations icinde 'fallback_message') her adim kendi modelinin
+// fiyatiyla hesaplanir; fiyati bilinmeyen adimda istenen modelin fiyati kullanilir.
+const cost=(id,u)=>{
+  const it=Array.isArray(u.iterations)?u.iterations.filter(x=>x&&typeof x==='object'):null;
+  if(it&&it.some(x=>x.type==='fallback_message'))return it.reduce((s,x)=>s+price(knownModel(x.model)||modelInfo(id),x),0);
+  return price(modelInfo(id),u);
+};
 
 // img: JPEG base64. crop: goruntunun tam ekrandaki yeri {x,y,w,h} (0-1); yanit tam ekrana cevrilir.
 // Kirpilmis goruntudeki 0-1 koordinatlari tam ekrana cevir (Claude ve Grok ortak).
@@ -36,12 +53,15 @@ function mapCrop(a,crop){
   for(const l of [...(a.resistances||[]),...(a.supports||[])])l.y=Y(l.y);
   for(const t of a.trendlines||[]){t.x1=X(t.x1);t.x2=X(t.x2);t.y1=Y(t.y1);t.y2=Y(t.y2)}
   for(const t of a.axis||[])t.y=Y(t.y);
+  for(const l of a.drawn_levels||[])l.y=Y(l.y);
   if(a.chart_box){const b=a.chart_box;a.chart_box={x1:X(b.x1),y1:Y(b.y1),x2:X(b.x2),y2:Y(b.y2)}}
   return a;
 }
-async function analyze({key,model,img,crop,effort}){
+// Kullanicinin yazdigi hisse kodu modele ipucu olarak verilir (fiyat verilmez: model okumasi bagimsiz kalsin, sonra karsilastirilir).
+const userText=hint=>'Grafigi analiz et.'+(hint&&hint.symbol?' Kullanicinin sectigi hisse: '+String(hint.symbol).replace(/[^A-Za-z0-9.]/g,'').slice(0,12)+' (grafikte farkli bir kod goruyorsan gordugun kodu yaz).':'');
+async function analyze({key,model,img,crop,effort,hint}){
   const req={model,max_tokens:16000,system:SYS,output_config:{effort,format:{type:'json_schema',schema:SCHEMA}},
-    messages:[{role:'user',content:[{type:'image',source:{type:'base64',media_type:'image/jpeg',data:img}},{type:'text',text:'Grafigi analiz et.'}]}]};
+    messages:[{role:'user',content:[{type:'image',source:{type:'base64',media_type:'image/jpeg',data:img}},{type:'text',text:userText(hint)}]}]};
   const client=new Anthropic({apiKey:key,maxRetries:2});
   // Sonnet/Opus: guvenlik filtresi reddederse sunucu tarafinda yedek modele gec.
   const r=model.startsWith('claude-haiku')?await client.messages.create(req)
@@ -85,4 +105,4 @@ async function analyzeDepth({key,model,img,media='image/jpeg'}){
   d.cost=cost(model,r.usage||{});return d;
 }
 
-module.exports={MODELS,analyze,analyzeDepth,errorText,modelInfo,mapCrop,SYS,SCHEMA,DSYS,DSCHEMA};
+module.exports={MODELS,analyze,userText,analyzeDepth,errorText,modelInfo,mapCrop,SYS,SCHEMA,DSYS,DSCHEMA};

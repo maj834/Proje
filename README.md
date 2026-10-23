@@ -10,6 +10,21 @@ Ekrandaki fiyat grafiğini (TradingView, Matriks, broker ekranları, tarayıcı�
 
 Tanıtım videosu (seslendirmeli): [docs/demo.mp4](docs/demo.mp4)
 
+## Borsa Pro · Demo AL/SAT
+
+Büyük **Borsa Pro** penceresinde bir hisse aç: sağdaki **Demo işlem** panelinden AL/SAT yap. Bu özellik küçük menü çubuğu penceresinde değildir. **Demo** sekmesi hesapları, pozisyonları, bekleyen emirleri ve son 100 işlemi gösterir; mevcut Portföy kayıtlarından ayrıdır.
+
+- Başlangıç: **100.000 sanal TL** (BIST) ve **10.000 sanal USD** (ABD). Gerçek para veya broker bağlantısı yoktur.
+- Piyasa ve limit AL/SAT; yalnız satış için zarar durdur. Açığa satış yoktur. Bekleyen alışta nakit, satışta adet ayrılır; fazla satış ve yetersiz bakiye reddedilir.
+- Komisyon varsayılan **%0,2**, kayma **0 baz puan**; Demo ayarlarından değişir. Seans dışı simülasyon varsayılan kapalıdır. Hesap sıfırlama iki onay ister.
+- Limit/stop emirleri emirden sonra başlayan dakikalık mumlarda kontrol edilir; seviye dokunuşu ve açılış boşluğu modellenir. Kaçırılan geçmiş günler için önceki günlük mumlar da kullanılır; emirden önceki veya gelecekteki mumla dolum yapılmaz.
+- Bekleyen emirler uygulama çalışırken pencere kapalı olsa da kontrol edilir (normalde 60 sn, pilde 180 sn; iki piyasa da kapalıysa 15 dk). Kilitte/uykuda durur. Uygulama kapalıyken emir çalışmaz; yeniden açıldığında erişilebilen geçmiş verilerle kontrol edilir.
+- Veriler macOS kullanıcı-verisi klasöründeki `bp-demo.json` dosyasına atomik yazılır. Yazma başarısızsa işlem geri alınır; bozuk dosya yedeklenir. Para kuruş/sent cinsinden tam sayıdır. Toplam istatistikler işlem geçmişi sınırından bağımsız saklanır.
+
+**Sınırlar:** Yahoo/BIST verileri yaklaşık 15 dk gecikmeli olabilir. Eski/başarısız veriyle emir işlenmez; açık seansta 25 dk'dan eski fiyatla yeni emir verilmez. Kısmi dolum, likidite, spread, sıra önceliği, temettü ve bölünme modellenmez. ABD seansı hafta içi 09:30–16:00 New York olarak hesaplanır; ABD resmî tatilleri dahil değildir. Gerçek işlemin sonucu ile aynı değildir, yatırım tavsiyesi değildir.
+
+Demo testleri: `node --test test/bp-demo.test.js test/bp-main.test.js`. İsteğe bağlı tarayıcı testi (Playwright + Chromium gerekir): `node test/visual/bp-demo-smoke.js`; sistem Chromium'u için `CHROMIUM_PATH=/path/to/chromium` verilebilir. Gerçek macOS paketinde ayrıca doğrulanmalıdır.
+
 ## İki analiz motoru
 
 | | ⚡ Hızlı (yerel) | ✦ Claude AI |
@@ -155,6 +170,8 @@ GitHub Actions her push'ta macOS için imzasız bir `.dmg` üretir (Actions › 
 | `engine.js` | Yerel mum grafiği okuyucu (piksel analizi) |
 | `ai.js` | Claude API isteği ve maliyet hesabı (isteğe bağlı) |
 | `grok.js` | xAI Grok ile grafik ve derinlik okuma (isteğe bağlı) |
+| `bp-demo.js` | Demo hesap motoru: sanal bakiye, emirler, dolum, K/Z ve yerel kayıt |
+| `bp-demo-main.js` | Borsa Pro demo IPC, veri doğrulama, bildirimler ve arka plan kontrolü |
 | `calendar.js` | BIST seans takvimi, tatiller ve yarım günler |
 | `market.js` | Yahoo Finance ve Alpha Vantage: mumlar, fiyat, haberler, önbellek ve kota |
 | `tg.js` | Telegram bağlantısı (GramJS) |

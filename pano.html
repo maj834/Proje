@@ -1,0 +1,111 @@
+<!doctype html><html lang="tr"><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; script-src 'self' 'unsafe-inline'">
+<title>Pano geçmişi</title><link rel="stylesheet" href="theme.css">
+<style>
+html,body{margin:0;background:var(--bg);color:var(--fg);font:400 12.5px/1.4 var(--font);-webkit-user-select:none;user-select:none;overflow:hidden}
+body{border:1px solid var(--line-2);border-radius:10px;height:100vh;box-sizing:border-box;display:flex;flex-direction:column}
+.hd{display:flex;align-items:center;gap:6px;padding:10px 10px 8px;border-bottom:1px solid var(--line)}
+#q{flex:1;min-width:0;background:var(--surface);color:var(--fg);border:1px solid var(--line-2);border-radius:var(--r2);padding:5px 8px;font:400 12.5px var(--font);outline:none}
+#q:focus{border-color:var(--acc)}
+.btn{border:1px solid var(--line-2);background:var(--bg);color:var(--fg-2);font:500 11px var(--font);padding:4px 8px;border-radius:999px;cursor:pointer;white-space:nowrap}
+.btn:hover{color:var(--fg)}.btn.on{background:var(--acc-soft);border-color:var(--acc);color:var(--fg)}
+.btn.dn{color:var(--dn);border-color:var(--dn)}
+.btn:focus-visible,.ib:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
+.bar{display:none;align-items:center;gap:6px;padding:7px 10px;border-bottom:1px solid var(--line);background:var(--dn-soft);font-size:11.5px}
+.bar.show{display:flex}.bar span{flex:1}
+.note{padding:6px 10px;font-size:11px;color:var(--warn);border-bottom:1px solid var(--line);display:none}.note.show{display:block}
+.ls{flex:1;overflow-y:auto;padding:4px}
+.row{display:flex;align-items:flex-start;gap:8px;padding:7px 8px;border-radius:var(--r2);cursor:pointer}
+.row:hover{background:var(--sunk)}.row.sel{background:var(--acc-soft)}
+.row .ico{margin-top:1px;color:var(--fg-3)}.row.pin .ico.t{color:var(--acc)}
+.bd{flex:1;min-width:0}
+.pv{overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;word-break:break-word;color:var(--fg)}
+.pv.f{font-family:var(--mono);font-size:11.5px}
+.th{display:block;max-width:100%;max-height:72px;border-radius:var(--r1);border:1px solid var(--line);background:var(--sunk)}
+.mt{display:flex;gap:6px;margin-top:2px;font-size:10.5px;color:var(--fg-3)}
+.ac{display:flex;gap:2px;opacity:0;transition:opacity .15s}.row:hover .ac,.row.sel .ac,.row.pin .ac{opacity:1}
+.ib{border:0;background:none;color:var(--fg-3);padding:3px;border-radius:var(--r1);cursor:pointer;display:flex}
+.ib:hover{color:var(--fg);background:var(--line)}.ib.on{color:var(--acc)}
+.empty{padding:28px 16px;text-align:center;color:var(--fg-3)}
+.ft{display:flex;justify-content:space-between;gap:8px;padding:6px 10px;border-top:1px solid var(--line);font-size:10.5px;color:var(--fg-3)}
+#err{color:var(--dn)}
+</style></head><body>
+<div class="hd">
+  <input id="q" type="search" placeholder="Ara…" aria-label="Geçmişte ara" autocomplete="off" spellcheck="false">
+  <button class="btn" id="pause" aria-pressed="false">Duraklat 10 dk</button>
+  <button class="btn" id="clear">Tümünü sil</button>
+</div>
+<div class="bar" id="confirm" role="alertdialog" aria-label="Tümünü silme onayı"><span>Tüm geçmiş ve kayıtlı resimler silinsin mi? Sabitlenenler de gider.</span>
+  <button class="btn dn" id="yes">Sil</button><button class="btn" id="no">Vazgeç</button></div>
+<div class="note" id="note" role="status"></div>
+<div class="ls" id="ls" role="listbox" aria-label="Pano geçmişi"></div>
+<div class="ft"><span id="err" role="status"></span><span>↵ kopyala · ⌘⌫ sil · esc kapat</span></div>
+<script>
+const $=id=>document.getElementById(id),NS='http://www.w3.org/2000/svg';
+// Ince cizgi ikonlar (sabit yol verisi; kullanici verisi yok)
+const ICON={text:['M4 4h8','M4 7h8','M4 10h5'],image:['M2.5 3.5h11v9h-11z','M2.5 10.5l3-3 3 3 2-2 3 3','M10.5 6.2v.1'],
+  files:['M3 2.5h6l3 3v8H3z','M9 2.5v3h3'],pin:['M6 2.5h4','M7 2.5v4l-2 2.5h6L9 6.5v-4','M8 9v4.5'],del:['M3.5 4.5h9','M6 4.5V3h4v1.5','M4.5 4.5l.7 9h5.6l.7-9']};
+function ico(n,cls){const s=document.createElementNS(NS,'svg');s.setAttribute('viewBox','0 0 16 16');s.setAttribute('class','ico'+(cls?' '+cls:''));s.setAttribute('aria-hidden','true');
+  for(const d of ICON[n]){const p=document.createElementNS(NS,'path');p.setAttribute('d',d);s.appendChild(p)}return s}
+const KIND={text:'Yazı',image:'Resim',files:'Dosya'};
+let S=null,ids=null,sel=0,seq=0,errT=null;
+const shown=()=>S?(ids?S.items.filter(x=>ids.includes(x.id)):S.items):[];
+const base=p=>String(p).split('/').filter(Boolean).pop()||p;
+function err(m){$('err').textContent=m||'';clearTimeout(errT);if(m)errT=setTimeout(()=>{$('err').textContent=''},4000)}
+function preview(it){
+  if(it.type==='image'&&it.thumb){const im=document.createElement('img');im.className='th';im.src=it.thumb;im.alt='Resim '+it.w+'×'+it.h;return im}
+  const d=document.createElement('div');d.className='pv'+(it.type==='files'?' f':'');
+  d.textContent=it.type==='files'?it.files.map(base).join(', '):it.text;return d}
+function meta(it){const m=[it.ago];
+  if(it.type==='text'&&it.lines>1)m.push(it.lines+' satır');
+  if(it.type==='image')m.push(it.w+'×'+it.h);
+  if(it.type==='files')m.push(it.files.length>1?it.files.length+' dosya':it.files[0]);
+  return m.join(' · ')}
+function render(){
+  const L=shown(),ls=$('ls');if(sel>=L.length)sel=Math.max(0,L.length-1);
+  $('pause').textContent=S&&S.paused?'Devam et ('+S.paused+' dk)':'Duraklat 10 dk';$('pause').classList.toggle('on',!!(S&&S.paused));
+  $('pause').setAttribute('aria-pressed',!!(S&&S.paused));
+  const n=$('note');n.textContent=S&&!S.shortcut?'⌘⇧V kısayolu alınamadı; başka bir uygulama kullanıyor olabilir.':'';n.classList.toggle('show',!!(S&&!S.shortcut));
+  if(!L.length){const e=document.createElement('div');e.className='empty';
+    e.textContent=!S?'':ids?'Eşleşen kayıt yok.':S.paused?'Kayıt duraklatıldı. Kopyaladıkların kaydedilmiyor.':'Henüz kayıt yok. Bir şey kopyaladığında burada görünür.';
+    ls.replaceChildren(e);return}
+  ls.replaceChildren(...L.map((it,i)=>{
+    const r=document.createElement('div');r.className='row'+(i===sel?' sel':'')+(it.pin?' pin':'');r.setAttribute('role','option');
+    r.setAttribute('aria-selected',i===sel);r.id='r'+i;r.title=KIND[it.type];
+    const b=document.createElement('div');b.className='bd';const mt=document.createElement('div');mt.className='mt';mt.textContent=meta(it);
+    b.append(preview(it),mt);
+    const ac=document.createElement('div');ac.className='ac';
+    const p=document.createElement('button');p.className='ib'+(it.pin?' on':'');p.title=it.pin?'Sabitlemeyi kaldır':'Sabitle';p.setAttribute('aria-label',p.title);p.appendChild(ico('pin'));
+    p.onclick=async e=>{e.stopPropagation();const v=await pano.pin(it.id);if(v){err(v.err);set(v)}};
+    const x=document.createElement('button');x.className='ib';x.title='Sil';x.setAttribute('aria-label','Sil');x.appendChild(ico('del'));
+    x.onclick=e=>{e.stopPropagation();del(it.id)};
+    ac.append(p,x);
+    r.append(ico(it.type,'t'),b,ac);
+    r.onclick=()=>copy(it.id);r.onmousemove=()=>{if(sel!==i){sel=i;mark()}};
+    return r}));
+  $('ls').setAttribute('aria-activedescendant','r'+sel);
+}
+function mark(){document.querySelectorAll('.row').forEach((r,i)=>{r.classList.toggle('sel',i===sel);r.setAttribute('aria-selected',i===sel)});
+  const r=$('r'+sel);if(r){r.scrollIntoView({block:'nearest'});$('ls').setAttribute('aria-activedescendant',r.id)}}
+function set(v){if(!v)return;S=v;if(ids)find();else render()}
+async function find(){const q=$('q').value,my=++seq;if(!q.trim()){ids=null;render();return}
+  const r=await pano.find(q);if(my!==seq||!r)return;ids=r;render()}
+async function copy(id){const r=await pano.copy(id);if(r&&r.err)err(r.err)}
+async function del(id){const v=await pano.del(id);set(v)}
+$('q').addEventListener('input',()=>{sel=0;find()});
+$('pause').onclick=async()=>set(await pano.pause());
+$('clear').onclick=()=>{$('confirm').classList.add('show');$('no').focus()};
+$('no').onclick=()=>{$('confirm').classList.remove('show');$('q').focus()};
+$('yes').onclick=async()=>{$('confirm').classList.remove('show');set(await pano.clear());$('q').focus()};
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'){if($('confirm').classList.contains('show')){$('no').click()}else pano.hide();e.preventDefault();return}
+  if($('confirm').classList.contains('show'))return;
+  const L=shown();
+  if(e.key==='ArrowDown'){sel=Math.min(L.length-1,sel+1);mark();e.preventDefault()}
+  else if(e.key==='ArrowUp'){sel=Math.max(0,sel-1);mark();e.preventDefault()}
+  else if(e.key==='Enter'&&!e.isComposing){if(e.target.tagName==='BUTTON')return;if(L[sel])copy(L[sel].id);e.preventDefault()}
+  else if(e.key==='Backspace'&&(e.metaKey||e.ctrlKey)){if(L[sel])del(L[sel].id);e.preventDefault()}
+});
+pano.on(d=>{if(d.shown){$('q').value='';ids=null;sel=0;seq++;$('confirm').classList.remove('show');err('');$('q').focus()}set(d)});
+pano.state().then(set);$('q').focus();
+</script></body></html>

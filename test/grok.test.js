@@ -167,3 +167,43 @@ test('errorText: 401, kredi 403, 404, 429, cevrimdisi, SyntaxError', async t => 
   assert.equal(err.message, 'Grok\'a bağlanılamadı.');
   assert.equal(G.errorText(err), 'Grok\'a bağlanılamadı.');
 });
+
+test('model listesi onbellegi anahtara bagli; test() onbellegi atlar (M2)', async t => {
+  const G = fresh('grok.js');
+  const KEY2 = 'xai-' + 'b'.repeat(40);
+  let bad = false;
+  const calls = mockFetch(t, [
+    [isModels, (url, init) => (bad || init.headers.authorization !== 'Bearer ' + KEY) ? { status: 401, body: { error: 'Incorrect API key provided' } } : { body: MODELS }],
+    [isChat, () => ({ body: chat(JSON.stringify(ANALYSIS())) })]
+  ]);
+  const models = () => calls.filter(c => isModels.test(c.url));
+  assert.equal((await G.test(KEY)).ok, true);
+  // Gecerli anahtardan sonra gecersiz anahtar onbellekten "gecerli" gorunmemeli.
+  await assert.rejects(G.test(KEY2), e => e.status === 401);
+  // Ayni anahtar ikinci kez denendiginde de sunucuya gidilir (anahtar iptal edilmis olabilir).
+  bad = true;
+  await assert.rejects(G.test(KEY), e => e.status === 401);
+  assert.equal(models().length, 3);
+  // analyze icin onbellek anahtar bazinda: KEY ile listelenir, KEY2 icin tekrar sorulur.
+  bad = false;
+  const G2 = fresh('grok.js');
+  await G2.analyze({ key: KEY, img: IMG });
+  await G2.analyze({ key: KEY, img: IMG });
+  assert.equal(models().length, 4, 'ayni anahtar onbellekten');
+  await G2.analyze({ key: KEY2, img: IMG });
+  assert.equal(models().length, 5, 'farkli anahtar icin liste yeniden alinir');
+  assert.equal(calls.at(-1).body.model, 'grok-4', 'KEY2 listesi alinamazsa yedek model');
+});
+
+test('analyze: kullanicinin hisse kodu ipucu olarak gider (fiyat gitmez); sema yeni alanlari ister; drawn_levels kirpmaya gore cevrilir', async t => {
+  const G = fresh('grok.js');
+  const body = { ...ANALYSIS(), visible_indicators: [{ name: 'EMA 50', value: null }], drawn_levels: [{ price: 300, y: 0.5 }], platform: 'TradingView' };
+  const calls = mockFetch(t, [[isModels, () => ({ body: MODELS })], [isChat, () => ({ body: chat(JSON.stringify(body)) })]]);
+  const a = await G.analyze({ key: KEY, img: IMG, hint: { symbol: 'asels<script>' }, crop: { x: 0.1, y: 0.2, w: 0.5, h: 0.5 } });
+  const txt = calls[1].body.messages[1].content.find(p => p.type === 'text').text;
+  assert.match(txt, /Kullanicinin sectigi hisse: aselsscript/);
+  assert.doesNotMatch(txt, /fiyat/i);
+  assert.equal(a.drawn_levels[0].y, 0.2 + 0.5 * 0.5);
+  for (const k of ['visible_indicators', 'drawn_levels', 'platform']) assert.ok(ai.SCHEMA.required.includes(k), k);
+  assert.equal(ai.userText(), 'Grafigi analiz et.');
+});

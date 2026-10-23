@@ -1,0 +1,30 @@
+name: motor-olcum
+# Analiz motorunun gercek BIST verisinde yuruyen test dogrulugu (tools/eval-engine.js). Surum cikarmaz; yalniz olcum.
+on:
+  workflow_dispatch:
+    inputs:
+      evren:
+        type: choice
+        options: [BIST100, BIST50, BIST30]
+        default: BIST100
+  push:
+    paths: ['tools/eval-engine.js', '.github/workflows/eval.yml', 'tools/eval-trigger.txt']
+permissions:
+  contents: read
+jobs:
+  olcum:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - run: node tools/eval-engine.js ${{ inputs.evren || 'BIST100' }} 5
+      - uses: actions/upload-artifact@v6
+        with:
+          name: motor-olcum-${{ github.run_id }}
+          path: eval-out/
+          retention-days: 14

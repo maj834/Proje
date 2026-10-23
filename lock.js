@@ -20,6 +20,7 @@ const SCRYPT={N:2**17,r:8,p:1,maxmem:256*1024*1024};      // yeni kasalar; eskil
 const TMPPRE='gokilit-';                     // gecici acik kopya klasorlerinin oneki (tmp kokunde yalnizca bunlar silinir)
 const PARTIAL=/^\..+\.[0-9a-f]{8}\.(aciliyor|kilitleniyor|yenileniyor)$/;  // yarida kalmis islem dosyalari
 const BAKDIR='yedek',BAKTMP=/^[0-9a-f]{16}\.kilitli\.[0-9a-f]{8}\.tmp$/;   // sert bag yedekleri ve yarim kalan yedek baglari
+const BAKRE=/^([0-9a-f]{16})\.kilitli$/;     // tamamlanmis yedek bag adi (yedek/<id>.kilitli)
 const IDRE=/^[0-9a-f]{16}$/;
 
 const E=(msg,code)=>Object.assign(new Error(msg),{code});
@@ -226,7 +227,36 @@ function createVault(o={}){
   fs.mkdirSync(tmpRoot,{recursive:true,mode:0o700});
   fs.mkdirSync(bdir,{recursive:true,mode:0o700});try{fs.chmodSync(bdir,0o700)}catch(e){}
 
-  const read=()=>{try{const v=JSON.parse(fs.readFileSync(vf,'utf8'));return v&&v.pw?v:null}catch(e){return null}};
+  // Kasa dosyasi: yok (ilk kullanim), saglam ya da bozuk/okunamaz. Bozuksa vault.json.bak (son saglam kopya) denenir;
+  // o da yoksa kasa "bozuk" sayilir ve yeni sifre BELIRLENMEZ (yoksa eski dosyalar acilamaz hale gelirdi).
+  const vbak=vf+'.bak';
+  const validV=v=>!!(v&&typeof v==='object'&&v.pw&&typeof v.pw.iv==='string'&&typeof v.pw.ct==='string'&&typeof v.pw.tag==='string'&&
+    v.kdf&&typeof v.kdf==='object'&&typeof v.kdf.salt==='string'&&typeof v.kcv==='string');
+  const parseV=f=>{let s;try{s=fs.readFileSync(f,'utf8')}catch(e){return e.code==='ENOENT'?{none:true}:{bad:true}}
+    try{const v=JSON.parse(s);return validV(v)?{v}:{bad:true}}catch(e){return {bad:true}}};
+  // Kasada veri var mi (kayit ya da yedek bag): varsa kasa dosyasi kaybolmus demektir, ilk kurulum yapilmaz
+  function hasData(){
+    try{const s=fs.readFileSync(rf,'utf8');let a;try{a=JSON.parse(s)}catch(e){return true}if(!Array.isArray(a)||a.length)return true}
+    catch(e){if(e.code!=='ENOENT')return true}
+    try{return fs.readdirSync(bdir).some(n=>BAKRE.test(n))}catch(e){return false}
+  }
+  function load(){
+    const m=parseV(vf);if(m.v)return {state:'ok',v:m.v,from:'main'};
+    const b=parseV(vbak);if(b.v)return {state:'ok',v:b.v,from:'bak'};
+    if(m.none&&!b.bad&&!hasData())return {state:'none'};
+    return {state:'corrupt'};
+  }
+  const read=()=>{const s=load();return s.state==='ok'?s.v:null};
+  const corruptErr=()=>E('Kasa dosyası (vault.json) bozuk ya da okunamıyor. Kilitli dosyaların açılamaz hale gelmemesi için yeni şifre belirlenmedi; kasa klasörünü yedekten geri yükle.','CORRUPT');
+  // Kasa kayitli olmali: yoksa NOSETUP, bozuksa CORRUPT
+  function needV(){const s=load();if(s.state==='ok')return s;if(s.state==='corrupt')throw corruptErr();throw E('Önce bir şifre belirle.','NOSETUP')}
+  // Yazmadan once mevcut saglam kopya .bak'a alinir; yazdiktan sonra .bak yeni surume esitlenir (sifre degisince eski
+  // sifreyle sarili anahtar .bak'ta kalmasin).
+  function saveV(v){
+    const cur=parseV(vf);if(cur.v)try{writeJson(vbak,cur.v)}catch(e){}
+    writeJson(vf,v);
+    try{writeJson(vbak,v)}catch(e){}
+  }
   const kcv=k=>crypto.createHmac('sha256',k).update('gokilit-kcv').digest().subarray(0,16).toString('base64');
   const VAAD=Buffer.from('gokilit-vault-v1');
   function wrap(key,k){const iv=crypto.randomBytes(IVL),c=crypto.createCipheriv('aes-256-gcm',key,iv);c.setAAD(VAAD);
@@ -248,15 +278,17 @@ function createVault(o={}){
     if([...pw].length>1024)throw E('Şifre çok uzun.','WEAK');
   }
   // Yanlis deneme sayaci kasa klasorunde saklanir: uygulamayi yeniden baslatmak sayaci sifirlamaz
-  function att(){try{const a=JSON.parse(fs.readFileSync(af,'utf8'));return {fails:+a.fails||0,until:+a.until||0,rounds:+a.rounds||0}}catch(e){return {fails:0,until:0,rounds:0}}}
+  function att(){try{const a=JSON.parse(fs.readFileSync(af,'utf8'));return {fails:+a.fails||0,until:+a.until||0,rounds:+a.rounds||0,wait:+a.wait||0}}catch(e){return {fails:0,until:0,rounds:0,wait:0}}}
   function attSave(a){try{if(!a.fails&&!a.until&&!a.rounds)fs.rmSync(af,{force:true});else writeJson(af,a)}catch(e){}}
   const secs=ms=>{const s=Math.ceil(ms/1000);return s>=120?Math.ceil(s/60)+' dakika':s+' saniye'};
   function gate(){const t=now(),a=att();
-    // saat geri alinsa da bekleme en fazla MAXWAIT surer
-    if(a.until>t)throw E(`Çok fazla yanlış deneme. ${secs(Math.min(a.until-t,MAXWAIT))} bekle.`,'WAIT')}
+    // Saat geri alinsa da bekleme, verilen sureyi (en fazla MAXWAIT) asmaz: kayitli bitis simdiye gore kirpilip saklanir
+    const cap=Math.min(a.wait>0?a.wait:MAXWAIT,MAXWAIT);
+    if(a.until-t>cap){a.until=t+cap;attSave(a)}
+    if(a.until>t)throw E(`Çok fazla yanlış deneme. ${secs(a.until-t)} bekle.`,'WAIT')}
   function wrong(){
     const a=att();
-    if(++a.fails>=MAXFAIL){const w=Math.min(WAIT*2**a.rounds,MAXWAIT);a.fails=0;a.rounds++;a.until=now()+w;attSave(a);
+    if(++a.fails>=MAXFAIL){const w=Math.min(WAIT*2**a.rounds,MAXWAIT);a.fails=0;a.rounds++;a.until=now()+w;a.wait=w;attSave(a);
       return E(`Şifre yanlış. Çok fazla deneme: ${secs(w)} bekle.`,'WAIT')}
     attSave(a);return E(`Şifre yanlış. ${MAXFAIL-a.fails} deneme hakkın kaldı.`,'WRONG');
   }
@@ -283,31 +315,43 @@ function createVault(o={}){
     if(was)ev({type:'locked',reason});
   }
 
+  // Sifre denemeleri sirayla: ayni anda gelen denemeler gate()'i birlikte gecip 5 deneme sinirini asamaz
+  let pwq=Promise.resolve();
+  const serial=f=>{const p=pwq.then(f);pwq=p.catch(()=>{});return p};
+
   async function setup(pw){
-    if(read())throw E('Şifre zaten belirlenmiş.','EXISTS');
+    const s=load();
+    if(s.state==='ok')throw E('Şifre zaten belirlenmiş.','EXISTS');
+    if(s.state==='corrupt')throw corruptErr();
     checkPw(pw);
     const k=crypto.randomBytes(32),{key,kdf}=await newPw(pw);
-    try{writeJson(vf,{v:1,kdf,pw:wrap(key,k),kcv:kcv(k),bio:tryProtect(k),created:now()})}finally{key.fill(0)}
+    try{
+      // scrypt surerken baska bir kurulum yapildiysa ezme
+      if(load().state!=='none')throw E('Şifre zaten belirlenmiş.','EXISTS');
+      saveV({v:1,kdf,pw:wrap(key,k),kcv:kcv(k),bio:tryProtect(k),created:now()});
+    }catch(e){k.fill(0);throw e}finally{key.fill(0)}
     start(k);return true;
   }
-  async function unlockWithPassword(pw){
-    gate();const v=read();if(!v)throw E('Önce bir şifre belirle.','NOSETUP');
+  const unlockWithPassword=pw=>serial(async()=>{
+    gate();const {v,from}=needV();
     if(typeof pw!=='string'||!pw)throw E('Şifreyi gir.','WRONG');
     const k=await unwrapPw(v,pw);
     if(!k)throw wrong();
     right();
-    if(!v.bio){const b=tryProtect(k);if(b){v.bio=b;try{writeJson(vf,v)}catch(e){}}}   // Touch ID kaydini onar
+    let dirty=from!=='main';                              // ana dosya bozuktu: .bak'tan onar
+    if(!v.bio){const b=tryProtect(k);if(b){v.bio=b;dirty=true}}   // Touch ID kaydini onar
+    if(dirty)try{saveV(v)}catch(e){}
     start(k);return true;
-  }
+  });
   function unlockWithKey(buf){
-    const v=read();if(!v)throw E('Önce bir şifre belirle.','NOSETUP');
+    const {v}=needV();
     if(!Buffer.isBuffer(buf)||buf.length!==32)throw E('Anahtar geçersiz.','KEY');
     const a=Buffer.from(kcv(buf),'base64'),b=Buffer.from(v.kcv,'base64');
     if(a.length!==b.length||!crypto.timingSafeEqual(a,b))throw E('Anahtar bu kasaya ait değil; şifreyle aç.','KEY');
     start(Buffer.from(buf));return true;
   }
   async function unlockBiometric(unprotect=o.unprotect){
-    const v=read();if(!v)throw E('Önce bir şifre belirle.','NOSETUP');
+    const {v}=needV();
     if(!v.bio||!unprotect)throw E('Touch ID kaydı yok; şifreyle aç.','NOBIO');
     if(o.biometric){try{await o.biometric('kilitli dosyaları açmak')}catch(e){throw E('Touch ID doğrulanamadı.','BIO')}}
     let k;try{k=unprotect(v.bio)}catch(e){throw E('Anahtar Zinciri\'ne erişilemedi; şifreyle aç.','KEYCHAIN')}
@@ -315,31 +359,36 @@ function createVault(o={}){
   }
   async function rewrap(v,k,nw){
     const {key,kdf}=await newPw(nw);
-    try{v.kdf=kdf;v.pw=wrap(key,k);v.changed=now();writeJson(vf,v)}finally{key.fill(0)}
+    try{v.kdf=kdf;v.pw=wrap(key,k);v.changed=now();saveV(v)}finally{key.fill(0)}
   }
   // Sifre degisince yalnizca DK yeniden sarilir; dosyalar yeniden sifrelenmez
-  async function changePassword(old,nw){
-    gate();const v=read();if(!v)throw E('Önce bir şifre belirle.','NOSETUP');
+  const changePassword=(old,nw)=>serial(async()=>{
+    gate();const {v}=needV();
     checkPw(nw);
     const k=typeof old==='string'&&old?await unwrapPw(v,old):null;
     if(!k)throw wrong();
     right();try{await rewrap(v,k,nw)}finally{k.fill(0)}
     touch();return true;
-  }
+  });
   // Acik oturumda (ornegin taze Touch ID dogrulamasindan sonra) yeni sifre koy
-  async function resetPassword(nw){need();checkPw(nw);await rewrap(read(),dk,nw);return true}
+  async function resetPassword(nw){need();checkPw(nw);await rewrap(needV().v,dk,nw);return true}
 
   // Kayit: kilitli dosyalarin listesi (yol, ad, boyut, tarih). Icerik yok.
   const regRead=()=>{try{const a=JSON.parse(fs.readFileSync(rf,'utf8'));return Array.isArray(a)?a:[]}catch(e){return []}};
+  // Kesin okuma: kayit okunamiyorsa null (sahipsiz yedek temizligi bozuk kayitla calismasin).
+  // Kayit dosyasi hic yoksa da null: yedekler varken kaydin kaybolmasi (elle silme, yarim geri yukleme) tum yedekleri sildirmesin
+  const regReadStrict=()=>{try{const a=JSON.parse(fs.readFileSync(rf,'utf8'));return Array.isArray(a)?a:null}catch(e){return null}};
   const regWrite=a=>writeJson(rf,a);
   function regAdd(e){const a=regRead().filter(x=>x.path!==e.path);a.push(e);regWrite(a);return e}
   function regDrop(p){const a=regRead(),b=a.filter(x=>x.path!==p);if(b.length!==a.length)regWrite(b)}
+  function regDropId(id){const a=regRead(),b=a.filter(x=>x.id!==id);if(b.length!==a.length)regWrite(b)}
+  const live=()=>regRead().filter(e=>!e.pending);       // yarim kalmis kilitleme kayitlari listede gorunmez
   function files(){
     const open=new Set([...temps.values()].map(t=>t.locked));
-    return regRead().map(e=>{const missing=!exists(e.path),b=bakPath(e.id);
+    return live().map(e=>{const missing=!exists(e.path),b=bakPath(e.id);
       return {...e,missing,opened:open.has(e.path),recoverable:missing&&!!b&&exists(b)}});
   }
-  const entry=id=>regRead().find(e=>e.id===id)||null;
+  const entry=id=>live().find(e=>e.id===id)||null;
   // Kayittan cikar; yedek bag da silinir (yoksa icerik kasa klasorunde sahipsiz kalirdi)
   async function forget(id,x={}){
     const a=regRead(),e=a.find(r=>r.id===id);if(!e)return false;
@@ -366,7 +415,21 @@ function createVault(o={}){
     try{await chflags(b,false)}catch(e){}
     try{fs.rmSync(b,{force:true});fsyncDir(bdir)}catch(e){}
   }
+  // Hicbir kaydin gostermedigi yedek baglari sil (or. eski surumde kayit yazilmadan kesilen kilitleme). Yalnizca
+  // yedek adi kalibina uyan dosyalar; kayit okunamiyorsa hicbir sey silinmez.
+  async function dropOrphans(chflags){
+    const a=regReadStrict();if(!a)return 0;
+    const ids=new Set(a.map(e=>String(e.id)));let names=[],n=0;
+    try{names=fs.readdirSync(bdir)}catch(e){return 0}
+    for(const nm of names){const m=BAKRE.exec(nm);if(!m||ids.has(m[1]))continue;
+      const q=path.join(bdir,nm);try{if(!fs.lstatSync(q).isFile())continue}catch(e){continue}
+      try{await chflags(q,false)}catch(e){}
+      try{fs.rmSync(q,{force:true});n++}catch(e){}}
+    if(n)fsyncDir(bdir);return n;
+  }
   const sameFile=(a,b)=>{try{const x=fs.statSync(a),y=fs.statSync(b);return x.dev===y.dev&&x.ino===y.ino}catch(e){return false}};
+  // Dosya kimligi (bigint: buyuk inode numaralarinda hassasiyet kaybi olmasin)
+  const fid=p=>{try{const s=fs.statSync(p,{bigint:true});return {dev:String(s.dev),ino:String(s.ino)}}catch(e){return null}};
   // "x.jpg.kilitli" doluysa "x.jpg (geri getirildi).kilitli", o da doluysa "x.jpg (geri getirildi 2).kilitli"
   function restoreName(p){
     if(!exists(p))return p;
@@ -375,7 +438,7 @@ function createVault(o={}){
   }
   // Durum: her kayit icin gorunen dosya ve yedek var mi (degisiklik yapmaz; anahtar gerekmez)
   function check(){
-    return regRead().map(e=>{const b=bakPath(e.id),vis=exists(e.path),bak=!!b&&exists(b),linked=vis&&bak&&sameFile(e.path,b);
+    return live().map(e=>{const b=bakPath(e.id),vis=exists(e.path),bak=!!b&&exists(b),linked=vis&&bak&&sameFile(e.path,b);
       let alone=false;if(bak&&!linked)try{alone=fs.statSync(b).nlink===1}catch(_){}
       return {id:e.id,name:e.name,path:e.path,visible:vis,backup:bak,linked,recoverable:bak&&!linked&&(!vis||alone)}});
   }
@@ -385,8 +448,26 @@ function createVault(o={}){
     const chflags=x.chflags||o.chflags||noop;
     const a=regRead(),restored=[],failed=[],moved=[];let linked=0,changed=false;
     for(const e of a){
+      if(e.pending)continue;                            // yarim kilitleme: acilista sweep() cozer
       const b=bakPath(e.id);if(!b||typeof e.path!=='string'||!path.isAbsolute(e.path)||!e.path.toLowerCase().endsWith(EXT))continue;
       const vis=exists(e.path),bak=exists(b);
+      // Yeniden kilitleme (relock) yeni dosyayi yerine koyduktan sonra, yedek bag yenilenip kayit yazilmadan kesildiyse:
+      // gorunen dosya relock'un kaydettigi yeni dosyanin kendisidir (ayni inode). Eski surumu geri getirmek yerine
+      // yedek bagi yeni dosyaya tasi. Isaret eslesmezse (relock yer degistirmeden kesildi) yalnizca isaret silinir.
+      if(e.next&&typeof e.next==='object'){
+        const id=vis?fid(e.path):null,n=e.next;
+        if(id&&id.ino===String(n.ino)&&id.dev===String(n.dev)&&!(bak&&sameFile(e.path,b))&&isLockedFile(e.path)){
+          if(bak)try{await chflags(b,false)}catch(_){}
+          try{await chflags(e.path,false)}catch(_){}
+          const ok=linkBackup(e.path,e.id);
+          if(!ok&&bak)try{fs.rmSync(b,{force:true});fsyncDir(bdir)}catch(_){}
+          try{await chflags(e.path,true)}catch(_){}
+          if(ok){try{await chflags(b,true)}catch(_){}linked++}
+          e.backup=ok;if(Number.isSafeInteger(n.size))e.size=n.size;e.updatedAt=now();
+          delete e.next;changed=true;continue;
+        }
+        delete e.next;changed=true;
+      }
       // Yerinde baska bir dosya var ve yedegi baska hicbir ad tutmuyorsa (nlink 1) bizimki silinmis demektir
       const replaced=vis&&bak&&!sameFile(e.path,b)&&(()=>{try{return fs.statSync(b).nlink===1}catch(_){return false}})();
       // Gorunen dosya yok ama ayni icerige baska bir ad daha bagli (nlink>1): dosya silinmemis, tasinmis/yeniden adlanmis.
@@ -413,8 +494,14 @@ function createVault(o={}){
         if(ok){try{await chflags(b,true)}catch(_){}linked++}
         if(e.backup!==ok){e.backup=ok;changed=true}
       }
+      // Kilitleme bayrak konmadan kesildiyse (sweep kaydi tamamladi): bayragi simdi koy
+      if(e.unflagged){
+        if(exists(e.path)){try{await chflags(e.path,true)}catch(_){}if(exists(b))try{await chflags(b,true)}catch(_){}}
+        delete e.unflagged;changed=true;
+      }
     }
     if(changed)regWrite(a);
+    await dropOrphans(chflags);
     if(restored.length)ev({type:'restored',files:restored});
     return {restored,failed,linked,moved};
   }
@@ -433,7 +520,7 @@ function createVault(o={}){
     const out=real+EXT,d=path.dirname(real);
     if(exists(out))throw E(`"${path.basename(out)}" zaten var.`,'EXISTS');
     space(d,st.size);
-    let tmp=path.join(d,'.'+path.basename(real)+'.'+rand(4)+'.kilitleniyor'),placed=false;
+    let tmp=path.join(d,'.'+path.basename(real)+'.'+rand(4)+'.kilitleniyor'),placed=false,id=null,unlinked=false;
     busy++;
     try{
       const meta=await encryptStream(dk,real,tmp,{chunk:x.chunk||chunk,onProgress:prog(x.onProgress)});
@@ -443,18 +530,27 @@ function createVault(o={}){
       if(v.sha256!==meta.sha256||v.size!==meta.size)throw E(`"${path.basename(real)}" doğrulanamadı; orijinal dosyaya dokunulmadı.`,'VERIFY');
       const now2=fs.lstatSync(real);
       if(now2.size!==meta.size||now2.mtimeMs!==meta.mtimeMs)throw E(`"${path.basename(real)}" kilitlenirken değişti; tekrar dene.`,'CHANGED');
+      // Once "yarim" kayit: yerlestirme ile son kayit arasinda kesilirse acilista sweep() tamamlar ya da geri alir
+      id=rand(8);
+      const base={id,path:out,name:meta.name,size:meta.size,lockedAt:now()};
+      {const a=regRead();a.push({...base,backup:false,pending:true,src:real});regWrite(a)}
+      if(x.afterPending)await x.afterPending();
       await place(tmp,out);tmp=null;placed=true;
+      if(x.afterPlace)await x.afterPlace();
       try{await fsp.unlink(real)}catch(e){throw E(`"${path.basename(real)}" silinemedi (${e.code||e.message}); kilitleme geri alındı.`,'UNLINK')}
-      fsyncDir(d);
+      unlinked=true;fsyncDir(d);
       // Yedek sert bag uchg'den ONCE (macOS'ta degistirilemez dosyaya bag kurulamaz); ayni inode, ek alan yok
-      const id=rand(8),backup=linkBackup(out,id);
+      const backup=linkBackup(out,id);
+      if(x.afterBackup)await x.afterBackup();
       let flagged=true;try{await chflags(out,true)}catch(e){flagged=false}
       if(backup)try{await chflags(bakPath(id),true)}catch(e){}
-      const ent=regAdd({id,path:out,name:meta.name,size:meta.size,lockedAt:now(),backup});
-      return {...ent,flagged};
+      const ent=regAdd({...base,backup});
+      return {...ent,flagged};   // regAdd ayni yoldaki yarim kaydin yerine gecer
     }catch(e){
       if(tmp)await fsp.rm(tmp,{force:true}).catch(()=>{});
       if(placed&&exists(real))await fsp.rm(out,{force:true}).catch(()=>{});
+      // Orijinal hala yerindeyse (geri alindi) yarim kayit ve yedek silinir; orijinal silindiyse kayit kalir (sweep tamamlar)
+      if(id&&!unlinked){try{regDropId(id)}catch(_){}await dropBackup(id,chflags)}
       throw e;
     }finally{busy--;touch()}
   }
@@ -482,28 +578,36 @@ function createVault(o={}){
     const meta=await header(p),st=fs.lstatSync(from);
     if(!st.isFile())throw E('Kaydedilecek kopya bulunamadı.','NOENT');
     const d=path.dirname(p);space(d,st.size);
-    let tmp=path.join(d,'.'+path.basename(p)+'.'+rand(4)+'.yenileniyor'),cleared=false;
+    let tmp=path.join(d,'.'+path.basename(p)+'.'+rand(4)+'.yenileniyor'),cleared=false,marked=null,bk=null;
     busy++;
     try{
       const m=await encryptStream(dk,from,tmp,{name:meta.name,chunk:x.chunk||chunk,onProgress:prog(x.onProgress)});
       if(x.beforeVerify)await x.beforeVerify(tmp);
       let v;try{v=await decryptStream(dk,tmp,null)}catch(e){throw E('Yeni kopya doğrulanamadı; kilitli dosya değişmedi.','VERIFY')}
       if(v.sha256!==m.sha256)throw E('Yeni kopya doğrulanamadı; kilitli dosya değişmedi.','VERIFY');
+      // Yer degistirmeden ONCE kayda yeni dosyanin kimligi yazilir: rename ile kayit arasinda kesilirse repair() gorunen
+      // dosyanin bu yeni surum oldugunu bilir ve yedegi ona tasir (eski surumu "geri getirilmis" diye koymaz).
+      const a=regRead(),e=a.find(r=>r.path===p),b=e&&bakPath(e.id);
+      if(e){const id=fid(tmp);if(id){e.next={...id,size:m.size};regWrite(a);marked=e.id}}
+      // Bayraklar once kaldirilir ki rename'den hemen sonra yedek bag yenilensin (aradaki pencere en kisa olsun)
+      if(b&&exists(b))try{await chflags(b,false);bk=b}catch(_){}
       try{await chflags(p,false);cleared=true}catch(e){}
       await fsp.rename(tmp,p);tmp=null;fsyncDir(d);
       // Yedek bag hala eski inode'u gosteriyor: yeni dosyaya atomik olarak yenile; olmazsa eski surum yedegi silinir
-      const a=regRead(),e=a.find(r=>r.path===p),b=e&&bakPath(e.id);
       if(b){
-        if(exists(b))try{await chflags(b,false)}catch(_){}
+        if(x.beforeBackup)await x.beforeBackup();
         e.backup=linkBackup(p,e.id);
         if(!e.backup)try{fs.rmSync(b,{force:true})}catch(_){}
       }
       let flagged=true;try{await chflags(p,true)}catch(e){flagged=false}
       if(b&&e.backup)try{await chflags(b,true)}catch(_){}
-      if(e){e.size=m.size;e.updatedAt=now();regWrite(a)}
+      if(e){e.size=m.size;e.updatedAt=now();delete e.next;regWrite(a)}
       return {size:m.size,flagged,backup:!!(e&&e.backup)};
     }catch(e){
-      if(tmp){await fsp.rm(tmp,{force:true}).catch(()=>{});if(cleared)await chflags(p,true).catch(()=>{})}
+      if(tmp){await fsp.rm(tmp,{force:true}).catch(()=>{});if(cleared)await chflags(p,true).catch(()=>{});
+        // yer degistirilmedi: isaret silinir, yedek bayragi geri konur
+        if(bk)await chflags(bk,true).catch(()=>{});
+        if(marked)try{const a=regRead(),r=a.find(q=>q.id===marked);if(r&&r.next){delete r.next;regWrite(a)}}catch(_){}}
       throw e;
     }finally{busy--;touch()}
   }
@@ -542,15 +646,22 @@ function createVault(o={}){
   }
   // Baska yerden gelen .kilitli dosyayi listeye ekle (bu kasanin anahtariyla acilabiliyorsa)
   async function adopt(p,x={}){
-    need();const chflags=x.chflags||o.chflags||noop;const real=realOr(p);checkLocked(real);
+    need();const chflags=x.chflags||o.chflags||noop;
+    if(typeof p!=='string'||!path.isAbsolute(p))throw E('Geçersiz kilitli dosya.','PATH');
+    const real=realOr(p);checkLocked(real);
+    // Yalnizca ev klasorundeki dosyalar; kasanin kendi klasoru (yedek/, tmp/) asla
+    const h=realOr(home),nm=path.basename(real);
+    if(!inside(real,h)||real===h)throw E(`"${nm}" ev klasörünün dışında; listeye eklenemez.`,'OUTSIDE');
+    if(inside(real,realOr(dir))||inside(real,realOr(tmpRoot)))throw E(`"${nm}" uygulamanın kendi dosyası; listeye eklenemez.`,'DENY');
     const meta=await header(real);
-    const old=regRead().find(e=>e.path===real);if(old)return old;
-    const id=rand(8);
+    const old=live().find(e=>e.path===real);if(old)return old;
+    const id=rand(8),base={id,path:real,name:meta.name,size:meta.size,lockedAt:now()};
+    regAdd({...base,backup:false});                    // once kayit: yedek bag hicbir zaman sahipsiz kalmaz
     let cleared=false;try{await chflags(real,false);cleared=true}catch(e){}
     const backup=linkBackup(real,id);
     if(cleared)try{await chflags(real,true)}catch(e){}
     if(backup)try{await chflags(bakPath(id),true)}catch(e){}
-    return regAdd({id,path:real,name:meta.name,size:meta.size,lockedAt:now(),backup});
+    return regAdd({...base,backup});
   }
 
   // Acilista: onceki oturumdan (cokus) kalan acik kopyalari ve kayitli dosyalarin yanindaki yarim islem dosyalarini sil
@@ -562,10 +673,36 @@ function createVault(o={}){
     // yarim kalan yedek baglari (yenileme sirasinda cokus); tamamlanmis yedeklere dokunulmaz
     let bn=[];try{bn=fs.readdirSync(bdir)}catch(e){}
     for(const n of bn)if(BAKTMP.test(n))try{fs.rmSync(path.join(bdir,n),{force:true})}catch(e){}
+    settlePending();
+  }
+  // Yarim kalmis kilitleme kayitlari (lockFile yerlestirme ile son kayit arasinda kesildi):
+  //  - yedek bag varse (orijinal silinmisti): kayit tamamlanir, yedek asla silinmez
+  //  - .kilitli yoksa: kayit silinir
+  //  - .kilitli var ve orijinal hala yerinde: geri alinir (.kilitli silinir, orijinal kalir)
+  //  - .kilitli var, orijinal silinmis: kayit tamamlanir; yedek bagi/bayrak repair()'de kurulur
+  function settlePending(){
+    const a=regRead();if(!a.some(e=>e&&e.pending))return;
+    const out=[];
+    for(const e of a){
+      if(!e||!e.pending){out.push(e);continue}
+      const b=bakPath(e.id),vis=typeof e.path==='string'&&path.isAbsolute(e.path)&&exists(e.path);
+      const src=typeof e.src==='string'&&path.isAbsolute(e.src)&&e.src+EXT===e.path?e.src:null;
+      // Yedek bag yalnizca orijinal silindikten SONRA kurulur: yedek varsa icerigin tek kopyasi odur (orijinal
+      // yolda yeni bir dosya belirmis ya da .kilitli silinmis olsa bile). Kayit tamamlanir; eksik .kilitli repair()'de geri gelir.
+      const hasBak=!!b&&exists(b);
+      if(hasBak||(vis&&isLockedFile(e.path)&&!(src&&exists(src)))){
+        const {pending,src:_s,...r}=e;
+        r.backup=hasBak&&(!vis||sameFile(e.path,b));r.unflagged=true;out.push(r);continue;
+      }
+      // geri al: yalnizca bizim yazdigimiz .kilitli (orijinal duruyor); baska bir dosyaya dokunulmaz
+      if(vis&&src&&exists(src)&&isLockedFile(e.path)&&!(b&&exists(b)&&!sameFile(e.path,b)))try{fs.rmSync(e.path,{force:true});fsyncDir(path.dirname(e.path))}catch(_){}
+      if(b)try{fs.rmSync(b,{force:true})}catch(_){}
+    }
+    try{regWrite(out)}catch(e){}
   }
   sweep();
 
-  return {setup,hasPassword:()=>!!read(),hasBiometric:()=>!!(read()||{}).bio&&!!o.unprotect,
+  return {setup,hasPassword:()=>!!read(),status:()=>load().state,hasBiometric:()=>!!(read()||{}).bio&&!!o.unprotect,
     unlockWithPassword,unlockWithKey,unlockBiometric,lock,isUnlocked:()=>!!dk,changePassword,resetPassword,
     touch,remainingMs:()=>dk?Math.max(0,deadline-now()):0,idleMs,
     lockFile,decryptTo,verify,header,unlockFile,relock,removeLocked,openTemp,saveTemp,adopt,

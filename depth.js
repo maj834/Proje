@@ -15,7 +15,7 @@ function num(s){
   if(!/^[\d.,]+$/.test(s))return null;
   if(/^\d{1,3}(\.\d{3})+$/.test(s))return sg*s.replace(/\./g,'')*mul;       // 4.342.512
   if(/^\d{1,3}(,\d{3})+$/.test(s)&&!/,\d{1,2}$/.test(s))return sg*s.replace(/,/g,'')*mul;
-  if(/,\d+$/.test(s))return sg*s.replace(/\./g,'').replace(',','.')*mul;     // 1.234,56 / 12,13
+  if(/,\d+$/.test(s)){const v=sg*s.replace(/\./g,'').replace(',','.')*mul;return Number.isFinite(v)?v:null}     // 1.234,56 / 12,13 ("1,2,3" -> null)
   const v=sg*s*mul;return Number.isFinite(v)?v:null;
 }
 const TOK=/[-+]?%?\d[\d.,]*[mMkK]?%?/g;
@@ -40,7 +40,10 @@ function parseText(text,hint={}){
   const sym=(String(text).match(/(?<!\p{L})[A-ZÇĞİÖŞÜ]{4,6}(?!\p{L})/gu)||[]).find(w=>!STOP.has(w));if(!d.symbol&&sym)d.symbol=sym;
   // Son fiyat: once acik etiket (son/fiyat/last) tum satirlarda; yoksa TL/₺ (hacim/tutar satirlari haric)
   const kv0=(l,re)=>{const m=l.match(re);return m?num(m[1]):null},LS=lines.map(l=>l.replace(/[*_`]/g,''));
-  for(const l of LS){const v=kv0(l,/(?:son|fiyat|anl[ıi]k|last)\s*[:=]?\s*₺?\s*([\d.,]+)/i);if(v!=null){d.last=v;break}}
+  // Etiket kelime basinda olmali ("Ort. fiyat" haric); deger fiyat bicimindeyse ya da ayirac (: = ₺) varsa alinir,
+  // "Son 20 İşlem" gibi baslik sayilari alinmaz. Bosluk gruplari tek: uzun bosluk dizisinde yavaslamaz.
+  const LAST=/(?<![\p{L}\p{N}])(?<!ort\.?\s?)(?:son(?:\s+fiyat)?|fiyat|anl[ıi]k(?:\s+fiyat)?|last(?:\s+price)?)(\s*[:=]\s*|\s*₺\s*|\s+)(?:₺\s*)?([\d.,]+)(?!\s*(?:işlem|islem|dk|dakika|kurum|lot|adet|gün|gun|saat|%))/iu;
+  for(const l of LS){const m=l.match(LAST);if(!m)continue;const sep=/[:=₺]/.test(m[1]);if(!sep&&!isPrice(m[2]))continue;const v=num(m[2]);if(v!=null){d.last=v;break}}
   if(d.last==null)for(const l of LS){if(/hacim|tutar|ciro/i.test(l))continue;const v=kv0(l,/₺\s*([\d.,]+)/)??kv0(l,/([\d.,]+)\s*(?:TL\b|₺)/i);if(v!=null){d.last=v;break}}
   const rcv=hms(hint.now);
   for(const raw of lines){
@@ -136,16 +139,20 @@ function estNew(R,X){
   let best=null;
   for(let k=0;k<=x.length;k++){const n=x.length-k;if(n>=min&&n<=r.length&&eq(k,0,n)){best={add:X.slice(0,k)};break}}  // NF: X = yeni + R'nin basi
   for(let j=0;j<r.length;j++){const n=r.length-j;if(n>=min&&n<=x.length&&eq(0,j,n)){const add=X.slice(n);if(!best||add.length<best.add.length)best={add};break}} // OF: X = R'nin sonu + yeni
-  return best?best.add:X;
+  if(best)return best.add;
+  return X;
 }
 // Saatli islemlerde tekrar sayimi: ayni anahtarli islemden yeni grupta eskisinden fazlasi varsa yalniz fazlasi eklenir.
 function mergeTape(tape,trades,max=800){
   const have=new Map(),cnt=new Map(),add=[];for(const t of tape||[])if(!t.est){const k=tkey(t);have.set(k,(have.get(k)||0)+1)}
   const est=[];for(const t of trades||[]){if(sec(t.time)==null)continue;if(t.est){est.push(t);continue}
     const k=tkey(t),c=(cnt.get(k)||0)+1;cnt.set(k,c);if(c>(have.get(k)||0))add.push(t)}
-  if(est.length)add.push(...estNew(tape&&tape.estLast,est));
+  // Daha once gorulmus bir pencerenin aynisi (gec gelen eski mesaj) yeniden sayilmaz ve son pencere yerine gecmez
+  const sig=est.map(ekey).join('\n'),seen=(tape&&tape.estSeen)||[],stale=est.length>0&&sig!==(tape&&tape.estLast||[]).map(ekey).join('\n')&&seen.includes(sig);
+  if(est.length&&!stale)add.push(...estNew(tape&&tape.estLast,est));
   const out=[...add,...(tape||[])].sort((a,b)=>sec(b.time)-sec(a.time)).slice(0,max);
-  Object.defineProperty(out,'estLast',{value:est.length?est:tape&&tape.estLast||null}); // son ham saatsiz mesaj (hizalama icin)
+  Object.defineProperty(out,'estLast',{value:est.length&&!stale?est:tape&&tape.estLast||null});
+  Object.defineProperty(out,'estSeen',{value:est.length&&!stale?[...seen.filter(x=>x!==sig),sig].slice(-5):seen}); // son ham saatsiz mesaj (hizalama icin)
   return out;
 }
 // Aktif alis/satis dengesi, hacim agirlikli ortalama fiyat (VWAP), kumulatif hacim farki (CVD) ve en agresif kurum.
@@ -173,6 +180,10 @@ function tapeFlow(tape){
   return {score,dir:enough?(score>=30?1:score<=-30?-1:0):0,enough,why,w5,w15,last,cvd,top:top?{name:top[0],net:top[1]}:null,lastTime:T[0].time,count:T.length};
 }
 
-const api={num,parseText,hasData,walls,pressure,trend,mergeTape,tapeFlow};
+// Aynı hisse, gecerli saat ve tazelik: gelecek/baska hisse/eski veri karara girmez.
+function freshFor(d,symbol,now=Date.now(),maxAge=300000){
+  return d&&d.symbol===symbol&&Number.isFinite(d.at)&&d.at<=now+30000&&now-d.at<=maxAge?d:null;
+}
+const api={freshFor,num,parseText,hasData,walls,pressure,trend,mergeTape,tapeFlow};
 if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.Depth=api;
 })(this);

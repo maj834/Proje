@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- neo-yardimcisi ikilisine __TEXT,__info_plist olarak gomulur (package.json "neo" betigi).
+     Kullanim aciklamalari olmadan TCC korumali API'ler (mikrofon, konusma tanima) duz CLI'yi cokertebilir. -->
+<plist version="1.0">
+  <dict>
+    <key>CFBundleIdentifier</key>
+    <string>com.cem.app.neo</string>
+    <key>CFBundleName</key>
+    <string>neo-yardimcisi</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Neo sesli asistanı "Hey Neo" dediğinizi duymak ve komutlarınızı dinlemek için mikrofonu kullanır.</string>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>Neo sesli asistanı söylediklerinizi yazıya çevirmek için konuşma tanımayı kullanır; "Hey Neo" algılaması cihaz üzerinde yapılır.</string>
+  </dict>
+</plist>
