@@ -279,7 +279,8 @@ function create(el,opts={}){
       const s=line(color,width||2,0,{lineStyle:style||0,lastValueVisible:!!title,title:title||''});s.setData(i1===i2?[{time:R[i1].time,value:p1}]:[{time:R[i1].time,value:p1},{time:R[i2].time,value:p2}]);DS.push(s);return s};
     for(const d of DR){const col=d.color||C.acc;
       if(d.kind==='hline'){DPL.push(S.candle.createPriceLine({price:d.a.p,color:col,lineWidth:1,lineStyle:0,axisLabelVisible:true,title:''}));continue}
-      const i1=nearest(d.a.t),i2=nearest(d.b.t);if(i1<0||i2<0)continue;
+      if(Math.max(d.a.t,d.b.t)<R[0].time*1000||Math.min(d.a.t,d.b.t)>R[last].time*1000)continue;
+      const i1=nearest(d.a.t),i2=nearest(d.b.t);if(i1<0||i2<0||i1===i2)continue;
       if(d.kind==='trend'||d.kind==='ray'){
         if(d.kind==='ray'&&i2!==i1){const m=(d.b.p-d.a.p)/(i2-i1),lo=Math.min(i1,i2);seg(lo,lo===i1?d.a.p:d.b.p,last,(lo===i1?d.a.p:d.b.p)+m*(last-lo),col,0,2,'')}
         else seg(i1,d.a.p,i2,d.b.p,col,0,2,'')}
@@ -313,7 +314,7 @@ function create(el,opts={}){
     try{prevS.setData(a===b?[{time:R[a].time,value:pend.p}]:[{time:R[a].time,value:a===i1?pend.p:price},{time:R[b].time,value:b===i1?pend.p:price}])}catch(e){}}
   function removeAt(px,py){const k=drawingAt(px,py);if(k<0)return false;DR=DR.filter((_,j)=>j!==k);
     setTimeout(()=>{drawUser();if(drawFn)try{drawFn(DR.slice())}catch(e){}if(toolFn)try{toolFn(tool,null,0)}catch(e){}},0);return true}
-  function placePoint(i,price){if(!tool||!R[i])return;const pt={t:R[i].time*1000,p:+snap(i,price).toFixed(decimals(price))};
+  function placePoint(i,price){if(!tool||!R[i])return;if(pend&&nearest(pend.t)===i){if(toolFn)try{toolFn(tool,null,1)}catch(e){}return}const pt={t:R[i].time*1000,p:+snap(i,price).toFixed(decimals(price))};
     if(NEED[tool]===1||pend){const d={id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),kind:tool,a:pend||pt,b:pt};
       if(tool==='hline')d.a=pt;DR=[...DR,d];pend=null;preview(null);const t=tool;tool=null;
       setTimeout(()=>{drawUser();if(drawFn)try{drawFn(DR.slice())}catch(e){}if(toolFn)try{toolFn(null,t)}catch(e){}},0)}

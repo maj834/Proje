@@ -574,7 +574,7 @@ function slim(e){if(!e)return e;const {lines,rawCandles,allSignals,trendlines,fi
 
 // Derinlik (Telegram botu) ve haber botu verisi karara girer: yalniz ayni hisse ve taze ise.
 function extSignals(sym){
-  const code=bistCode(sym),d=lastDepth&&lastDepth.symbol===code&&Date.now()-lastDepth.at<DEPTH_FRESH?lastDepth:null,lv=d?liveView():null;
+  const code=bistCode(sym),d=depthLib.freshFor(depthBySym[code]||lastDepth,code,Date.now(),DEPTH_FRESH),lv=d?liveView(d):null;
   const depth=d?{pressure:d.pressure?d.pressure.score:null,flow:d.flow?d.flow.net:null,live:lv&&lv.dir||0}:null;
   const nc=newsCache[code],news=nc&&nc.data&&(nc.data.list||[]).filter(n=>!n.general&&Date.now()-new Date(n.ts).getTime()<3*86400000);
   return {depth,news:news&&news.length?news:null};
@@ -910,8 +910,8 @@ function pushDepthOverlay(){
 // Grafik ve derinlik ayni hisseye ait mi (grafikte kod yoksa eslesmez sayilir)
 const sameStock=(a,d)=>!!(a&&d&&a.symbol&&d.symbol&&bistCode(a.symbol)===bistCode(d.symbol));
 const DEPTH_FRESH=5*60*1000;   // bundan eski derinlik canli sinyale katilmaz
-function liveView(){
-  const d=lastDepth;if(!d||(d.at&&Date.now()-d.at>DEPTH_FRESH))return null;
+function liveView(d=lastDepth){
+  if(!depthLib.freshFor(d,d&&d.symbol,Date.now(),DEPTH_FRESH))return null;
   const a=lastResult&&lastResult.chart_found&&sameStock(lastResult,d)?lastResult:null;
   const why=[];let v=0;
   const tf=d.tape;if(tf&&tf.enough){v+=tf.score/40;why.push(...tf.why.slice(0,2))}

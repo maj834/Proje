@@ -180,6 +180,10 @@ function tapeFlow(tape){
   return {score,dir:enough?(score>=30?1:score<=-30?-1:0):0,enough,why,w5,w15,last,cvd,top:top?{name:top[0],net:top[1]}:null,lastTime:T[0].time,count:T.length};
 }
 
-const api={num,parseText,hasData,walls,pressure,trend,mergeTape,tapeFlow};
+// Aynı hisse, gecerli saat ve tazelik: gelecek/baska hisse/eski veri karara girmez.
+function freshFor(d,symbol,now=Date.now(),maxAge=300000){
+  return d&&d.symbol===symbol&&Number.isFinite(d.at)&&d.at<=now+30000&&now-d.at<=maxAge?d:null;
+}
+const api={freshFor,num,parseText,hasData,walls,pressure,trend,mergeTape,tapeFlow};
 if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.Depth=api;
 })(this);

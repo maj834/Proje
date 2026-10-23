@@ -525,7 +525,10 @@ function render(container,api,helpers){
   // ---- SOZLUK ----
   async function vSozluk(tok){
     if(!st.soz){const r=await call('sozluk',{});if(!live(tok))return;
-      if(!r.ok){R(body,errBox(r.error,()=>show('sozluk')));return}st.soz=r}
+      const local=typeof window!=='undefined'&&window.BPGlossary?window.BPGlossary:[];
+      if(!r.ok&&!local.length){R(body,errBox(r.error,()=>show('sozluk')));return}
+      const items=new Map(local.map(x=>[fold(x.terim),x]));for(const x of A(r.items))if(x&&x.terim)items.set(fold(x.terim),x);
+      st.soz={...r,ok:true,items:[...items.values()].sort((a,b)=>a.terim.localeCompare(b.terim,'tr'))}}
     const r=st.soz;
     const grid=el('div',{class:'ok-terms'}),cnt=el('span',{class:'mu'});
     const inp=el('input',{type:'search',placeholder:'Terim ara: takas, F/K, devre kesici…',value:st.sozQ,oninput:e=>{st.sozQ=e.target.value;clearTimeout(st.sozT);st.sozT=setTimeout(draw,120)}});
